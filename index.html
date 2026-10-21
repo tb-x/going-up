@@ -202,6 +202,11 @@ const TRAIN_OPEN_MIN = 2, TRAIN_OPEN_MAX = 6;  // train doors stay open at least
 const PARKED_AT_START = [1, 3];   // cars already parked when a level starts
 const CAR_DOOR_TIME = 0.6;        // a parked car's door stays open this long while someone gets out (s)
 const NIGHT_WEIGHTS = { night: { hotel: 3, restaurant: 3, office: 0.4 }, dusk: { restaurant: 2, hotel: 1.5 } };
+// door points (z) people walk to before fading through them; the art may override with floor handle fields
+const ROOM_DOOR_Z = -4.1;              // just in front of a back-wall room door (back wall at z = -ART.DEPTH = -4.5)
+const STAIR_DOOR_Z = -2.6;              // just in front of the stair door (stair column, door at z -2.95)
+const PARK_DOOR_Z = -2.3;               // between two parked cars, beside the driver's door
+const TRAIN_EDGE_Z = -0.15;             // platform edge in front of the train doors (the train runs at z > 0)
 const QUEUE_ROOM = 4.2;           // world width left of the lift core kept on screen for the queue
 const FIRST_ARRIVAL = 1.0;        // first person appears after this (s)
 const BOT_EVERY = 0.7;            // ?demo bot taps this often (s)
@@ -263,7 +268,8 @@ const KINDS = {
   courier:   { walk: 1.4, patience: 0.6, seats: 1, move: 'run' },
   dogwalker: { walk: 1.0, patience: 1.0, seats: 2, move: 'walk' },
 };
-const NUMBER_WORDS = ['One!', 'Two!', 'Three!', 'Four!', 'Five!', 'Six!', 'Seven!', 'Eight!', 'Nine!'];
+const NUMBER_WORDS = ['Zero!', 'One!', 'Two!', 'Three!', 'Four!', 'Five!', 'Six!', 'Seven!', 'Eight!', 'Nine!'];
+const MINUS_WORDS = ['', 'Minus one!', 'Minus two!', 'Minus three!'];
 const MOOD_FACES = ['😀', '🙂', '😐', '😠'];
 
 /* ======== art ======== */
@@ -483,7 +489,7 @@ function artSignTex(fi, mode) {   // mode: 'icon' | -1 | 0 | 1 (car arrow)
     if (fi != null) {
       const lab = artLabelOf(fi), icon = FLOOR_THEMES[fi].icon;
       const nx = mode === 'icon' ? 92 : arrow ? 168 : 128;
-      if (lab) artNumber(g, lab, nx, 56, 80, 8);
+      if (lab) artNumber(g, lab, nx, 56, 80, 8, mode === 'icon' ? 108 : arrow ? 150 : 200);
       else { g.font = `64px ${ART_EMOJI_FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(icon, nx, 60); }
       if (mode === 'icon') {
         g.fillStyle = '#ffffff'; g.beginPath(); g.arc(188, 56, 34, 0, 7); g.fill();
@@ -512,11 +518,13 @@ function makeBubbleTexture(floorIndex, stage = 0) {
     shape(0); g.fillStyle = ART_RING[stage]; g.fill(); g.restore();               // mood ring (outer band)
     shape(11); g.fillStyle = th.color; g.fill();
     g.strokeStyle = artMixHex(th.color, '#000000', 0.35); g.lineWidth = 4; shape(11); g.stroke();
-    if (lab) artNumber(g, lab, 98, 104, 150, 12);
+    const wide = lab.length > 1;                               // '-1', '-2', '10': number centred, icon tab in the top corner
+    if (lab) artNumber(g, lab, wide ? 118 : 98, wide ? 116 : 104, wide ? 124 : 150, 12, wide ? 172 : 150);
     else { g.font = `120px ${ART_EMOJI_FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(th.icon, 104, 112); }
-    g.fillStyle = '#ffffff'; g.beginPath(); g.arc(184, 148, 31, 0, 7); g.fill();
+    const ix = wide ? 202 : 184, iy = wide ? 40 : 148, ir = wide ? 27 : 31;
+    g.fillStyle = '#ffffff'; g.beginPath(); g.arc(ix, iy, ir, 0, 7); g.fill();
     g.strokeStyle = artMixHex(th.color, '#000000', 0.35); g.lineWidth = 3; g.stroke();
-    g.font = `38px ${ART_EMOJI_FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(th.icon, 184, 151);
+    g.font = `${wide ? 33 : 38}px ${ART_EMOJI_FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(th.icon, ix, iy + 3);
   });
 }
 /* Walls: neutral paint/stone/tile per room, theme colour is only an accent (added as props). */
@@ -577,8 +585,11 @@ function artRound(g, x, y, w, h, r) {
   g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
 }
 const ART_EMOJI_FONT = '"Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif';
-function artNumber(g, txt, x, y, px, stroke) {
-  g.font = `bold ${px}px Verdana, Tahoma, sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
+function artNumber(g, txt, x, y, px, stroke, maxW) {
+  txt = String(txt).replace(/-/g, '\u2212');                 // a real minus sign for basement labels (-1, -2)
+  g.font = `bold ${px}px Verdana, Tahoma, sans-serif`;
+  if (maxW) { const w = g.measureText(txt).width; if (w > maxW) { px = Math.floor(px * maxW / w); stroke = Math.max(4, stroke * maxW / w); g.font = `bold ${px}px Verdana, Tahoma, sans-serif`; } }
+  g.textAlign = 'center'; g.textBaseline = 'middle';
   g.lineJoin = 'round'; g.lineWidth = stroke; g.strokeStyle = '#2B2B3A'; g.strokeText(txt, x, y + px * 0.04);
   g.fillStyle = '#ffffff'; g.fillText(txt, x, y + px * 0.04);
 }
@@ -1022,14 +1033,15 @@ function buildBuilding(scene, layout) {
   if (typeof R2_buildUnderground === 'function') {
     const subI = layout.themes ? layout.themes.findIndex((t) => t.id === 'subway') : -1;
     const ug = R2_buildUnderground({ buildingX0: x0 - T, buildingX1: x1 + T, nBasement: nB, subwayY: subI >= 0 ? fY(subI) : null,
-      rng: artRng(5150 + nB), floorH: FH, slab: SL, depth: D, frontZ: 0, treeXs: [-9.0, 10.0, -17, 17.5, -25, 25.5] });
+      rng: artRng(5150 + nB), floorH: FH, slab: SL, depth: D, frontZ: 0, treeXs: [-9.0, 10.0, -17, 17.5, -25, 25.5].filter((tx) => tx < x0 - T - 2.6 || tx > x1 + T + 2.6) });
     group.add(ug.group); ticks.push((t, dt) => ug.update && ug.update(t, dt));
   }
   { const rb = new ArtBatch(), bot = yB - 2;                  // deep rock below the soil section
     rb.add(artPln(200, 60), conc, artXf(0, bot - 30, -0.02), '#6E6A64', [40, 12]); rb.flush(group, owned, false, false); }
   // ---- floors
-  const floors = [];
+  const floors = [], occ = artOccList = [];
   for (let i = 0; i < nFloors; i++) floors.push(artBuildFloor(i, layout, group, owned, ticks, SB));
+  artOccList = null;
   SB.flush(group, owned, false, true);
   // ---- shadow proxies: the tower shades the ground behind and beside it, never its own rooms
   const proxyMat = artMatC('proxy', () => new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false }));
@@ -1086,6 +1098,7 @@ function buildBuilding(scene, layout) {
     if (disposed) return; disposed = true; artLive.delete(live);
     if (group.parent) group.parent.remove(group);
     for (const g of owned) g.dispose();
+    for (const h of occ) h.dispose();
   } };
 }
 
@@ -1139,8 +1152,10 @@ function artBuildFloor(i, layout, parent, owned, ticks, SB) {
     if (rx1 - rx0 < 0.5) return;
     const doorX = basement ? null : (layout.roomDoorXs ? layout.roomDoorXs[wi] : (wi ? null : layout.roomDoorX));
     if (ART_R2_ROOMS.has(id) && typeof R2_buildRoom === 'function') {
-      const h = R2_buildRoom(id, wing, { x0: rx0, x1: rx1, y, depth: D, floorH: FH, slab: SL, backZ: -D, frontZ: 0, laneZ: ART.LANE_Z,
-        buildingX0: x0 - ART_WALL_T, buildingX1: layout.x1 + ART_WALL_T, coreX0: layout.coreX0, coreX1: layout.coreX1, doorX, rng: artRng(3000 + i * 31 + wi * 7 + id.length), dynamicCars: true });
+      const rctx = { x0: rx0, x1: rx1, y, depth: D, floorH: FH, slab: SL, backZ: -D, frontZ: 0, laneZ: ART.LANE_Z,
+        buildingX0: x0 - ART_WALL_T, buildingX1: layout.x1 + ART_WALL_T, coreX0: layout.coreX0, coreX1: layout.coreX1, doorX, rng: artRng(3000 + i * 31 + wi * 7 + id.length), dynamicCars: true };
+      const h = R2_buildRoom(id, wing, rctx);
+      for (const f of artR2Occupants(id, wing, rctx, fg, i * 10 + wi)) anims.push(f);
       if (h.bays) { (hooks._bays = hooks._bays || []).push(...h.bays); if (h.ramp) hooks._ramp = h.ramp; }
       if (h.train) { hooks.train = h.train; }
       fg.add(h.group); anims.push((t, dt) => h.update(t, dt));
@@ -1238,6 +1253,47 @@ function artParkingLife(bays, ramp, y, parent, owned) {
   };
   return { api, tick };
 }
+/* Occupants of the rooms2 rooms, placed next to the props R2 draws (same fitting rules as R2). */
+function artR2Occupants(id, wing, ctx, parent, sd) {
+  const W = ctx.x1 - ctx.x0, X = (u) => ctx.x0 + u, y = ctx.y, out = [], PI = Math.PI;
+  const add = (kind, seed, opts, pose, u, z, ry) => out.push(artOccupant(parent, kind, seed + sd * 17, opts, pose, X(u), y, z, ry));
+  if (id === 'office' && wing === 'L') {
+    const n = W > 6.2 ? 3 : 2, step = (W - 0.4) / n;
+    for (let k = 0; k < Math.min(n, 2); k++) { const u = R2_fit(ctx, 0.2 + step * k + (step - 1.5) / 2, 1.5, W); if (u != null) add('adult', 11 + k, { look: k ? 'suit' : 'casual' }, 'type', u + 0.75, -3.05, PI); }
+  } else if (id === 'office') {
+    const d = R2_doorClear(ctx); let a = 0.15, b = W - 0.15;
+    if (d) { if (d[0] - 0.15 > W - 0.15 - d[1]) b = d[0] - 0.05; else a = d[1] + 0.05; }
+    const mw = Math.min(b - a, 4.6), m0 = a + (b === W - 0.15 ? 0 : (b - a - mw)), cu = m0 + mw / 2, tw = Math.min(2.4, mw - 1.2);
+    add('adult', 21, { look: 'suit' }, 'talk', cu - tw / 2 - 0.35, -3.05, PI / 2);
+    add('adult', 22, { look: 'dress' }, 'talk', cu + tw / 2 + 0.35, -3.05, -PI / 2);
+    add('adult', 23, { look: 'casual' }, 'phone', m0 > W / 2 ? 0.7 : W - 0.7, -2.1, 0);
+  } else if (id === 'hotel' && wing === 'R') {
+    const c0 = Math.min(3.4, W * 0.5) + 0.1, cu = R2_fit(ctx, (c0 + W) / 2 - 0.55, 1.1, W);
+    if (cu != null) add('adult', 31, { look: 'dress', top: '#5B7A99' }, 'push', cu + 0.55 - 0.85, -2.25, PI / 2);
+  } else if (id === 'restaurant' && wing === 'L') {
+    add('adult', 41, { look: 'suit', top: '#2E3236' }, 'carry', W * 0.5, -1.55, PI / 2);
+  } else if (id === 'restaurant') {
+    const ru = R2_fit(ctx, W * 0.42 - 0.6, 1.2, W) ?? 0.2;
+    add('adult', 42, { look: 'chef' }, 'cook', ru + 0.6, -3.45, PI);
+  } else if (id === 'subway' && wing === 'L') {
+    add('adult', 51, { look: 'worker' }, 'talk', W * 0.42, -2.9, 0);
+  }
+  return out;
+}
+/* Occupants of the classic rooms, in the old single-wing u coordinates (mapped and mirrored by X). */
+function artWingOccupants(id, wing, X, y, parent, sd) {
+  const out = [], PI = Math.PI, R = wing === 'R';
+  const face = (fx, fz, tx, tz) => Math.atan2(X(tx) - X(fx), tz - fz);       // rotation.y that looks from f to t
+  const add = (kind, seed, opts, pose, u, z, ry, yy = 0) => out.push(artOccupant(parent, kind, seed + sd * 17, opts, pose, X(u), y + yy, z, ry));
+  if (id === 'lobby') { if (!R) add('adult', 61, { look: 'suit', top: '#3E4B5E' }, 'talk', 5.0, -4.28, 0); else add('grandma', 62, null, 'read', 3.35, -3.98, 0); }
+  else if (id === 'cafe') { if (!R) add('adult', 63, { look: 'casual', top: '#3E4B5E' }, 'cook', 5.62, -4.3, 0); add(R ? 'kid' : 'adult', 64, null, 'read', 2.55, -3.4, face(2.55, -3.4, 3.15, -3.4)); }
+  else if (id === 'library') { if (!R) { add('adult', 65, null, 'read', 3.05, -3.5, 0); add('adult', 66, { look: 'casual', top: '#6F8A5E' }, 'look', 4.6, -3.72, PI); } else add('kid', 67, null, 'look', 3.75, -3.85, PI); }
+  else if (id === 'play') { if (!R) { add('adult', 68, { look: 'dress', top: '#C9A46A' }, 'wave', 2.9, -3.05, 0); add('kid', 69, null, 'play', 5.3, -3.4, 0, 0.05); } else add('kid', 70, null, 'play', 4.1, -2.65, 0); }
+  else if (id === 'pool') { add('kid', 71, { look: 'casual' }, 'swim', 4.4, -3.35, PI / 2, -0.25); if (!R) add('adult', 72, { look: 'casual', top: '#C8322A' }, 'guard', 2.95, -2.55, 0); }
+  else if (id === 'garden') { add('adult', 73 + (R ? 1 : 0), { look: 'casual', top: '#6F8A5E' }, 'water', R ? 5.5 : 4.0, -3.5, PI); }
+  else if (id === 'stars') { if (!R) add('adult', 75, { look: 'casual', top: '#3E4B5E' }, 'look', 4.2, -3.6, face(4.2, -3.6, 3.75, -3.8)); else add('kid', 76, null, 'wave', 4.4, -2.9, 0); }
+  return out;
+}
 /* back-wall door of a wing room: dark opening, thin wood frame, wood leaf with vision panel, floor plaque above */
 function artRoomDoor(i, dx, y, S, fg, owned) {
   const D = ART.DEPTH, wood = artWood(), shiny = artShiny(), clay = artClay(), th = artTheme(i);
@@ -1299,6 +1355,7 @@ function artWing(id, i, wing, rx0, rx1, y, doorX, fg, owned, anims, S) {
     if (doorX == null || Math.abs(px - doorX) > 0.9) { B.add(artBox(0.5, 0.62, 0.03), clay, artXf(px, y + 1.75, -D + 0.02), '#3B3027'); B.add(artBox(0.4, 0.52, 0.01), clay, artXf(px, y + 1.75, -D + 0.036), '#EFEAE0'); B.add(artBox(0.3, 0.2, 0.012), clay, artXf(px, y + 1.68, -D + 0.04), pc); } }
   const props = artThemeProps(id, { P, B, X, y, r, fg, owned, accent, clay, shiny, glow, glass, wing });
   for (const a of props) anims.push(a);
+  for (const f of artWingOccupants(id, wing, X, y, fg, i * 10 + (wing === 'R' ? 1 : 0))) anims.push(f);
   B.flush(fg, owned, true, true);
 }
 /* Theme props for one wing (classic rooms). Static parts go into the wing batch; animated parts return ticks. */
@@ -1469,7 +1526,7 @@ function artCapTex(target, dir, used, cap, mode) {   // mode: 'ok' | 'flash'
     } else if (target != null) {
       g.fillStyle = FLOOR_THEMES[target].color; artRound(g, 14, 22, 112, 140, 18); g.fill();
       const lab = artLabelOf(target);
-      if (lab) artNumber(g, lab, 70, dir ? 108 : 92, 84, 9); else { g.font = `64px ${ART_EMOJI_FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(FLOOR_THEMES[target].icon, 70, 100); }
+      if (lab) artNumber(g, lab, 70, dir ? 108 : 92, 84, 9, 98); else { g.font = `64px ${ART_EMOJI_FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(FLOOR_THEMES[target].icon, 70, 100); }
       if (dir) { g.fillStyle = '#FFE08A'; g.beginPath(); if (dir > 0) { g.moveTo(70, 28); g.lineTo(46, 56); g.lineTo(94, 56); } else { g.moveTo(70, 158); g.lineTo(46, 130); g.lineTo(94, 130); } g.closePath(); g.fill(); }
     } else { g.fillStyle = '#3A3E44'; artRound(g, 14, 22, 112, 140, 18); g.fill(); }
     // pictograms
@@ -1591,7 +1648,7 @@ const ART_BODY = {
   grandma: { hip: 0.54, legR: 0.08,  tor: 0.22, torLen: 0.24, head: 0.25, arm: 0.48, armR: 0.065 },
 };
 const ART_STEAM_MAT = () => artMatC('steam', () => new THREE.MeshStandardMaterial({ color: '#FFFFFF', roughness: 1, transparent: true, opacity: 0.85, depthWrite: false }));
-function buildPerson(kind, seed) {
+function buildPerson(kind, seed, opts) {
   const r = artRng((seed | 0) * 7919 + 101);
   const dims = ART_BODY[kind === 'kid' ? 'kid' : kind === 'grandma' ? 'grandma' : 'adult'];
   const { hip, legR, tor, torLen, head: hr, arm, armR } = dims;
@@ -1603,12 +1660,14 @@ function buildPerson(kind, seed) {
   else if (kind === 'grandma') { look = r() < 0.6 ? 'grandma' : 'grandpa'; hair = artPick(r, ['#D9D9D9', '#E8E8E8', '#C8C8C8']); style = look === 'grandma' ? 'bun' : 'bald'; }
   else if (kind === 'courier') { look = 'courier'; top = '#E04A3C'; hat = 'cap'; }
   else if (kind === 'dogwalker') look = 'walker';
+  if (opts && opts.look) look = opts.look;
   if (look === 'worker') { hat = 'hard'; top = '#FF8A1F'; pants = '#3B4A6B'; }
   if (look === 'chef') { hat = 'toque'; top = '#F7F7F7'; pants = '#3A3A48'; }
   if (look === 'doctor') { top = '#F7F7F7'; }
   if (look === 'suit') { top = artPick(r, ['#3B4A6B', '#55657F', '#6FA8FF']); style = artPick(r, ['cap', 'curly']); }
   if (look === 'grandpa') hat = r() < 0.5 ? 'flat' : null;
   if (look === 'balloon' || (kind === 'kid' && r() < 0.3)) { if (!hat && r() < 0.4) hat = 'kidcap'; }
+  if (opts && opts.top) top = opts.top;
   const sleeve = look === 'worker' ? '#3B4A6B' : look === 'doctor' ? '#F7F7F7' : top;
   const dress = look === 'dress' || look === 'grandma';
   const torH = torLen + tor * 2, torC = hip + torH / 2 - 0.06, torTop = torC + torH / 2, shY = torTop - tor * 0.85;
@@ -1797,7 +1856,47 @@ function buildPerson(kind, seed) {
   } };
   artLive.add(live);
   h.setAnim('idle', 0);
+  h._p = { rig, legs, arms, headG, face, steam, bubble, torso, headMesh, bodyMat, hip };   // for artOccupant (not game API)
   return h;
+}
+
+/* Room occupants (not game people): a person builder figure with its body frozen into one mesh (legs, torso and
+   head merged; arms stay animated), at a fixed spot doing its job. Per figure: body, face, 2 arms, contact shadow. */
+let artOccList = null;                                       // occupants of the building being built (disposed with it)
+function artOccupant(parent, kind, seed, opts, pose, x, y, z, ry) {
+  const h = buildPerson(kind, seed, opts), p = h._p, sit = pose === 'type' || pose === 'read' || pose === 'sit';
+  if (sit) for (const l of p.legs) l.rotation.x = -1.45;
+  p.rig.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(p.rig.matrixWorld).invert(), geos = [];
+  const take = (m) => { if (!m || !m.isMesh) return; const g = m.geometry.clone(); g.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, m.matrixWorld)); geos.push(g); m.parent.remove(m); };
+  for (const l of p.legs) [...l.children].forEach(take);
+  take(p.torso); take(p.headMesh);
+  const body = new THREE.Mesh(mergeGeometries(geos, false), p.bodyMat); body.castShadow = true; p.rig.add(body);
+  geos.forEach((g) => g.dispose()); p.steam.parent && p.steam.parent.remove(p.steam);
+  if (sit) p.rig.position.y = -(p.hip - 0.47);
+  h.group.position.set(x, y, z); h.group.rotation.y = ry || 0; parent.add(h.group);
+  const [aL, aR] = p.arms, base = h.group.position.clone(), ph = (seed % 7) * 0.9;
+  const tick = (t) => {
+    t += ph; const s = Math.sin;
+    aL.rotation.set(0, 0, 0.1); aR.rotation.set(0, 0, -0.1);
+    if (pose === 'type') { aL.rotation.set(-1.3 + 0.07 * s(t * 19), 0, 0.28); aR.rotation.set(-1.3 + 0.07 * s(t * 17 + 1.7), 0, -0.28); }
+    else if (pose === 'read') { aL.rotation.set(-1.05, 0, 0.42); aR.rotation.set(-1.05 + 0.04 * s(t * 0.8), 0, -0.42); }
+    else if (pose === 'phone') { aR.rotation.set(-0.35, 0, 2.55); aL.rotation.set(-0.3 * Math.max(0, s(t * 1.3)), 0, 0.12); h.group.rotation.y = (ry || 0) + 0.25 * s(t * 0.5); }
+    else if (pose === 'talk') { aL.rotation.set(-0.45 - 0.4 * Math.max(0, s(t * 2.4)), 0, 0.18); aR.rotation.set(-0.35 - 0.35 * Math.max(0, s(t * 2.4 + 2.1)), 0, -0.18); }
+    else if (pose === 'cook') { aL.rotation.set(-1.0, 0, 0.22); aR.rotation.set(-1.15 + 0.18 * s(t * 5), 0, -0.25 + 0.28 * s(t * 5 + 1.2)); }
+    else if (pose === 'water') { aR.rotation.set(-0.95 + 0.12 * s(t * 1.4), 0, -0.12); h.group.position.x = base.x + 0.5 * s(t * 0.25); }
+    else if (pose === 'swim') { aL.rotation.set(-(t * 3.4) % 6.283, 0, 0.25); aR.rotation.set(-(t * 3.4 + 3.14) % 6.283, 0, -0.25); h.group.position.x = base.x + 0.9 * s(t * 0.3); h.group.rotation.y = Math.cos(t * 0.3) > 0 ? Math.PI / 2 : -Math.PI / 2; }
+    else if (pose === 'push') { aL.rotation.set(-1.2, 0, 0.12); aR.rotation.set(-1.2, 0, -0.12); }
+    else if (pose === 'carry') { aL.rotation.set(-1.25, 0, 0.1); aR.rotation.set(-1.25, 0, -0.1); const k = s(t * 0.35); h.group.position.x = base.x + 1.3 * k; h.group.rotation.y = Math.cos(t * 0.35) > 0 ? Math.PI / 2 : -Math.PI / 2; p.rig.position.y = Math.abs(s(t * 7)) * 0.025; }
+    else if (pose === 'look') { aL.rotation.set(-0.95, 0, 0.3); aR.rotation.set(-1.1, 0, -0.2); }
+    else if (pose === 'wave') { aR.rotation.set(0, 0, 2.45 + 0.35 * s(t * 6)); }
+    else if (pose === 'play') { const hop = Math.abs(s(t * 4.2)); p.rig.position.y = hop * 0.16; aL.rotation.set(0, 0, -2.3 + 0.4 * s(t * 8)); aR.rotation.set(0, 0, 2.3 - 0.4 * s(t * 8)); }
+    else if (pose === 'guard') { const w = s(t * 0.6) > 0.85; aR.rotation.set(0, 0, w ? 2.5 + 0.3 * s(t * 7) : -0.1); aL.rotation.set(w ? 0 : -1.0, 0, w ? 0.1 : 0.9); }
+    else { aL.rotation.set(0.05 * s(t), 0, 0.1); aR.rotation.set(-0.05 * s(t), 0, -0.1); }
+  };
+  tick(0);
+  if (artOccList) artOccList.push(h);
+  return tick;
 }
 /* ======== art: time of day ======== */
 // artSetTime('day' | 'dusk' | 'night'): sky, sun/moon, fill, fog, lit windows, lamps; no rebuild. Bubbles, glow
@@ -2768,12 +2867,12 @@ function computeLayout(level, nShaftsOld) {
     laneZ: ART.LANE_Z, carZ: ART.CAR_Z,
     coreX0, coreX1, wingL: [x0, coreX0], wingR: [coreX1, x1], roomL: [x0 + STW, coreX0], roomR: [coreX1, x1],
     nBasement, groundIndex: nBasement, themes, ids,
-    labels: themes.map((t, i) => t.basement ? '' : String(i - nBasement + 1)),
+    labels: themes.map((_, i) => String(i - nBasement)),   // lobby '0', above '1', '2'…, below '-1', '-2'
     bottomY: -nBasement * FH, topY: (nFloors - nBasement) * FH, streetX: x0 + 0.3 };
 }
 const fy = (f) => G.layout.floorY[f];                                              // floor index -> y
 const yToFloor = (y) => clamp(Math.round(y / ART.FLOOR_H) + G.layout.nBasement, 0, G.layout.nFloors - 1);
-function floorWord(f) { const l = G.layout.labels[f]; return l ? NUMBER_WORDS[+l - 1] || l : G.layout.themes[f].name + '!'; }
+function floorWord(f) { const n = +G.layout.labels[f]; return (n < 0 ? MINUS_WORDS[-n] : NUMBER_WORDS[n]) || String(n) + '!'; }
 
 /* ======== renderer & camera ======== */
 const canvas = document.getElementById('c');
@@ -2926,7 +3025,7 @@ function pickKind() {
 }
 
 // from: 'street' | 'room' | 'parking' | 'subway' (where on the floor they appear)
-function spawnPerson(origin, dest, kind, from, startX) {
+function spawnPerson(origin, dest, kind, from, startX, startZ) {
   if (G.people.length >= MAX_PEOPLE || origin === dest) return null;
   const q = G.floors[origin].queue;
   if (q.length + G.people.filter((o) => o.state === 'approach' && o.floor === origin).length >= QUEUE_MAX) return null;
@@ -2937,11 +3036,14 @@ function spawnPerson(origin, dest, kind, from, startX) {
   from = from || 'room';
   const st = from === 'street' && startX == null ? streetH() : null;
   const x = st ? (rng() < 0.5 ? st.leftX : st.rightX) : startX ?? (from === 'street' ? L.streetX : L.roomDoorXs[rint(2)]);
-  const p = { id: G.nextId++, kind, seed, floor: origin, dest, x, z: st ? st.walkZ : L.laneZ, rot: Math.PI / 2, state: 'arriving', from,
+  const fromDoor = !st && from === 'room' && startX == null && !L.themes[origin].basement;
+  const z0 = st ? st.walkZ : fromDoor ? doorZ(origin, 'roomDoorZ', ROOM_DOOR_Z) : startZ ?? L.laneZ;
+  const p = { id: G.nextId++, kind, seed, floor: origin, dest, x, z: z0, rot: Math.PI / 2, state: 'arriving', from,
     waited: 0, stage: 0, seats: K.seats, carIdx: -1, spots: [], patience: G.level.patience * K.patience, speed: WALK_SPEED * K.walk,
     move: K.move, art, alpha: 0, fade: 1, anim: 'walk', animT: 0, shakeT: 0, phase: 0, timer: 0, shownAlpha: -1, exitX: L.roomDoorX };
   art.setBubble(dest); art.setMood(0, 0); art.setOpacity(0);
   if (st) { p.state = 'approach'; p.path = [[st.entranceX, st.walkZ], [st.entranceX, L.laneZ]]; G.debugLife.streetIn++; }
+  else if (Math.abs(z0 - L.laneZ) > 0.01) { p.state = 'approach'; p.path = [[x, L.laneZ]]; }   // out of a door, then to the lane
   else q.push(p);
   G.people.push(p);
   if (from === 'room') G.floors[origin].roomHold = 0.7;
@@ -3019,6 +3121,7 @@ function updateTrains(dt) {
 /* ---- building life: art hooks (all optional) ---- */
 const num = (v, d) => (Number.isFinite(+v) && +v >= 0 ? +v : d);
 function later(sec, fn) { G.later.push({ t: sec, fn }); }
+function doorZ(f, key, d) { const v = building?.floors[f]?.[key]; return Number.isFinite(v) ? v : d; }
 function streetH() {
   const s = building?.street;
   return s && [s.leftX, s.rightX, s.entranceX, s.walkZ].every(Number.isFinite) ? s : null;
@@ -3070,7 +3173,7 @@ function parkArrival(o, d) {
     G.bays[b].reserved = false;
     if (G.phase !== 'play') return;
     h.carDoor?.(b, 1);
-    if (spawnPerson(o, d, null, 'parking', h.bays[b].doorX)) G.debugLife.carAlight++;
+    if (spawnPerson(o, d, null, 'parking', h.bays[b].doorX, doorZ(o, 'carDoorZ', PARK_DOOR_Z))) G.debugLife.carAlight++;
     later(CAR_DOOR_TIME, () => h.carDoor?.(b, 0));
   });
   return true;
@@ -3092,7 +3195,7 @@ function planDeparture(p) {
       const free = G.bays.map((b, i) => i).filter((i) => !G.bays[i].car && !G.bays[i].reserved && !G.bays[i].coming);
       if (free.length) { best = free[rint(free.length)]; callCar(ph, best); }
     }
-    if (best >= 0) { G.bays[best].reserved = true; p.bay = best; p.path = [[ph.bays[best].doorX, L.laneZ]]; p.end = 'car'; return; }
+    if (best >= 0) { G.bays[best].reserved = true; p.bay = best; const bx = ph.bays[best].doorX; p.path = [[bx, L.laneZ], [bx, doorZ(p.floor, 'carDoorZ', PARK_DOOR_Z)]]; p.end = 'car'; return; }
   }
   const th = id === 'subway' ? trainH() : null;
   if (th) {
@@ -3101,13 +3204,18 @@ function planDeparture(p) {
     const x = xs.find((v) => !used.includes(v)) ?? xs[rint(xs.length)];
     p.platX = x; p.path = [[x, L.laneZ]]; p.end = 'platform'; return;
   }
-  const x = p.floor === L.groundIndex && rng() < 0.6 ? L.streetX : L.themes[p.floor].basement ? wingX() : L.roomDoorXs[rint(2)];
-  p.roomDoor = x === L.roomDoorX; p.path = [[x, L.laneZ + 0.35]];
+  if (p.floor !== L.groundIndex && !L.themes[p.floor].basement) {   // into a room: along the lane, then through its door
+    const x = L.roomDoorXs[rint(2)];
+    p.roomDoor = true; p.path = [[x, L.laneZ], [x, doorZ(p.floor, 'roomDoorZ', ROOM_DOOR_Z)]]; return;
+  }
+  // old art without street / parking / train hooks: out through the lobby entrance, or into a basement wing
+  const x = p.floor === L.groundIndex ? L.streetX : wingX();
+  p.path = [[x, L.laneZ]];
 }
-function followPath(p, dt) {
+function followPath(p, dt, anim) {
   while (p.path && p.path.length) {
     const [x, z] = p.path[0];
-    if (!walkTo(p, x, z, dt)) return false;
+    if (!walkTo(p, x, z, dt, anim)) return false;
     p.path.shift();
   }
   return true;
@@ -3133,7 +3241,7 @@ function updateTrainCycle(dt) {
         T.phase = 'open'; T.t = TRAIN_OPEN_MAX; T.min = TRAIN_OPEN_MIN;
         if (G.phase === 'play') {
           const n = TRAIN_GROUP[0] + rint(TRAIN_GROUP[1] - TRAIN_GROUP[0] + 1);
-          for (let k = 0; k < n; k++) if (spawnPerson(sub, upper(), null, 'subway', tr.doorXs[k % tr.doorXs.length] + (k >= tr.doorXs.length ? 0.4 : 0))) G.debugLife.trainAlight++;
+          for (let k = 0; k < n; k++) if (spawnPerson(sub, upper(), null, 'subway', tr.doorXs[k % tr.doorXs.length] + (k >= tr.doorXs.length ? 0.4 : 0), doorZ(sub, 'trainEdgeZ', TRAIN_EDGE_Z))) G.debugLife.trainAlight++;
         }
       }
       break;
@@ -3165,7 +3273,7 @@ function moodStage(m) { let s = 0; while (s < MOOD_T.length && m >= MOOD_T[s]) s
 
 function startLeaving(p) {
   const q = G.floors[p.floor].queue; const i = q.indexOf(p); if (i >= 0) q.splice(i, 1);
-  p.state = 'leavingStairs'; p.art.setBubble(null); p.speed = WALK_SPEED * 1.15;
+  p.state = 'leavingStairs'; p.path = null; p.art.setBubble(null); p.speed = WALK_SPEED * 1.15;
   G.leftStairs++; updateStairs(true); sfx('stomp');
 }
 
@@ -3246,7 +3354,7 @@ function updatePerson(p, dt) {
       else if (p.end === 'car') {
         const ph = parkH(), bay = G.bays[p.bay];
         if (!ph || !bay) { p.end = 'fade'; break; }
-        if (!bay.car) { p.rot = 0; break; }             // the car is still on its way: wait by the bay, happy
+        if (!bay.car) { p.rot = Math.PI; break; }       // the car is still on its way: wait by the bay, happy
         if (p.fade !== 0) { ph.carDoor?.(p.bay, 1); p.fade = 0; }
         if (p.alpha <= 0) {
           const b = p.bay; ph.carDoor?.(b, 0); later(0.3, () => { ph.carOut(b); });
@@ -3268,12 +3376,13 @@ function updatePerson(p, dt) {
       const th = trainH();
       if (G.train.phase === 'open' && th) {
         let dx = th.train.doorXs[0]; for (const x of th.train.doorXs) if (Math.abs(x - p.x) < Math.abs(dx - p.x)) dx = x;
-        p.state = 'leaving'; p.end = 'train'; p.path = [[dx, L.laneZ]];
+        p.state = 'leaving'; p.end = 'train'; p.path = [[dx, L.laneZ], [dx, doorZ(p.floor, 'trainEdgeZ', TRAIN_EDGE_Z)]];
       }
       break;
     }
     case 'leavingStairs':
-      if (walkTo(p, L.stairX, L.laneZ + 0.35, dt, 'stomp')) { fl.stairHold = 0.6; p.fade = 0; setAnim(p, 'idle'); if (p.alpha <= 0) removePerson(p); }
+      if (!p.path) p.path = [[L.stairX, L.laneZ], [L.stairX, doorZ(p.floor, 'stairDoorZ', STAIR_DOOR_Z)]];
+      if (followPath(p, dt, 'stomp')) { fl.stairHold = 0.6; p.fade = 0; setAnim(p, 'idle'); if (p.alpha <= 0) removePerson(p); }
       break;
   }
 }

@@ -4,8 +4,8 @@ A lift game for young kids. The front of a tall city building has been cut away 
 lifts run up the middle, with rooms on both sides (offices, a hotel, a café, a restaurant, a pool, a playroom, a
 library, a roof garden or an observatory), and under the street an underground car park and a subway station.
 People walk in from the street, get out of their cars, step off subway trains or come out of the rooms, wait by the
-lifts and show a bubble with the floor they want (its colour, a little picture and a big number; the car park and
-the subway have no number, just a big 🚗 or 🚇). Tap a floor to send a lift there. Get everyone where they're going before they get
+lifts and show a bubble with the floor they want (its colour, a little picture and a big number). Floors are numbered
+like a real lift: the lobby at street level is 0, the floors above are 1, 2, 3…, and the ones underground are -1, -2. Tap a floor to send a lift there. Get everyone where they're going before they get
 cross and stomp off down the stairs.
 
 Play it at <https://tb-x.github.io/going-up/> (once published).
@@ -23,10 +23,11 @@ Play it at <https://tb-x.github.io/going-up/> (once published).
   took the stairs, two if one or two did, otherwise one. There's no losing and no timer.
 - Ten levels, each with its own floors: levels 1-2 have a lobby, café, offices (and a playroom); level 3 adds the
   car park under the street, level 6 the subway, where a train pulls in every 20-30 seconds and a few people get
-  off at once. The lobby is floor 1. Later levels add a second and third lift, slow grandmas, impatient pizza
+  off at once. The lobby is floor 0, the car park -1 and the subway -2. Later levels add a second and third lift, slow grandmas, impatient pizza
   couriers, dog walkers (the dog takes a seat too), a morning rush at the lobby and a lunch rush to the restaurant.
 - Lots of people want the offices and the hotel; people heading home often want the car park or the subway.
-- Every trip is shown: people stroll in along the pavement and through the lobby door, drive into the car park and
+- People only come and go through real openings: the lobby entrance, room doors, the stair door, car doors and
+  train doors. Every trip is shown: people stroll in along the pavement and through the lobby door, drive into the car park and
   climb out of their car, or step off a subway train. After the lift they walk on: out to the street, into a room,
   back to a parked car that then drives away, or to the platform to wait for the next train (which comes sooner when
   someone is waiting). Only waiting for a lift makes people cross; walking, driving and waiting for a train don't.
