@@ -1,0 +1,2211 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Going Up!</title>
+<meta name="theme-color" content="#5bb8f0">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Going Up">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" crossorigin="anonymous" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@600;700&display=swap">
+<script>
+  // errors are kept for the headless checks (read with --dump-dom: <html data-err="...">)
+  window.__errors = [];
+  addEventListener('error', (e) => { __errors.push(String(e.message)); document.documentElement.dataset.err = __errors.join(' | '); });
+  addEventListener('unhandledrejection', (e) => { __errors.push('promise: ' + String(e.reason)); document.documentElement.dataset.err = __errors.join(' | '); });
+</script>
+<style>
+  /* Layout: full-screen 3D cut-away skyscraper; HUD is a 56px top bar (portrait) or two slim side columns (wide screens); level map and win card are overlays */
+  :root{
+    --cream:#FFF6E5; --lip:#E3CFA8; --ink:#2B2B3A; --gold:#FFC93C; --gold-edge:#E59A00; --green:#35C24A; --sky:#7EC8F2;
+    --title:'Fredoka','Baloo 2','Trebuchet MS',system-ui,sans-serif; --digits:Verdana,Tahoma,sans-serif;
+    --st:env(safe-area-inset-top,0px); --sr:env(safe-area-inset-right,0px); --sb:env(safe-area-inset-bottom,0px); --sl:env(safe-area-inset-left,0px);
+    color-scheme: light;
+  }
+  *{box-sizing:border-box}
+  [hidden]{display:none!important}
+  html,body{height:100%;margin:0;overflow:hidden;background:var(--sky);font-family:var(--title);color:var(--ink);
+    touch-action:none;overscroll-behavior:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
+  #c{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+  #safe{position:fixed;visibility:hidden;pointer-events:none;padding:var(--st) var(--sr) var(--sb) var(--sl)}
+  button{font:inherit;color:inherit;border:0;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+  .btn{background:var(--cream);box-shadow:0 4px 0 var(--lip),0 6px 10px rgba(0,0,0,.15);border-radius:50%;display:grid;place-items:center}
+  .btn:active{transform:translateY(3px);box-shadow:0 1px 0 var(--lip)}
+
+  /* ---------- home + HUD ---------- */
+  #home{position:fixed;top:calc(6px + var(--st));left:calc(10px + var(--sl));z-index:50;
+    width:44px;height:44px;border-radius:50%;display:grid;place-items:center;color:#2a2140;background:rgba(255,255,255,.85);
+    box-shadow:0 3px 0 rgba(0,0,0,.18);touch-action:manipulation;-webkit-tap-highlight-color:transparent;text-decoration:none}
+  #home svg{width:24px;height:24px}
+  #home:active{transform:translateY(2px);box-shadow:0 1px 0 rgba(0,0,0,.18)}
+  #hud{position:fixed;z-index:20;display:flex;align-items:center;justify-content:center;gap:8px;pointer-events:none;
+    top:calc(6px + var(--st));left:calc(64px + var(--sl));right:calc(114px + var(--sr));height:44px}
+  #prog{display:flex;align-items:center;justify-content:center;gap:2px;min-width:0}
+  #progIcons{display:flex;gap:2px;padding:4px 8px;border-radius:14px;background:rgba(255,255,255,.7)}
+  .pi{width:14px;height:19px;color:rgba(43,43,58,.25);transition:color .2s}
+  .pi svg{width:100%;height:100%;fill:currentColor;display:block}
+  .pi.on{color:var(--green);animation:pop .35s ease-out}
+  #progBar{position:relative;width:min(100%,220px);min-width:90px;height:28px;border-radius:14px;background:rgba(255,255,255,.75);
+    box-shadow:inset 0 0 0 3px #fff;overflow:hidden}
+  #progFill{position:absolute;left:0;top:0;bottom:0;width:calc(var(--p,0) * 100%);background:var(--green);transition:width .3s,height .3s}
+  #progText{position:relative;display:block;text-align:center;font:bold 15px/28px var(--digits);color:var(--ink)}
+  #stairs{display:flex;align-items:center;gap:2px;padding:2px 8px;border-radius:14px;background:rgba(255,255,255,.75);
+    font:bold 15px/24px var(--digits);white-space:nowrap}
+  #stairs.bump{animation:pop .4s ease-out}
+  #hudR{position:fixed;z-index:46;top:calc(6px + var(--st));right:calc(10px + var(--sr));display:flex;gap:10px}
+  #hudR .btn{width:44px;height:44px;font-size:22px}
+  body.side #hud{top:calc(62px + var(--st));left:calc(10px + var(--sl));right:auto;bottom:calc(10px + var(--sb));width:44px;height:auto;
+    flex-direction:column;justify-content:flex-start}
+  body.side #progBar{width:44px;min-width:0;height:min(55vh,220px)}
+  body.side #progFill{top:auto;right:0;width:auto;height:calc(var(--p,0) * 100%)}
+  body.side #progText{font-size:11px;line-height:14px;padding-top:5px;letter-spacing:-.5px}
+  body.side #stairs{flex-direction:column;padding:4px 2px;font-size:13px;line-height:16px}
+  body.side #hudR{flex-direction:column}
+
+  /* ---------- feedback: ripple, hint hand, edge arrows ---------- */
+  #fx{position:fixed;inset:0;pointer-events:none;z-index:15;overflow:hidden}
+  .ripple{position:absolute;width:24px;height:24px;margin:-12px 0 0 -12px;border:4px solid #fff;border-radius:50%;
+    animation:rip .5s ease-out forwards;box-shadow:0 0 6px rgba(0,0,0,.25)}
+  @keyframes rip{to{transform:scale(4);opacity:0}}
+  #hand{position:fixed;z-index:16;font-size:54px;line-height:1;pointer-events:none;margin:0 0 0 -18px;
+    filter:drop-shadow(0 3px 3px rgba(0,0,0,.35));animation:hand 1s ease-in-out infinite}
+  @keyframes hand{50%{transform:translateY(12px) scale(1.12)}}
+  .edge{position:fixed;z-index:18;width:64px;height:52px;margin-left:-32px;border-radius:26px;font-size:24px;display:flex;
+    align-items:center;justify-content:center;gap:0;background:rgba(255,255,255,.88);box-shadow:0 4px 0 var(--lip)}
+  .edge b{font-size:14px;color:var(--ink)}
+  .edge.angry{animation:pulse .6s ease-in-out infinite;background:#FFD2CC}
+  @keyframes pulse{50%{transform:scale(1.15)}}
+  @keyframes pop{0%{transform:scale(1)}50%{transform:scale(1.45)}100%{transform:scale(1)}}
+
+  /* ---------- level map ---------- */
+  #map{position:fixed;inset:0;z-index:40;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;
+    padding:calc(60px + var(--st)) calc(12px + var(--sr)) calc(12px + var(--sb)) calc(12px + var(--sl));
+    background:linear-gradient(rgba(126,200,242,.55),rgba(255,231,199,.6))}
+  #map h1{margin:0;font-family:var(--title);font-weight:700;font-size:clamp(40px,11vmin,72px);color:#fff;letter-spacing:1px;
+    text-shadow:0 4px 0 #2f6fe0,0 6px 14px rgba(0,0,0,.25);-webkit-text-stroke:2px #2f6fe0}
+  #mapLeft{display:flex;flex-direction:column;align-items:center;gap:14px}
+  #play{width:clamp(96px,24vmin,130px);height:clamp(96px,24vmin,130px);background:var(--green);box-shadow:0 7px 0 #24852f,0 0 0 8px rgba(255,255,255,.6);
+    animation:pulse 1.3s ease-in-out infinite}
+  #play svg{width:46%;height:46%;margin-left:8%}
+  #levels{display:grid;grid-template-columns:repeat(2,var(--lb));grid-template-rows:repeat(5,var(--lb));gap:10px;padding:12px;
+    border-radius:18px;background:rgba(242,168,139,.85);box-shadow:0 0 0 5px #fff6e5;
+    --lb:clamp(48px,min(72px,calc((100vh - 360px) / 5 - 10px)),72px)}
+  .lv{width:var(--lb);height:var(--lb);border-radius:14px;background:var(--cream);box-shadow:0 4px 0 var(--lip);display:flex;flex-direction:column;
+    align-items:center;justify-content:center;font:bold calc(var(--lb) * .36)/1 var(--digits);color:var(--ink)}
+  .lv:active{transform:translateY(3px);box-shadow:0 1px 0 var(--lip)}
+  .lv small{font-size:calc(var(--lb) * .2);letter-spacing:-1px;margin-top:3px;color:#c9b9a0}
+  .lv small i{font-style:normal;color:var(--gold);text-shadow:0 1px 0 var(--gold-edge)}
+  .lv.locked{opacity:.55;font-size:calc(var(--lb) * .34)}
+  body.side #map{flex-direction:row;gap:28px;padding-top:calc(12px + var(--st))}
+  body.side #levels{--lb:clamp(40px,calc((100vh - 90px) / 5 - 10px),66px)}
+
+  /* ---------- win card ---------- */
+  #win{position:fixed;inset:0;z-index:45;display:grid;place-items:center;background:rgba(43,43,58,.25)}
+  #card{display:flex;flex-direction:column;align-items:center;gap:16px;padding:22px 26px;border-radius:28px;background:var(--cream);
+    box-shadow:0 8px 0 var(--lip),0 14px 30px rgba(0,0,0,.25);animation:cardIn .4s ease-out}
+  @keyframes cardIn{from{transform:scale(.6);opacity:0}}
+  #starRow{display:flex;gap:8px}
+  .star{font-size:clamp(52px,15vmin,84px);line-height:1;color:#ddd3c2;transform:scale(0)}
+  .star.on{color:var(--gold);text-shadow:0 4px 0 var(--gold-edge)}
+  .star.show{animation:starIn .45s cubic-bezier(.3,1.6,.5,1) forwards}
+  @keyframes starIn{to{transform:scale(1)}}
+  #cardBtns{display:flex;gap:14px}
+  #cardBtns .btn{width:64px;height:64px;font-size:30px}
+  #bNext{background:var(--green)!important;box-shadow:0 4px 0 #24852f!important}
+  .conf{position:absolute;top:-20px;width:10px;height:14px;border-radius:2px;animation:fall 2.6s linear forwards}
+  @keyframes fall{to{transform:translateY(110vh) rotate(720deg)}}
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="safe"></div>
+<a id="home" href="../index.html" aria-label="All games" title="All games"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 11 12 4l8.5 7" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M6 9.8V20h12V9.8" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linejoin="round"/><path d="M10 20v-5.5h4V20" fill="currentColor"/></svg></a>
+<div id="hud" hidden>
+  <div id="prog"><div id="progIcons"></div><div id="progBar"><div id="progFill"></div><span id="progText">0/5</span></div></div>
+  <div id="stairs" hidden><span>🚶</span><span id="stairsN">0</span></div>
+</div>
+<div id="hudR">
+  <button id="mapBtn" class="btn" aria-label="Levels">🗺️</button>
+  <button id="muteBtn" class="btn" aria-label="Sound on or off">🔊</button>
+</div>
+<div id="fx"></div>
+<div id="hand" hidden>👆</div>
+<button id="edgeUp" class="edge" hidden aria-label="People waiting above"><b>▲</b><span></span></button>
+<button id="edgeDown" class="edge" hidden aria-label="People waiting below"><b>▼</b><span></span></button>
+<div id="map" hidden>
+  <div id="mapLeft">
+    <h1>Going Up!</h1>
+    <button id="play" class="btn" aria-label="Play"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4l14 8-14 8z" fill="#fff"/></svg></button>
+  </div>
+  <div id="levels"></div>
+</div>
+<div id="win" hidden>
+  <div id="card">
+    <div id="starRow"><span class="star">★</span><span class="star">★</span><span class="star">★</span></div>
+    <div id="cardBtns">
+      <button id="bReplay" class="btn" aria-label="Play again">↻</button>
+      <button id="bNext" class="btn" aria-label="Next level">▶</button>
+      <button id="bMap" class="btn" aria-label="Levels">🗺️</button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+/* ======== imports ======== */
+import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+
+/* ======== tuning ======== */
+const FIXED_DT = 1 / 60;          // simulation step (s)
+const CAR_SPEED = 5.5;            // lift top speed (units/s, a floor is 3 units)
+const CAR_ACCEL = 9;              // lift acceleration and braking (units/s²)
+const DOOR_TIME = 0.45;           // doors opening or closing (s)
+const DWELL_MIN = 0.9;            // doors stay open at least this long (s)
+const BOARD_GAP = 0.3;            // gap between two people stepping into a car (s)
+const WALK_SPEED = 1.6;           // people walking (units/s)
+const QUEUE_MAX = 5;              // people waiting on one floor at most
+const MAX_PEOPLE = 30;            // people in the building at most
+const RIDE_PATIENCE_RATE = 0.3;   // patience runs out this much slower inside a car
+const MOOD_T = [0.35, 0.6, 0.8, 1.0];  // wait/patience thresholds: happy, ok, grumpy, angry, then the stairs
+const HINT_DELAY_L1 = 2;          // idle seconds before the hand hint shows on level 1
+const HINT_DELAY = 8;             // same on later levels
+const MIN_FLOOR_PX = 64;          // a floor is never drawn shorter than this; taller buildings pan
+const CELEBRATE_TIME = 1.2;       // delivered people cheer this long (s)
+const FAST_MULT = 4;              // ?fast speed-up
+const SPECIAL_CHANCE = 0.12;      // chance per arrival of each unlocked special person
+const ARRIVE_JITTER = 0.3;        // ±30% on the arrival interval
+const TRIP_MIX = [0.40, 0.35];    // lobby -> up, up -> lobby; the rest go between upper floors
+const FIRST_ARRIVAL = 1.0;        // first person appears after this (s)
+const BOT_EVERY = 0.7;            // ?demo bot taps this often (s)
+const WIN_DELAY = 0.9;            // pause before the win card (s)
+const CAM_FOV = 30, CAM_YAW = 6, CAM_PITCH = 4;   // degrees
+const TOP_BAR = 56, SIDE_COL = 64, SIDE_RATIO = 1.3;  // HUD sizes (px); wider than 1.3:1 uses side columns
+const VIEW_BOTTOM = 0.8, VIEW_TOP = 1.8;  // world margin shown below the lobby / above the top floor (roof)
+const BUBBLE_PX = 44;             // target on-screen size of a floor bubble (px)
+const RIDER_BUBBLE = 0.7;         // bubbles of people inside a car are this much smaller (they stand close)
+
+const params = new URLSearchParams(location.search);
+const DEMO = params.has('demo');
+const TICK = DEMO || params.has('tick');   // tick from a timer as well as animation frames (headless tests)
+const FAST = params.has('fast');
+const FORCE_MUTE = params.has('mute');
+const SPEED = FAST ? FAST_MULT : 1;
+const DEG = Math.PI / 180;
+
+/* ======== levels & themes data ======== */
+const RUSH = { kind: 'rush', every: 45, n: 5 };    // 5 people at the lobby at once
+const LUNCH = { kind: 'lunch', every: 50, n: 5 };  // 5 people heading to the café
+const SP1 = ['grandma'], SP2 = ['grandma', 'courier'], SP3 = ['grandma', 'courier', 'dogwalker'];
+const LEVELS = [
+  { floors: 3, cars: 1, cap: 4, every: 7.0, patience: 45, target: 5,  specials: [],  waves: [] },
+  { floors: 4, cars: 1, cap: 4, every: 6.0, patience: 40, target: 8,  specials: [],  waves: [] },
+  { floors: 5, cars: 1, cap: 4, every: 5.5, patience: 36, target: 10, specials: SP1, waves: [] },
+  { floors: 5, cars: 2, cap: 4, every: 5.0, patience: 31, target: 12, specials: SP1, waves: [] },
+  { floors: 6, cars: 2, cap: 4, every: 4.5, patience: 30, target: 14, specials: SP2, waves: [] },
+  { floors: 6, cars: 2, cap: 3, every: 4.2, patience: 32, target: 15, specials: SP3, waves: [] },
+  { floors: 7, cars: 2, cap: 4, every: 4.4, patience: 32, target: 15, specials: SP3, waves: [RUSH] },
+  { floors: 7, cars: 3, cap: 4, every: 3.6, patience: 30, target: 18, specials: SP3, waves: [] },
+  { floors: 8, cars: 3, cap: 5, every: 3.2, patience: 28, target: 20, specials: SP3, waves: [LUNCH] },
+  { floors: 8, cars: 3, cap: 5, every: 3.0, patience: 26, target: 24, specials: SP3, waves: [RUSH, LUNCH] },
+];
+const KINDS = {
+  adult:     { walk: 1.0, patience: 1.0, seats: 1, move: 'walk' },
+  kid:       { walk: 1.0, patience: 1.0, seats: 1, move: 'walk' },
+  grandma:   { walk: 0.5, patience: 1.5, seats: 1, move: 'walk' },
+  courier:   { walk: 1.4, patience: 0.6, seats: 1, move: 'run' },
+  dogwalker: { walk: 1.0, patience: 1.0, seats: 2, move: 'walk' },
+};
+const NUMBER_WORDS = ['One!', 'Two!', 'Three!', 'Four!', 'Five!', 'Six!', 'Seven!', 'Eight!'];
+const MOOD_FACES = ['😀', '🙂', '😐', '😠'];
+
+/* ======== art ======== */
+// Toy-clay art for "Going Up!" (graphics designer). API: PLAN.md section 6, notes in EXTENSIONS.md.
+// Static props are merged per floor and material, coloured with vertex colours, so a floor costs ~12 draw calls.
+// Internal helpers are prefixed `art`. Deterministic: every random look comes from artRng(seed).
+const ART = {
+  FLOOR_H: 3.0, SLAB: 0.3, DEPTH: 4.5, ROOM_W: 6.4, SHAFT_W: 2.2,
+  LANE_Z: -0.8,                 // people walk/queue here
+  CAR_W: 1.8, CAR_H: 2.4, CAR_D: 2.2, CAR_Z: -2.4,   // car box centre z; front face at CAR_Z + CAR_D/2 = -1.3
+  MAX_CAP: 6,                   // riderSpots length
+  BUBBLE_Y: 0.55,               // bubble centre above person height
+  BUBBLE_SIZE: 1.25,            // sprite world size (square)
+};
+const FLOOR_THEMES = [
+  { id: 'lobby',   name: 'Lobby',      color: '#FFC928', icon: '🛎️' },
+  { id: 'cafe',    name: 'Café',       color: '#E8413A', icon: '☕' },
+  { id: 'library', name: 'Library',    color: '#2F6FE0', icon: '📚' },
+  { id: 'play',    name: 'Playroom',   color: '#FF8A1F', icon: '🧸' },
+  { id: 'pool',    name: 'Pool',       color: '#19C2D6', icon: '🏊' },
+  { id: 'music',   name: 'Music room', color: '#9A55E6', icon: '🎵' },
+  { id: 'garden',  name: 'Greenhouse', color: '#35C24A', icon: '🌻' },
+  { id: 'stars',   name: 'Star dome',  color: '#FF5FAE', icon: '🔭' },
+];
+
+/* -------- art: palette & shared state -------- */
+const ART_WALL_T = 0.36;                       // side wall thickness
+const ART_SUN_DIR = new THREE.Vector3(-6, 14, 10).normalize();
+const ART_CAR_COLORS = ['#E8473F', '#2F8FE0', '#2FB37A'];
+const ART_SKINS = ['#FFE0C4', '#F6C9A0', '#E0A878', '#C68A5A', '#9C6440', '#6E4228'];
+const ART_HAIRS = ['#2B1E16', '#5A3825', '#C8782E', '#E8C468', '#3A3A48'];
+const ART_CLOTHES = ['#FF7A7A', '#FFB347', '#7FD1B9', '#6FA8FF', '#B68CFF', '#FF9ECF', '#F4F4F4', '#8BC34A', '#FFDD57'];
+const ART_PANTS = ['#3B4A6B', '#55657F', '#7A5A44', '#4A4A5A', '#2F6FA8'];
+const ART_TOYS = ['#FF7A7A', '#FFB347', '#FFDD57', '#8BC34A', '#6FA8FF', '#B68CFF', '#FF9ECF', '#7FD1B9'];
+const ART_CREAM = '#FFF6E5', ART_CUT_DARK = '#EAD9BE', ART_FACADE = '#F2A88B', ART_FACADE_SHADE = '#E58F73';
+const ART_BRASS = '#D9A93F', ART_CHROME = '#E3E8EE';
+const ART_RED_TINT = new THREE.Color('#FF6655');
+const ART_WHITE = new THREE.Color('#ffffff');
+let artNow = 0;
+const artLive = new Set();          // things animateArt ticks: { tick(t, dt) }
+
+function artRng(seed) {
+  let a = (seed >>> 0) || 1;
+  return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
+const artPick = (r, arr) => arr[Math.floor(r() * arr.length) % arr.length];
+function artMixHex(a, b, k) {     // sRGB mix of two '#rrggbb' colours
+  const pa = parseInt(a.slice(1), 16), pb = parseInt(b.slice(1), 16);
+  const ch = (s) => Math.round(((pa >> s) & 255) * (1 - k) + ((pb >> s) & 255) * k);
+  return '#' + ((1 << 24) | (ch(16) << 16) | (ch(8) << 8) | ch(0)).toString(16).slice(1);
+}
+const artTint = (hex) => artMixHex(hex, '#ffffff', 0.62);      // floor wall tint
+
+/* -------- art: geometry & material caches -------- */
+const artGeoCache = new Map();
+function artGeo(key, make) { let g = artGeoCache.get(key); if (!g) { g = make(); artGeoCache.set(key, g); } return g; }
+function artRB(w, h, d, r = 0.06, s = 2) {
+  const rr = Math.min(r, Math.min(w, h, d) * 0.49);
+  return artGeo(`rb|${w}|${h}|${d}|${rr}|${s}`, () => new RoundedBoxGeometry(w, h, d, s, rr));
+}
+const artBox = (w, h, d) => artGeo(`bx|${w}|${h}|${d}`, () => new THREE.BoxGeometry(w, h, d));
+const artSph = (r, ws = 12, hs = 8, ps = 0, pl = Math.PI * 2, ts = 0, tl = Math.PI) =>
+  artGeo(`sp|${r}|${ws}|${hs}|${ps}|${pl}|${ts}|${tl}`, () => new THREE.SphereGeometry(r, ws, hs, ps, pl, ts, tl));
+const artCyl = (rt, rb, h, s = 14, open = false, ts = 0, tl = Math.PI * 2) =>
+  artGeo(`cy|${rt}|${rb}|${h}|${s}|${open}|${ts}|${tl}`, () => new THREE.CylinderGeometry(rt, rb, h, s, 1, open, ts, tl));
+const artCap = (r, len, cs = 3, rs = 10) => artGeo(`ca|${r}|${len}|${cs}|${rs}`, () => new THREE.CapsuleGeometry(r, len, cs, rs));
+const artTor = (r, t, rs = 6, ts = 18, arc = Math.PI * 2) => artGeo(`to|${r}|${t}|${rs}|${ts}|${arc}`, () => new THREE.TorusGeometry(r, t, rs, ts, arc));
+const artCone = (r, h, s = 14, open = false) => artGeo(`co|${r}|${h}|${s}|${open}`, () => new THREE.ConeGeometry(r, h, s, 1, open));
+const artPln = (w, h) => artGeo(`pl|${w}|${h}`, () => new THREE.PlaneGeometry(w, h));
+const artTri = () => artGeo('tri', () => {       // pennant: point down, faces +z
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute([-0.5, 0, 0, 0.5, 0, 0, 0, -1, 0], 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute([0, 0, 1, 0, 0, 1, 0, 0, 1], 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute([0, 1, 1, 1, 0.5, 0], 2));
+  g.setIndex([0, 2, 1]); return g;
+});
+const artStar = () => artGeo('star', () => {
+  const s = new THREE.Shape();
+  for (let k = 0; k < 10; k++) { const a = Math.PI / 2 + k * Math.PI / 5, r = k % 2 ? 0.42 : 1; k ? s.lineTo(Math.cos(a) * r, Math.sin(a) * r) : s.moveTo(Math.cos(a) * r, Math.sin(a) * r); }
+  return new THREE.ShapeGeometry(s);
+});
+
+const artMatCache = new Map();
+function artMatC(key, make) { let m = artMatCache.get(key); if (!m) { m = make(); artMatCache.set(key, m); } return m; }
+const artClay = () => artMatC('clay', () => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.78, metalness: 0 }));
+const artShiny = () => artMatC('shiny', () => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.3, metalness: 0.65 }));
+const artGlow = () => artMatC('glow', () => new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }));
+const artGlass = () => artMatC('glass', () => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.08, metalness: 0.3,
+  transparent: true, opacity: 0.3, depthWrite: false }));
+const artPoolM = () => artMatC('pool', () => new THREE.MeshBasicMaterial({ vertexColors: true, map: artRadialTex(), transparent: true,
+  blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }));
+const artBeamM = () => artMatC('beam', () => new THREE.MeshBasicMaterial({ vertexColors: true, map: artBeamTex(), transparent: true,
+  opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, side: THREE.DoubleSide }));
+const artTexMat = (key, tex, basic) => artMatC('tm|' + key, () => basic
+  ? new THREE.MeshBasicMaterial({ vertexColors: true, map: tex })
+  : new THREE.MeshStandardMaterial({ vertexColors: true, map: tex, roughness: 0.85 }));
+
+function artXf(x, y, z, rx = 0, ry = 0, rz = 0, sx = 1, sy = sx, sz = sx) {
+  return new THREE.Matrix4().compose(new THREE.Vector3(x, y, z),
+    new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz)), new THREE.Vector3(sx, sy, sz));
+}
+function artXfLine(a, b, r) {            // matrix for a unit cylinder (height 1, axis y) from point a to b, radius scale r
+  const d = new THREE.Vector3().subVectors(b, a), len = d.length();
+  const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize());
+  return new THREE.Matrix4().compose(new THREE.Vector3().addVectors(a, b).multiplyScalar(0.5), q, new THREE.Vector3(r, len, r));
+}
+
+/* Collects transformed copies of geometries per material, then merges them into one mesh per material. */
+class ArtBatch {
+  constructor() { this.parts = new Map(); }
+  add(geo, mat, m, hex = '#ffffff') {
+    const g = geo.clone(); g.clearGroups();
+    for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal' && k !== 'uv') g.deleteAttribute(k);
+    const n = g.attributes.position.count;
+    if (!g.index) { const idx = []; for (let i = 0; i < n; i++) idx.push(i); g.setIndex(idx); }
+    if (!g.attributes.uv) g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(n * 2), 2));
+    if (m) g.applyMatrix4(m);
+    const c = new THREE.Color(hex), col = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) { col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b; }
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    let list = this.parts.get(mat); if (!list) this.parts.set(mat, list = []); list.push(g);
+    return this;
+  }
+  flush(parent, owned, cast = false, receive = true) {
+    const out = [];
+    for (const [mat, list] of this.parts) {
+      const g = list.length === 1 ? list[0] : mergeGeometries(list, false);
+      if (list.length > 1) list.forEach((x) => x.dispose());
+      const mesh = new THREE.Mesh(g, mat);
+      const lit = mat.isMeshStandardMaterial && !mat.transparent;
+      mesh.castShadow = cast && lit; mesh.receiveShadow = receive && lit;
+      if (mat.transparent) mesh.renderOrder = 2;
+      parent.add(mesh); owned.push(g); out.push(mesh);
+    }
+    this.parts.clear();
+    return out;
+  }
+}
+
+/* -------- art: canvas textures -------- */
+const artTexCache = new Map();
+function artCanvas(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
+function artTexOf(c, rep) {
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  if (rep) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(rep[0], rep[1]); }
+  return t;
+}
+function artCachedTex(key, w, h, draw, rep) {
+  let t = artTexCache.get(key);
+  if (!t) { const c = artCanvas(w, h); draw(c.getContext('2d'), w, h); t = artTexOf(c, rep); artTexCache.set(key, t); }
+  return t;
+}
+function artRound(g, x, y, w, h, r) {
+  g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
+  g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
+}
+const ART_EMOJI_FONT = '"Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji",sans-serif';
+function artNumber(g, txt, x, y, px, stroke) {
+  g.font = `bold ${px}px Verdana, Tahoma, sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.lineJoin = 'round'; g.lineWidth = stroke; g.strokeStyle = '#2B2B3A'; g.strokeText(txt, x, y + px * 0.04);
+  g.fillStyle = '#ffffff'; g.fillText(txt, x, y + px * 0.04);
+}
+function artRadialTex() {
+  return artCachedTex('radial', 64, 64, (g) => {
+    const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.45, 'rgba(255,255,255,0.45)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+  });
+}
+function artBeamTex() {   // soft vertical fade for spotlight cones
+  return artCachedTex('beam', 8, 64, (g) => {
+    const gr = g.createLinearGradient(0, 0, 0, 64);
+    gr.addColorStop(0, 'rgba(255,255,255,0.9)'); gr.addColorStop(1, 'rgba(255,255,255,0.05)');
+    g.fillStyle = gr; g.fillRect(0, 0, 8, 64);
+  });
+}
+function artSkyWinTex(night) {
+  return artCachedTex('win' + (night ? 'n' : 'd'), 64, 128, (g) => {
+    const gr = g.createLinearGradient(0, 0, 0, 128);
+    if (night) { gr.addColorStop(0, '#16204A'); gr.addColorStop(1, '#5B4C93'); }
+    else { gr.addColorStop(0, '#7EC8F2'); gr.addColorStop(1, '#FFE7C7'); }
+    g.fillStyle = gr; g.fillRect(0, 0, 64, 128);
+    if (night) {
+      const r = artRng(77); g.fillStyle = '#FFF6C8';
+      for (let k = 0; k < 18; k++) { g.globalAlpha = 0.5 + r() * 0.5; g.fillRect(r() * 62, r() * 100, 2, 2); }
+      g.globalAlpha = 1; g.beginPath(); g.arc(44, 28, 9, 0, 7); g.fill();
+    } else {
+      g.fillStyle = 'rgba(255,255,255,0.9)';
+      for (const [x, y, s] of [[18, 40, 9], [28, 36, 12], [40, 42, 8], [46, 88, 6], [54, 86, 8]]) { g.beginPath(); g.arc(x, y, s, 0, 7); g.fill(); }
+      g.fillStyle = '#A9BEDA'; g.fillRect(0, 108, 14, 20); g.fillRect(16, 100, 12, 28); g.fillRect(40, 112, 24, 16);
+    }
+  });
+}
+function artExitTex() {
+  return artCachedTex('exit', 128, 64, (g) => {
+    g.fillStyle = '#1FAF5C'; artRound(g, 2, 2, 124, 60, 12); g.fill();
+    g.fillStyle = '#2ECC71'; artRound(g, 6, 6, 116, 52, 9); g.fill();
+    g.strokeStyle = '#ffffff'; g.fillStyle = '#ffffff'; g.lineCap = 'round'; g.lineJoin = 'round'; g.lineWidth = 7;
+    g.beginPath(); g.arc(44, 15, 6, 0, 7); g.fill();                       // running man
+    g.beginPath(); g.moveTo(42, 23); g.lineTo(36, 38); g.lineTo(46, 44); g.lineTo(44, 54); g.stroke();
+    g.beginPath(); g.moveTo(36, 38); g.lineTo(26, 50); g.stroke();
+    g.beginPath(); g.moveTo(30, 30); g.lineTo(42, 25); g.lineTo(52, 32); g.stroke();
+    g.beginPath(); g.moveTo(66, 32); g.lineTo(100, 32); g.stroke();           // arrow
+    g.beginPath(); g.moveTo(90, 20); g.lineTo(104, 32); g.lineTo(90, 44); g.stroke();
+  });
+}
+/* Floor badge: number (+ icon, or + up/down arrow for the car sign). fi null = dark blank sign. */
+function artSignTex(fi, mode) {   // mode: 'icon' | -1 | 0 | 1 (car arrow)
+  return artCachedTex(`sign|${fi}|${mode}`, 256, 112, (g) => {
+    g.fillStyle = '#FFF6E5'; artRound(g, 4, 4, 248, 104, 30); g.fill();
+    g.fillStyle = fi == null ? '#3A3448' : FLOOR_THEMES[fi].color; artRound(g, 13, 13, 230, 86, 22); g.fill();
+    g.fillStyle = 'rgba(255,255,255,0.22)'; artRound(g, 24, 18, 208, 26, 13); g.fill();
+    const arrow = mode === 1 || mode === -1;
+    if (arrow) {
+      g.fillStyle = '#FFC93C'; g.strokeStyle = '#2B2B3A'; g.lineWidth = 6; g.lineJoin = 'round'; g.beginPath();
+      if (mode === 1) { g.moveTo(62, 26); g.lineTo(32, 82); g.lineTo(92, 82); } else { g.moveTo(62, 86); g.lineTo(32, 30); g.lineTo(92, 30); }
+      g.closePath(); g.stroke(); g.fill();
+    }
+    if (fi != null) {
+      const nx = mode === 'icon' ? 92 : arrow ? 168 : 128;
+      artNumber(g, String(fi + 1), nx, 56, 84, 12);
+      if (mode === 'icon') {
+        g.fillStyle = '#ffffff'; g.beginPath(); g.arc(186, 56, 36, 0, 7); g.fill();
+        g.font = `46px ${ART_EMOJI_FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(FLOOR_THEMES[fi].icon, 186, 59);
+      }
+    } else if (!arrow) {
+      g.fillStyle = '#6E6680'; for (const x of [96, 128, 160]) { g.beginPath(); g.arc(x, 56, 9, 0, 7); g.fill(); }
+    }
+  });
+}
+/* Destination bubble: rounded badge in the floor colour, white border + tail, big outlined number, icon token. */
+const ART_RING = ['#35C24A', '#B8D034', '#FFB020', '#FF5A4A'];
+const ART_BUBBLE_BOOST = 1.8;   // on-screen badge ~46 px tall at the coder's scale
+function makeBubbleTexture(floorIndex, stage = 0) {
+  const i = floorIndex % FLOOR_THEMES.length;
+  return artCachedTex('bubble' + i + '|' + stage, 256, 256, (g) => {
+    const th = FLOOR_THEMES[i];
+    const shape = (inset) => {       // narrow badge (fits a 0.75 queue gap) with a tail to the head
+      const x = 30 + inset, y = 4 + inset, w = 196 - inset * 2, h = 200 - inset * 2, r = 48 - inset;
+      g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
+      g.lineTo(148 - inset * 0.6, y + h); g.lineTo(128, 252 - inset * 1.9); g.lineTo(108 + inset * 0.6, y + h);
+      g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
+    };
+    g.save(); g.shadowColor = 'rgba(40,30,70,0.45)'; g.shadowBlur = 10; g.shadowOffsetY = 5;
+    shape(0); g.fillStyle = ART_RING[stage]; g.fill(); g.restore();
+    shape(13); g.fillStyle = stage >= 3 ? '#FFD0C8' : '#ffffff'; g.fill();
+    shape(20); g.fillStyle = th.color; g.fill();
+    g.save(); shape(20); g.clip();
+    const gr = g.createLinearGradient(0, 30, 0, 190);
+    gr.addColorStop(0, 'rgba(255,255,255,0.28)'); gr.addColorStop(0.5, 'rgba(255,255,255,0)'); gr.addColorStop(1, 'rgba(0,0,0,0.12)');
+    g.fillStyle = gr; g.fillRect(0, 0, 256, 256); g.restore();
+    artNumber(g, String(i + 1), 100, 108, 150, 22);
+    g.fillStyle = '#ffffff'; g.beginPath(); g.arc(178, 150, 30, 0, 7); g.fill();
+    g.font = `40px ${ART_EMOJI_FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(th.icon, 178, 153);
+  });
+}
+/* Faces: transparent overlay (eyes, brows, mouth, cheeks) per mood stage, plus a blink variant. */
+function artFaceTex(stage, blink) {
+  return artCachedTex(`face|${stage}|${blink ? 1 : 0}`, 256, 256, (g) => {
+    const ink = '#2B2B3A', eyes = [[88, 122], [168, 122]];
+    g.lineCap = 'round'; g.lineJoin = 'round';
+    if (stage <= 1) {                                    // rosy cheeks
+      g.fillStyle = 'rgba(255,120,130,0.42)';
+      for (const [x] of eyes) { g.beginPath(); g.ellipse(x + (x < 128 ? -26 : 26), 160, 19, 12, 0, 0, 7); g.fill(); }
+    }
+    eyes.forEach(([x, y], k) => {
+      const side = k ? 1 : -1;
+      if (blink) { g.strokeStyle = ink; g.lineWidth = 12; g.beginPath(); g.moveTo(x - 15, y); g.quadraticCurveTo(x, y + 9, x + 15, y); g.stroke(); }
+      else {
+        g.save();
+        if (stage >= 2) {                                  // lids: flat or slanted top
+          const lift = stage === 2 ? 6 : 2, slant = stage === 2 ? 4 : 10;
+          g.beginPath(); g.moveTo(x - 30, y - lift - slant * -side); g.lineTo(x + 30, y - lift - slant * side); g.lineTo(x + 30, y + 60); g.lineTo(x - 30, y + 60); g.closePath(); g.clip();
+        }
+        g.fillStyle = ink; g.beginPath(); g.ellipse(x, y, 24, stage === 0 ? 33 : 30, 0, 0, 7); g.fill();
+        g.fillStyle = '#ffffff'; g.beginPath(); g.arc(x - 8, y - 11, 8, 0, 7); g.fill();
+        g.beginPath(); g.arc(x + 5, y + 6, 2.8, 0, 7); g.fill();
+        g.restore();
+      }
+      g.strokeStyle = artMixHex(ink, '#5A3825', 0.3); g.lineWidth = stage === 3 ? 15 : 12; g.beginPath();   // brows
+      if (stage === 0) { g.moveTo(x - 17, y - 36); g.quadraticCurveTo(x, y - 50, x + 17, y - 38); }
+      else if (stage === 1) { g.moveTo(x - 16, y - 38); g.lineTo(x + 16, y - 38); }
+      else if (stage === 2) { g.moveTo(x - 18 * side * -1, y - 44); g.lineTo(x + 18 * side * -1, y - 34); }
+      else { g.moveTo(x - 20 * -side, y - 50); g.lineTo(x + 18 * -side, y - 28); }
+      g.stroke();
+    });
+    g.strokeStyle = '#7A2A33'; g.fillStyle = '#7A2A33'; g.lineWidth = 18;
+    if (stage === 0) {
+      g.beginPath(); g.moveTo(98, 166); g.quadraticCurveTo(128, 214, 158, 166); g.closePath(); g.fill();
+      g.fillStyle = '#FF8A9A'; g.beginPath(); g.ellipse(128, 186, 13, 7, 0, 0, 7); g.fill();
+    } else if (stage === 1) { g.beginPath(); g.moveTo(108, 172); g.quadraticCurveTo(128, 186, 148, 172); g.stroke(); }
+    else if (stage === 2) { g.beginPath(); g.moveTo(108, 184); g.quadraticCurveTo(128, 170, 148, 184); g.stroke(); }
+    else {
+      g.beginPath(); g.moveTo(100, 192); g.quadraticCurveTo(128, 158, 156, 192); g.quadraticCurveTo(128, 180, 100, 192); g.fill();
+      g.fillStyle = '#ffffff'; g.fillRect(114, 176, 28, 5);
+    }
+  });
+}
+/* Wallpaper and floor patterns per theme. */
+function artWallTex(id) {
+  const th = FLOOR_THEMES.find((t) => t.id === id), base = id === 'stars' ? '#1E2A5E' : artTint(th.color);
+  return artCachedTex('wall|' + id, 256, 256, (g) => {
+    const r = artRng(id.length * 31 + 7);
+    g.fillStyle = base; g.fillRect(0, 0, 256, 256);
+    const dk = artMixHex(base, th.color, 0.28), lt = artMixHex(base, '#ffffff', 0.45);
+    if (id === 'lobby') { for (let x = 0; x < 256; x += 64) { g.fillStyle = dk; g.fillRect(x, 0, 30, 256); g.fillStyle = '#E8B820'; g.globalAlpha = 0.5; g.fillRect(x + 46, 0, 3, 256); g.globalAlpha = 1; } }
+    else if (id === 'cafe') { g.fillStyle = lt; for (let y = 0; y < 256; y += 64) for (let x = 0; x < 256; x += 64) { g.beginPath(); g.arc(x + 16 + (y % 128 ? 32 : 0), y + 16, 11, 0, 7); g.fill(); } }
+    else if (id === 'library') { g.strokeStyle = dk; g.lineWidth = 3; for (let k = -256; k < 512; k += 64) { g.beginPath(); g.moveTo(k, 0); g.lineTo(k + 256, 256); g.moveTo(k + 256, 0); g.lineTo(k, 256); g.stroke(); } }
+    else if (id === 'play') { for (let k = 0; k < 26; k++) { g.fillStyle = artPick(r, ART_TOYS); g.globalAlpha = 0.55; g.beginPath(); g.arc(r() * 256, r() * 256, 6 + r() * 8, 0, 7); g.fill(); } g.globalAlpha = 1; }
+    else if (id === 'pool') { g.strokeStyle = lt; g.lineWidth = 4; for (let k = 0; k <= 256; k += 32) { g.beginPath(); g.moveTo(k, 0); g.lineTo(k, 256); g.moveTo(0, k); g.lineTo(256, k); g.stroke(); } }
+    else if (id === 'music') { g.fillStyle = dk; g.font = 'bold 54px serif'; g.textAlign = 'center'; for (let y = 0; y < 256; y += 128) for (let x = 0; x < 256; x += 128) { g.fillText('♪', x + 40, y + 70); g.fillText('♫', x + 104, y + 134); } }
+    else if (id === 'garden') { g.strokeStyle = lt; g.lineWidth = 6; for (let k = -256; k < 512; k += 64) { g.beginPath(); g.moveTo(k, 0); g.lineTo(k + 256, 256); g.moveTo(k + 256, 0); g.lineTo(k, 256); g.stroke(); }
+      g.fillStyle = dk; for (let k = 0; k < 14; k++) { g.save(); g.translate(r() * 256, r() * 256); g.rotate(r() * 6); g.beginPath(); g.ellipse(0, 0, 14, 6, 0, 0, 7); g.fill(); g.restore(); } }
+    else if (id === 'stars') { for (let k = 0; k < 40; k++) { g.fillStyle = r() < 0.3 ? '#FFE680' : '#ffffff'; g.globalAlpha = 0.4 + r() * 0.6; const s = 1 + r() * 2.5; g.beginPath(); g.arc(r() * 256, r() * 256, s, 0, 7); g.fill(); } g.globalAlpha = 1; }
+  }, [3.7, 2.0]);
+}
+function artFloorTex(id) {
+  return artCachedTex('floor|' + id, 256, 256, (g) => {
+    const r = artRng(id.length * 17 + 3);
+    const planks = (a, b) => { for (let y = 0; y < 256; y += 32) { g.fillStyle = (y / 32) % 2 ? a : b; g.fillRect(0, y, 256, 32); g.fillStyle = 'rgba(60,30,10,0.35)'; g.fillRect(0, y, 256, 2); const off = r() * 256; g.fillRect(off, y, 2, 32); g.fillRect((off + 128) % 256, y, 2, 32); } };
+    const tiles = (a, b, n, grout) => { const s = 256 / n; for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) { g.fillStyle = (x + y) % 2 ? a : b; g.fillRect(x * s, y * s, s, s); } if (grout) { g.fillStyle = grout; for (let k = 0; k <= n; k++) { g.fillRect(k * s - 1, 0, 3, 256); g.fillRect(0, k * s - 1, 256, 3); } } };
+    if (id === 'lobby') tiles('#F5EFE6', '#D9CFC0', 4);
+    else if (id === 'cafe') planks('#C98B55', '#BF8048');
+    else if (id === 'library') planks('#A87148', '#9C6840');
+    else if (id === 'play') { const cs = ['#FF9E9E', '#FFE07A', '#9ED8FF', '#A8E6A0']; for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) { g.fillStyle = cs[(x + y * 3) % 4]; g.fillRect(x * 64, y * 64, 64, 64); } g.fillStyle = 'rgba(255,255,255,0.5)'; for (let k = 0; k <= 4; k++) { g.fillRect(k * 64 - 1, 0, 3, 256); g.fillRect(0, k * 64 - 1, 256, 3); } }
+    else if (id === 'pool') tiles('#BFEAF0', '#B2E2EA', 8, '#E9FAFC');
+    else if (id === 'music') planks('#8A5A3C', '#7E5236');
+    else if (id === 'garden') tiles('#D98A5E', '#CF8055', 4, '#EBC9A8');
+    else { g.fillStyle = '#2A3570'; g.fillRect(0, 0, 256, 256); g.fillStyle = 'rgba(255,255,255,0.18)'; for (let k = 0; k < 60; k++) g.fillRect(r() * 256, r() * 256, 2, 2); }
+  }, [4.5, 4.0]);
+}
+function artRippleTex() {
+  return artCachedTex('ripple', 128, 128, (g) => {
+    g.fillStyle = '#4FC9E2'; g.fillRect(0, 0, 128, 128);
+    g.strokeStyle = 'rgba(220,250,255,0.75)'; g.lineWidth = 3;
+    for (let y = 8; y < 128; y += 22) { g.beginPath(); for (let x = 0; x <= 128; x += 4) g.lineTo(x, y + Math.sin(x / 128 * Math.PI * 4 + y) * 5); g.stroke(); }
+  }, [2.5, 1.5]);
+}
+
+/* ======== art: sky & street ======== */
+function buildSky(scene) {
+  scene.background = artCachedTex('skybg', 4, 256, (g) => {
+    const gr = g.createLinearGradient(0, 0, 0, 256);
+    gr.addColorStop(0, '#6FBDEE'); gr.addColorStop(0.55, '#B9E0F5'); gr.addColorStop(1, '#FFE7C7');
+    g.fillStyle = gr; g.fillRect(0, 0, 4, 256);
+  });
+  scene.fog = new THREE.Fog('#FFE7C7', 120, 300);
+  const group = new THREE.Group(), owned = [], B = new ArtBatch(), clay = artClay(), glow = artGlow();
+  const r = artRng(4242);
+  const put = (geo, hex, x, y, z, rx = 0, ry = 0, rz = 0, sx = 1, sy = sx, sz = sx, mat = clay) => B.add(geo, mat, artXf(x, y, z, rx, ry, rz, sx, sy, sz), hex);
+  // sun
+  const sunTex = artRadialTex();
+  const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: sunTex, color: '#FFF1B8', blending: THREE.AdditiveBlending, fog: false, depthWrite: false, transparent: true, opacity: 0.7 }));
+  halo.position.set(-70, 80, -200); halo.scale.set(90, 90, 1); group.add(halo);
+  const disc = new THREE.Mesh(artSph(9, 20, 12), new THREE.MeshBasicMaterial({ color: '#FFD45C', fog: false, toneMapped: false }));
+  disc.position.set(-70, 80, -205); group.add(disc);
+  // hills and skyline layers
+  put(artSph(1, 24, 10), '#B9DFA0', -60, -6, -150, 0, 0, 0, 90, 22, 30);
+  put(artSph(1, 24, 10), '#9ED08A', 50, -8, -130, 0, 0, 0, 80, 20, 30);
+  const layers = [[-36, '#8FA8C8', 5, 15, 4.5], [-62, '#A9BEDA', 8, 22, 6], [-100, '#C4D3E8', 12, 32, 8]];
+  for (const [z, hex, hMin, hMax, wMax] of layers) {
+    for (let x = -130; x < 130;) {
+      const w = 3 + r() * wMax, h = hMin + r() * (hMax - hMin), d = 4 + r() * 4;
+      put(artBox(1, 1, 1), hex, x + w / 2, h / 2 - 0.1, z - r() * 6, 0, 0, 0, w, h, d);
+      if (r() < 0.35) put(artBox(1, 1, 1), hex, x + w / 2, h + 1, z, 0, 0, 0, w * 0.5, 2, d * 0.5);
+      if (z > -60) for (let k = 0; k < 6; k++) if (r() < 0.6)
+        put(artBox(0.7, 0.9, 0.1), r() < 0.5 ? '#FFF1B8' : '#DCEBFA', x + 0.8 + r() * (w - 1.6), 2 + r() * (h - 4), z + d / 2 - r() * 6 + 0.05, 0, 0, 0, 1, 1, 1, glow);
+      x += w + 0.4 + r() * 2;
+    }
+  }
+  // ground: grass, sidewalk, kerb, street, dashes, far pavement
+  put(artBox(1, 1, 1), '#8CCB6E', 0, -0.13, -60, 0, 0, 0, 500, 0.2, 140);
+  put(artBox(1, 1, 1), '#8CCB6E', 0, -0.13, 40, 0, 0, 0, 500, 0.2, 60);
+  put(artBox(1, 1, 1), '#D9D2C5', 0, -0.04, 1.1, 0, 0, 0, 500, 0.08, 2.2);
+  put(artBox(1, 1, 1), '#BFB6A6', 0, -0.02, 2.25, 0, 0, 0, 500, 0.12, 0.2);
+  put(artBox(1, 1, 1), '#5E6672', 0, -0.07, 5.35, 0, 0, 0, 500, 0.06, 6);
+  for (let x = -120; x < 120; x += 3.2) put(artBox(1.6, 0.02, 0.18), '#FFF4D6', x, -0.035, 5.35);
+  put(artBox(1, 1, 1), '#BFB6A6', 0, -0.02, 8.45, 0, 0, 0, 500, 0.12, 0.2);
+  put(artBox(1, 1, 1), '#D9D2C5', 0, -0.04, 9.6, 0, 0, 0, 500, 0.08, 2.2);
+  // trees beside the building (never in front of it)
+  const tree = (x, z, s) => {
+    put(artCyl(0.12 * s, 0.16 * s, 1.6 * s, 8), '#8A5A3C', x, 0.8 * s, z);
+    put(artSph(0.9 * s, 12, 8), '#6BBF59', x, 2.2 * s, z);
+    put(artSph(0.65 * s, 12, 8), '#58A848', x + 0.45 * s, 2.7 * s, z + 0.2);
+    put(artSph(0.55 * s, 12, 8), '#7FD06A', x - 0.4 * s, 2.85 * s, z + 0.1);
+  };
+  for (const [x, z, s] of [[-9.2, 1.2, 1.1], [9.4, 1.3, 1.2], [-13.5, 0.9, 1.3], [14.2, 1.0, 1.0], [-19, 1.2, 1.2], [20, 1.1, 1.3],
+    [-10.5, -4, 1.4], [10.8, -5, 1.5], [-15, -9, 1.6], [16, -8, 1.4], [-24, -6, 1.5], [25, -6, 1.6]]) tree(x, z, s);
+  for (const [x, z] of [[-8.0, -1.5], [8.2, -2.2], [-8.4, -6], [8.6, -7]]) { put(artSph(0.6, 10, 7), '#58A848', x, 0.35, z, 0, 0, 0, 1.3, 0.8, 1); put(artSph(0.45, 10, 7), '#6BBF59', x + 0.5, 0.3, z + 0.3); }
+  // parked car, bus stop, hydrant, street lamps
+  const cx = 11.5, cz = 3.6;
+  put(artRB(2.6, 0.7, 1.3, 0.3), '#FFB347', cx, 0.55, cz);
+  put(artRB(1.5, 0.6, 1.2, 0.25), '#FFF3E0', cx - 0.1, 1.1, cz);
+  put(artRB(1.3, 0.4, 1.22, 0.15), '#9FD4FF', cx - 0.1, 1.15, cz, 0, 0, 0, 1, 1, 1, artShiny());
+  for (const [dx, dz] of [[-0.85, 0.62], [0.85, 0.62], [-0.85, -0.62], [0.85, -0.62]]) put(artCyl(0.3, 0.3, 0.22, 14), '#2B2B3A', cx + dx, 0.3, cz + dz, Math.PI / 2);
+  const bx = -11.5;
+  put(artRB(2.6, 0.12, 1.2, 0.05), '#6FA8FF', bx, 2.3, 0.9);
+  for (const dx of [-1.15, 1.15]) put(artCyl(0.05, 0.05, 2.3, 8), '#8C96A8', bx + dx, 1.15, 1.35, 0, 0, 0, 1, 1, 1, artShiny());
+  put(artRB(2.2, 0.1, 0.45, 0.04), '#B97A4C', bx, 0.5, 0.6); put(artRB(2.2, 0.4, 0.08, 0.03), '#B97A4C', bx, 0.85, 0.4);
+  put(artCyl(0.04, 0.04, 2.6, 8), '#8C96A8', bx + 1.8, 1.3, 1.6, 0, 0, 0, 1, 1, 1, artShiny());
+  put(artCyl(0.32, 0.32, 0.06, 18), '#2F6FE0', bx + 1.8, 2.5, 1.6, Math.PI / 2);
+  put(artCyl(0.22, 0.22, 0.07, 18), '#ffffff', bx + 1.8, 2.5, 1.6, Math.PI / 2);
+  put(artCyl(0.16, 0.18, 0.55, 10), '#E53935', 7.4, 0.28, 1.5); put(artSph(0.17, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), '#E53935', 7.4, 0.55, 1.5);
+  put(artCyl(0.07, 0.07, 0.36, 8), '#FFF3E0', 7.4, 0.35, 1.5, 0, 0, Math.PI / 2);
+  for (const x of [-16, 16.5, -27, 28]) { put(artCyl(0.07, 0.09, 4, 8), '#3B4A6B', x, 2, 2.0); put(artSph(0.28, 10, 8), '#FFF1B8', x, 4.1, 2.0, 0, 0, 0, 1, 1, 1, glow); }
+  B.flush(group, owned, false, true);
+  // clouds (drift sideways and wrap)
+  const cloudGeos = [0, 1, 2].map((k) => {
+    const cb = new ArtBatch(), cr = artRng(900 + k), n = 5 + k;
+    for (let i = 0; i < n; i++) { const s = 1.6 + cr() * 1.6, x = (i - n / 2) * 1.7 + cr(); cb.add(artSph(1, 12, 8), clay, artXf(x, s * 0.4 + cr() * 0.6, cr() * 1.5, 0, 0, 0, s), cr() < 0.5 ? '#FFFFFF' : '#F4F8FC'); cb.add(artSph(1, 12, 8), clay, artXf(x, s * 0.1 - 0.4, 0.8, 0, 0, 0, s * 0.8, s * 0.5, s * 0.8), '#E6EEF7'); }
+    const holder = new THREE.Group(); cb.flush(holder, owned, false, false); return holder.children[0].geometry;
+  });
+  const cloudMat = artMatC('cloud', () => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, emissive: '#C9D6E6', emissiveIntensity: 0.2 }));
+  const clouds = [];
+  for (let k = 0; k < 7; k++) {
+    const m = new THREE.Mesh(cloudGeos[k % 3], cloudMat);
+    m.position.set(-110 + k * 34 + r() * 10, 26 + r() * 22, -70 - r() * 50); m.scale.setScalar(0.7 + r() * 0.6);
+    m.userData.speed = 0.6 + r() * 0.8; group.add(m); clouds.push(m);
+  }
+  // birds: two flapping wings each
+  const wing = artGeo('birdwing', () => { const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, -0.9, 0.35, 0, -0.35, 0, 0.18, 0, 0, 0, 0.9, 0.35, 0, 0.35, 0, 0.18], 3));
+    g.setIndex([0, 1, 2, 3, 5, 4]); g.computeVertexNormals(); return g; });
+  const birdMat = artMatC('bird', () => new THREE.MeshBasicMaterial({ color: '#4A4A5E', side: THREE.DoubleSide }));
+  const birds = [0, 1, 2].map((k) => { const b = new THREE.Mesh(wing, birdMat); b.userData = { y: 18 + k * 3.5, z: -16 - k * 6, p: 46 + k * 13, o: k * 21 }; b.scale.setScalar(1.1); group.add(b); return b; });
+  scene.add(group);
+  const update = (t) => {
+    for (const c of clouds) { let x = c.position.x + c.userData.speed * 0.016; if (x > 130) x -= 260; c.position.x = x; }
+    for (const b of birds) { const u = b.userData, ph = ((t + u.o) % u.p) / u.p; b.position.set(-70 + ph * 140, u.y + Math.sin(t * 0.7 + u.o) * 1.2, u.z); b.scale.y = 1.1 * (0.35 + 0.65 * Math.abs(Math.sin(t * 6 + u.o))); }
+  };
+  return { group, update };
+}
+
+/* ======== art: lights ======== */
+function buildLights(scene, renderer) {
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 0.95;
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  // tiny gradient environment so brass and glass catch a soft sky reflection
+  const envScene = new THREE.Scene(), eg = new THREE.SphereGeometry(10, 24, 12), pos = eg.attributes.position, cols = [];
+  const top = new THREE.Color('#BFE3FF'), mid = new THREE.Color('#FFF3E0'), bot = new THREE.Color('#D8B890'), c = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) { const y = pos.getY(i) / 10; c.copy(mid).lerp(y > 0 ? top : bot, Math.abs(y)); cols.push(c.r, c.g, c.b); }
+  eg.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
+  envScene.add(new THREE.Mesh(eg, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })));
+  const pm = new THREE.PMREMGenerator(renderer);
+  scene.environment = pm.fromScene(envScene, 0.04).texture; pm.dispose(); eg.dispose();
+  scene.add(new THREE.HemisphereLight('#CFE8FF', '#F3D9B8', 0.47));
+  const sun = new THREE.DirectionalLight('#FFE2B8', 2.3);
+  sun.castShadow = true; sun.shadow.mapSize.set(1024, 1024); sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.02;
+  scene.add(sun); scene.add(sun.target);
+  const rim = new THREE.DirectionalLight('#BFD9FF', 0.4); rim.position.set(12, 10, -10); scene.add(rim);
+  const v = new THREE.Vector3(), rot = new THREE.Matrix4(), up = new THREE.Vector3(0, 1, 0);
+  const fit = (layout) => {
+    const H = layout.height + 4, cz = -ART.DEPTH / 2, ctr = new THREE.Vector3(0, H / 2, cz);
+    sun.target.position.copy(ctr); sun.position.copy(ctr).addScaledVector(ART_SUN_DIR, 50);
+    sun.updateMatrixWorld(); sun.target.updateMatrixWorld();
+    rot.lookAt(sun.position, ctr, up).transpose();
+    let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9, z0 = 1e9, z1 = -1e9;
+    for (const x of [layout.x0 - 1, layout.x1 + 1]) for (const y of [-0.5, H]) for (const z of [-ART.DEPTH - 0.8, 0.8]) {
+      v.set(x, y, z).sub(sun.position).applyMatrix4(rot);
+      x0 = Math.min(x0, v.x); x1 = Math.max(x1, v.x); y0 = Math.min(y0, v.y); y1 = Math.max(y1, v.y); z0 = Math.min(z0, v.z); z1 = Math.max(z1, v.z);
+    }
+    const cam = sun.shadow.camera;
+    cam.left = x0; cam.right = x1; cam.bottom = y0; cam.top = y1; cam.near = Math.max(0.1, -z1 - 2); cam.far = -z0 + 2;
+    cam.updateProjectionMatrix();
+  };
+  return { sun, fit };
+}
+
+/* ======== art: building ======== */
+function buildBuilding(scene, layout) {
+  const group = new THREE.Group(), owned = [], ticks = [];
+  const { x0, x1, nFloors, nShafts } = layout;
+  const FH = ART.FLOOR_H, SL = ART.SLAB, D = ART.DEPTH, RW = ART.ROOM_W, SW = ART.SHAFT_W, H = nFloors * FH;
+  const clay = artClay(), shiny = artShiny(), glow = artGlow(), glass = artGlass();
+  const SB = new ArtBatch();                                   // shell batch
+  const sput = (geo, hex, x, y, z, rx = 0, ry = 0, rz = 0, sx = 1, sy = sx, sz = sx, mat = clay) => SB.add(geo, mat, artXf(x, y, z, rx, ry, rz, sx, sy, sz), hex);
+  const STAIR_W = 1.45, HOLE_Z = -3.1;
+  const sx0 = x0 + RW;                                          // first shaft's left edge
+
+  // ---- slabs (k = 0 ground .. nFloors roof): one front strip (the cream "cake" cut) + back pieces
+  for (let k = 0; k <= nFloors; k++) {
+    const y = k * FH - SL / 2, mid = k > 0 && k < nFloors, w = x1 - x0;
+    sput(artRB(w, SL, 1.2, 0.07), ART_CREAM, (x0 + x1) / 2, y, -0.6);
+    sput(artBox(w - 0.1, 0.05, 0.02), ART_CUT_DARK, (x0 + x1) / 2, k * FH - SL + 0.04, 0.005);
+    sput(artRB(RW - STAIR_W, SL, D - 1.2, 0.05), ART_CREAM, x0 + STAIR_W + (RW - STAIR_W) / 2, y, -1.2 - (D - 1.2) / 2);
+    const sd = mid ? -HOLE_Z - 1.2 : D - 1.2;
+    sput(artRB(STAIR_W, SL, sd, 0.05), ART_CREAM, x0 + STAIR_W / 2, y, -1.2 - sd / 2);
+    if (!mid) sput(artRB(nShafts * SW, SL, D - 1.2, 0.05), ART_CREAM, sx0 + nShafts * SW / 2, y, -1.2 - (D - 1.2) / 2);
+    if (k < nFloors) {                                           // accent lip on the cut edge, in the floor's colour
+      sput(artRB(w - 0.04, 0.05, 0.12, 0.02, 1), FLOOR_THEMES[k % 8].color, (x0 + x1) / 2, k * FH + 0.012, -0.07);
+      sput(artBox(w - 0.06, 0.12, 0.02), FLOOR_THEMES[k % 8].color, (x0 + x1) / 2, k * FH - 0.07, 0.006);
+    }
+  }
+  // ---- side walls: cream core with a terracotta facade skin, cornices and windows on the outside
+  for (const side of [-1, 1]) {
+    const xi = side < 0 ? x0 : x1, xc = xi + side * ART_WALL_T / 2, top = H + 0.45;
+    sput(artRB(ART_WALL_T - 0.06, top + SL, D + ART_WALL_T, 0.05), ART_CREAM, xi + side * (ART_WALL_T - 0.06) / 2, (top - SL) / 2, -(D + ART_WALL_T) / 2);
+    sput(artRB(0.08, top + SL + 0.05, D + ART_WALL_T - 0.08, 0.03, 1), ART_FACADE, xi + side * (ART_WALL_T - 0.04), (top - SL) / 2, -(D + ART_WALL_T) / 2 - 0.04);
+    for (let k = 0; k <= nFloors; k++) {
+      sput(artRB(0.14, 0.18, D + ART_WALL_T + 0.04, 0.05, 1), k === nFloors ? '#FFF3E0' : ART_FACADE_SHADE, xc + side * 0.2, k * FH - 0.12, -(D + ART_WALL_T) / 2);
+      if (k === nFloors) continue;
+      for (const wz of [-1.35, -3.25]) {
+        sput(artRB(0.08, 1.4, 1.05, 0.04, 1), '#FFFFFF', xc + side * 0.22, k * FH + 1.55, wz);
+        sput(artBox(0.03, 1.2, 0.85), '#9FD4FF', xc + side * 0.255, k * FH + 1.55, wz, 0, 0, 0, 1, 1, 1, shiny);
+        sput(artBox(0.04, 0.06, 0.85), '#FFFFFF', xc + side * 0.27, k * FH + 1.55, wz);
+        sput(artRB(0.16, 0.07, 1.15, 0.03, 1), '#FFF3E0', xc + side * 0.24, k * FH + 0.83, wz);
+      }
+    }
+  }
+  // ---- shafts: dark back, dividers with cream cut faces, rails
+  const MR_H = 2.3;                                             // machine room height on the roof
+  for (let s = 0; s < nShafts; s++) {
+    const sx = layout.shaftX[s];
+    sput(artBox(SW, H + MR_H, 0.06), '#7A869C', sx, (H + MR_H) / 2 - SL, -D + 0.02);
+    sput(artBox(0.08, H + MR_H - 0.4, 0.02), '#FFE7A8', sx, (H + MR_H) / 2 - SL, -D + 0.06, 0, 0, 0, 1, 1, 1, glow);
+    for (const dx of [-0.98, 0.98]) sput(artBox(0.06, H + 1.4, 0.1), '#8C96A8', sx + dx, (H + 1.4) / 2 - SL, ART.CAR_Z, 0, 0, 0, 1, 1, 1, shiny);
+    for (const dx of [-0.55, 0.55]) sput(artBox(0.05, H + 1.4, 0.06), '#7B8598', sx + dx, (H + 1.4) / 2 - SL, -4.32, 0, 0, 0, 1, 1, 1, shiny);
+  }
+  for (let s = 0; s <= nShafts; s++) {
+    if (s === nShafts) continue;                                 // the right side wall closes the last shaft
+    const x = sx0 + s * SW;
+    sput(artRB(0.14, H, D - 1.2, 0.04, 1), '#E9DFCF', x, H / 2 - SL / 2, -1.2 - (D - 1.2) / 2);
+  }
+  // ---- roof: deck, parapets, machine room with pulleys, water tower, antenna, sign, hedges, bunting
+  const RB = new ArtBatch(), rput = (geo, hex, x, y, z, rx = 0, ry = 0, rz = 0, sx = 1, sy = sx, sz = sx, mat = clay) => RB.add(geo, mat, artXf(x, H + y, z, rx, ry, rz, sx, sy, sz), hex);
+  rput(artBox(x1 - x0, 0.02, D), '#7C8A99', (x0 + x1) / 2, 0.01, -D / 2);
+  rput(artRB(x1 - x0, 0.32, 0.22, 0.06), ART_CREAM, (x0 + x1) / 2, 0.16, -0.11);
+  rput(artRB(x1 - x0, 0.5, 0.3, 0.06), ART_CREAM, (x0 + x1) / 2, 0.25, -D - 0.1);
+  const mx0 = sx0 - 0.12, mw = x1 - mx0;
+  rput(artRB(0.2, MR_H, D - 1.0, 0.05), ART_CREAM, mx0 + 0.1, MR_H / 2, -1.0 - (D - 1.0) / 2);
+  rput(artRB(0.06, MR_H, D - 1.1, 0.03, 1), ART_FACADE, mx0 - 0.02, MR_H / 2, -1.05 - (D - 1.0) / 2);
+  rput(artRB(mw + 0.36, 0.28, D - 0.8, 0.08), ART_FACADE, mx0 + mw / 2 + 0.18, MR_H + 0.14, -0.9 - (D - 0.8) / 2);
+  rput(artRB(mw + 0.4, 0.1, 0.26, 0.04, 1), '#FFF3E0', mx0 + mw / 2 + 0.18, MR_H + 0.02, -0.92);
+  rput(artRB(0.2, MR_H + 0.28, D - 1.0, 0.05), ART_CREAM, x1 + 0.1, (MR_H + 0.28) / 2, -1.0 - (D - 1.0) / 2);
+  for (let s = 0; s < nShafts; s++) {                            // motor + brake drum behind each pulley
+    const sx = layout.shaftX[s];
+    rput(artRB(0.7, 0.55, 0.7, 0.1), '#6E7787', sx - 0.6, 0.3, -3.3);
+    rput(artCyl(0.18, 0.18, 0.5, 12), '#E8473F', sx - 0.6, 0.62, -3.3, 0, 0, Math.PI / 2);
+  }
+  // water tower (left of roof)
+  const wx = x0 + 1.5, wz = -2.6;
+  for (const [dx, dz] of [[-0.55, -0.55], [0.55, -0.55], [-0.55, 0.55], [0.55, 0.55]]) rput(artCyl(0.06, 0.07, 1.4, 6), '#8A5A3C', wx + dx, 0.7, wz + dz);
+  rput(artCyl(0.85, 0.85, 0.1, 16), '#8A5A3C', wx, 1.42, wz);
+  rput(artCyl(0.72, 0.75, 1.3, 16), '#B97A4C', wx, 2.12, wz);
+  for (const y of [1.7, 2.15, 2.6]) rput(artTor(0.75, 0.035, 5, 20), '#6B5B4E', wx, y, wz, Math.PI / 2);
+  rput(artCone(0.88, 0.7, 16), '#8A5A3C', wx, 3.12, wz);
+  rput(artCyl(0.025, 0.025, 0.7, 6), '#6B5B4E', wx, 3.7, wz);
+  // hedges and flower planters along the front parapet
+  for (let x = x0 + 3.0; x < mx0 - 0.5; x += 1.2) rput(artRB(0.95, 0.45, 0.5, 0.2), '#58A848', x, 0.42, -0.55);
+  for (const x of [x0 + 0.5, mx0 - 0.4]) { rput(artRB(0.6, 0.35, 0.45, 0.06), '#D98A5E', x, 0.35, -0.55); for (let k = 0; k < 3; k++) rput(artSph(0.1, 8, 6), artPick(artRng(k + 5), ['#FF5FAE', '#FFC928', '#FFFFFF']), x - 0.18 + k * 0.18, 0.6, -0.55); }
+  // "GOING UP" sign between the water tower and the machine room
+  const signW = Math.min(3.2, mx0 - x0 - 3.2), signX = (x0 + 2.6 + mx0) / 2;
+  if (signW > 1.2) {
+    for (const dx of [-signW / 2 + 0.2, signW / 2 - 0.2]) rput(artCyl(0.05, 0.05, 1.3, 6), '#6B5B4E', signX + dx, 0.65, -3.9);
+    rput(artRB(signW + 0.16, 0.86, 0.12, 0.06), '#E8473F', signX, 1.55, -3.9);
+    const st = artCachedTex('goingup', 512, 128, (g) => {
+      g.fillStyle = '#FFF6E5'; artRound(g, 0, 0, 512, 128, 28); g.fill();
+      const word = 'GOING UP!', cols = FLOOR_THEMES.map((t) => t.color);
+      g.font = '900 86px "Arial Black", Verdana, sans-serif'; g.textBaseline = 'middle'; g.lineJoin = 'round';
+      let x = 256 - g.measureText(word).width / 2;
+      for (let k = 0; k < word.length; k++) { const ch = word[k], w = g.measureText(ch).width; g.lineWidth = 10; g.strokeStyle = '#2B2B3A'; g.strokeText(ch, x, 68); g.fillStyle = cols[k % 8]; g.fillText(ch, x, 68); x += w; }
+    });
+    RB.add(artPln(signW, 0.72), artTexMat('goingup', st, true), artXf(signX, H + 1.55, -3.83), '#ffffff');
+  }
+  RB.flush(group, owned, true, true);
+  // antenna (blinks), flag (flutters), bunting (sways)
+  const ant = new THREE.Group(); ant.position.set(x1 - 0.7, H + MR_H + 0.28, -3.0); group.add(ant);
+  { const ab = new ArtBatch();
+    ab.add(artCyl(0.05, 0.08, 2.4, 8), shiny, artXf(0, 1.2, 0), '#C9CED6');
+    for (const y of [0.7, 1.3, 1.8]) ab.add(artBox(0.7 - y * 0.25, 0.04, 0.04), shiny, artXf(0, y, 0), '#C9CED6');
+    ab.flush(ant, owned, true, true); }
+  const blinkMat = new THREE.MeshBasicMaterial({ color: '#FF4040', toneMapped: false }); const blink = new THREE.Mesh(artSph(0.11, 10, 8), blinkMat);
+  blink.position.y = 2.45; ant.add(blink);
+  const blinkHalo = new THREE.Sprite(new THREE.SpriteMaterial({ map: artRadialTex(), color: '#FF5040', blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
+  blinkHalo.position.y = 2.45; blinkHalo.scale.set(1.1, 1.1, 1); ant.add(blinkHalo);
+  const flag = new THREE.Mesh(artPln(0.6, 0.38), artMatC('flag', () => new THREE.MeshStandardMaterial({ color: '#FF5FAE', roughness: 0.8, side: THREE.DoubleSide })));
+  flag.geometry = artGeo('flagGeo', () => new THREE.PlaneGeometry(0.6, 0.38).translate(0.3, 0, 0));
+  flag.position.set(wx + 0.03, H + 3.85, wz); group.add(flag);
+  const bunt = new THREE.Group(); group.add(bunt);
+  { const bb = new ArtBatch(), a = new THREE.Vector3(wx + 0.2, H + 3.2, wz + 0.2), b = new THREE.Vector3(x1 - 0.7, H + MR_H + 1.4, -3.0);
+    const n = 14, pts = [];
+    for (let k = 0; k <= n; k++) { const t = k / n; pts.push(new THREE.Vector3().lerpVectors(a, b, t).add(new THREE.Vector3(0, -Math.sin(t * Math.PI) * 0.9, 0.6 * Math.sin(t * Math.PI)))); }
+    for (let k = 0; k < n; k++) { bb.add(artCyl(1, 1, 1, 4), clay, artXfLine(pts[k], pts[k + 1], 0.015), '#6B5B4E');
+      const m = pts[k].clone().lerp(pts[k + 1], 0.5); bb.add(artTri(), clay, artXf(m.x, m.y, m.z, 0, 0, 0, 0.34, 0.42, 1), FLOOR_THEMES[k % 8].color); }
+    bb.flush(bunt, owned, false, false); }
+  ticks.push((t) => {
+    const on = (t % 1) < 0.5; blinkMat.color.set(on ? '#FF4040' : '#5A1A1A'); blinkHalo.visible = on;
+    flag.rotation.y = Math.sin(t * 3.1) * 0.35; flag.scale.y = 1 + Math.sin(t * 5.3) * 0.06;
+    bunt.position.y = Math.sin(t * 1.7) * 0.04;
+  });
+
+  // ---- floors
+  const floors = [];
+  for (let i = 0; i < nFloors; i++) floors.push(artBuildFloor(i, layout, group, owned, ticks));
+  // exit-sign / badge rows are part of each floor batch; shell flush last so its mesh is one draw call
+  SB.flush(group, owned, false, true);
+
+  // ---- shafts: cables, counterweight, pulley, per-floor "car is here" lamps
+  const shafts = [];
+  const lampGeo = artSph(0.065, 10, 8);
+  for (let s = 0; s < nShafts; s++) {
+    const sx = layout.shaftX[s], sg = new THREE.Group(); group.add(sg);
+    const wheelY = H + 1.35, wheelZ = -3.37, wheelR = 0.97;
+    const wb = new ArtBatch();
+    wb.add(artTor(wheelR, 0.07, 6, 28), shiny, artXf(0, 0, 0, 0, Math.PI / 2, 0), '#C9A24A');
+    for (let k = 0; k < 3; k++) wb.add(artBox(0.05, wheelR * 2, 0.08), clay, artXf(0, 0, 0, k * Math.PI / 3, 0, 0), '#E8473F');
+    wb.add(artCyl(0.16, 0.16, 0.2, 12), shiny, artXf(0, 0, 0, 0, 0, Math.PI / 2), '#8C96A8');
+    const wheel = new THREE.Group(); wheel.position.set(sx, wheelY, wheelZ); sg.add(wheel); wb.flush(wheel, owned, true, true);
+    const cableMat = artMatC('cable', () => new THREE.MeshStandardMaterial({ color: '#2E333D', roughness: 0.6 }));
+    const cg = artGeo('cable2', () => { const a = new THREE.BoxGeometry(0.035, 1, 0.035).translate(-0.1, 0.5, 0), b = new THREE.BoxGeometry(0.035, 1, 0.035).translate(0.1, 0.5, 0); return mergeGeometries([a, b]); });
+    const cable = new THREE.Mesh(cg, cableMat); cable.position.set(sx, 0, wheelZ + wheelR); sg.add(cable);
+    const cwCable = new THREE.Mesh(cg, cableMat); cwCable.position.set(sx, 0, wheelZ - wheelR); sg.add(cwCable);
+    const cw = new THREE.Group(); sg.add(cw);
+    { const cb = new ArtBatch(); cb.add(artRB(0.95, 1.1, 0.26, 0.06), clay, artXf(0, 0, 0), '#6E7787');
+      for (const y of [-0.3, 0, 0.3]) cb.add(artBox(0.97, 0.04, 0.28), clay, artXf(0, y, 0), '#5A6272');
+      cb.add(artRB(0.5, 0.1, 0.1, 0.03, 1), shiny, artXf(0, 0.6, 0), '#C9A24A'); cb.flush(cw, owned, true, true); }
+    const lampMat = new THREE.MeshBasicMaterial({ toneMapped: false }); owned.push(lampMat);
+    const lamps = new THREE.InstancedMesh(lampGeo, lampMat, nFloors);
+    const off = new THREE.Color('#5A4A2A'), on = new THREE.Color('#FFC93C').multiplyScalar(1.4);
+    for (let f = 0; f < nFloors; f++) { lamps.setMatrixAt(f, artXf(sx + 0.62, f * FH + 2.53, -1.13)); lamps.setColorAt(f, off); }
+    sg.add(lamps);
+    let lit = -1, lastY = null;
+    shafts.push({ group: sg, index: s, setCarY(y) {
+      if (y === lastY) return; lastY = y;
+      const carTop = y + ART.CAR_H + 0.05, wheelBottom = wheelY;
+      cable.position.y = carTop; cable.scale.y = Math.max(0.01, wheelBottom - carTop);
+      const cwY = Math.max(0.7, H - 0.9 - y);                      // counterweight moves the other way
+      cw.position.set(sx, cwY, wheelZ - wheelR);
+      cwCable.position.y = cwY + 0.6; cwCable.scale.y = Math.max(0.01, wheelBottom - cwY - 0.6);
+      wheel.rotation.x = -y / wheelR;
+      const f = Math.round(y / FH), here = Math.abs(y - f * FH) < 0.35 ? f : -1;
+      if (here !== lit) {
+        if (lit >= 0 && lit < nFloors) lamps.setColorAt(lit, off);
+        if (here >= 0 && here < nFloors) lamps.setColorAt(here, on);
+        lit = here; lamps.instanceColor.needsUpdate = true;
+      }
+    } });
+    shafts[s].setCarY(0);
+  }
+
+  scene.add(group);
+  const live = { tick: (t, dt) => { for (const f of ticks) f(t, dt); } };
+  artLive.add(live);
+  let disposed = false;
+  return { group, floors, shafts, dispose() {
+    if (disposed) return; disposed = true; artLive.delete(live);
+    if (group.parent) group.parent.remove(group);
+    for (const g of owned) g.dispose();
+  } };
+}
+
+/* One floor: walls, windows, floor, lamps, doors, stairs, badges and its theme props. */
+function artBuildFloor(i, layout, parent, owned, ticks) {
+  const th = FLOOR_THEMES[i % 8], id = th.id, FH = ART.FLOOR_H, SL = ART.SLAB, D = ART.DEPTH, RW = ART.ROOM_W;
+  const { x0, nFloors } = layout, y = i * FH, CH = FH - SL;         // CH = room clear height
+  const fg = new THREE.Group(); parent.add(fg);
+  const B = new ArtBatch(), clay = artClay(), shiny = artShiny(), glow = artGlow(), glass = artGlass();
+  const r = artRng(1000 + i * 77);
+  const X = (u) => x0 + u;
+  const P = (geo, hex, u, yy, z, rx = 0, ry = 0, rz = 0, sx = 1, sy = sx, sz = sx, mat = clay) => B.add(geo, mat, artXf(X(u), y + yy, z, rx, ry, rz, sx, sy, sz), hex);
+  const STAIR_W = 1.45, WALL_L = STAIR_W, WALL_W = RW - STAIR_W;
+  const accent = th.color, dark = id === 'stars';
+  // back wall (wallpaper), stair-well wall, skirting and crown, floor
+  B.add(artPln(WALL_W, CH), artTexMat('wall' + id, artWallTex(id)), artXf(X(WALL_L + WALL_W / 2), y + CH / 2, -D), '#ffffff');
+  P(artPln(STAIR_W, CH), '#E6DCCB', STAIR_W / 2, CH / 2, -D);
+  B.add(artPln(WALL_W, D - 0.1), artTexMat('floor' + id, artFloorTex(id)), artXf(X(WALL_L + WALL_W / 2), y + 0.004, -0.1 - (D - 0.1) / 2, -Math.PI / 2), '#ffffff');
+  P(artBox(WALL_W, 0.14, 0.05), accent, WALL_L + WALL_W / 2, 0.07, -D + 0.025);
+  P(artBox(WALL_W, 0.08, 0.06), dark ? '#3A4A8A' : '#FFF3E0', WALL_L + WALL_W / 2, CH - 0.04, -D + 0.03);
+  P(artRB(0.12, CH, 1.45, 0.04, 1), '#E9DFCF', STAIR_W, CH / 2, -D + 0.725);   // stairwell partition (behind the door line)
+  // windows showing sky
+  for (const u of [3.75, 5.45]) {
+    P(artRB(1.14, 1.24, 0.08, 0.04), dark ? '#C9D2F0' : '#FFFFFF', u, 1.72, -D + 0.04);
+    B.add(artPln(0.98, 1.08), artTexMat('win' + (dark ? 'n' : 'd'), artSkyWinTex(dark), true), artXf(X(u), y + 1.72, -D + 0.085), '#ffffff');
+    P(artBox(0.05, 1.08, 0.03), '#FFFFFF', u, 1.72, -D + 0.1); P(artBox(0.98, 0.05, 0.03), '#FFFFFF', u, 1.86, -D + 0.1);
+    P(artRB(1.26, 0.07, 0.18, 0.03, 1), '#FFF3E0', u, 1.07, -D + 0.09);
+  }
+  // ceiling lamps + light pools on the floor
+  const shadeCol = artMixHex(accent, '#ffffff', 0.15);
+  for (const u of [3.2, 5.3]) {
+    P(artCyl(0.012, 0.012, 0.32, 4), '#6B5B4E', u, CH - 0.16, -2.7);
+    P(artSph(0.3, 14, 6, 0, Math.PI * 2, 0, Math.PI / 2), shadeCol, u, CH - 0.5, -2.7);
+    P(artSph(0.11, 10, 6), '#FFF1C8', u, CH - 0.52, -2.7, 0, 0, 0, 1, 1, 1, glow);
+    B.add(artPln(2.6, 2.2), artPoolM(), artXf(X(u), y + 0.012, -2.5, -Math.PI / 2), dark ? '#3A3050' : '#5E4A2E');
+    B.add(artPln(2.0, 1.4), artPoolM(), artXf(X(u), y + CH - 0.75, -D + 0.12), dark ? '#2A2440' : '#4A3A24');
+  }
+  // room door (back wall) with frame, hallway behind and the floor's sign above
+  const rdx = layout.roomDoorX - x0;
+  P(artPln(0.9, 2.05), '#7A5A44', rdx, 1.03, -D + 0.012);
+  P(artRB(0.14, 2.2, 0.12, 0.04, 1), accent, rdx - 0.52, 1.1, -D + 0.06); P(artRB(0.14, 2.2, 0.12, 0.04, 1), accent, rdx + 0.52, 1.1, -D + 0.06);
+  P(artRB(1.18, 0.14, 0.12, 0.04, 1), accent, rdx, 2.17, -D + 0.06);
+  B.add(artPln(0.8, 0.35), artTexMat('signicon' + i, artSignTex(i, 'icon'), true), artXf(X(rdx), y + 2.45, -D + 0.02), '#ffffff');
+  const roomDoor = new THREE.Group(); roomDoor.position.set(X(rdx - 0.45), y, -D + 0.05); fg.add(roomDoor);
+  { const db = new ArtBatch(), dc = artMixHex(accent, '#ffffff', 0.55);
+    db.add(artRB(0.9, 2.04, 0.06, 0.03, 1), clay, artXf(0.45, 1.02, 0), dc);
+    db.add(artRB(0.6, 0.7, 0.07, 0.03, 1), clay, artXf(0.45, 1.45, 0.005), artMixHex(accent, '#ffffff', 0.25));
+    db.add(artRB(0.6, 0.55, 0.07, 0.03, 1), clay, artXf(0.45, 0.55, 0.005), artMixHex(accent, '#ffffff', 0.25));
+    db.add(artSph(0.05, 8, 6), shiny, artXf(0.78, 1.0, 0.06), ART_BRASS);
+    db.flush(roomDoor, owned, true, true); }
+  // staircase: zig-zag flights up to the next floor, door at the foot, green exit sign
+  if (i < nFloors - 1) {
+    const rise = 0.25, run = 0.145;
+    P(artBox(0.3, 0.16, 1.25), '#F4EBDD', 0.15, -0.08, -3.78);                           // floor landing
+    for (let k = 0; k < 6; k++) P(artBox(run + 0.01, 0.3, 0.6), k % 2 ? '#F4EBDD' : '#EADFCC', 0.3 + run * (k + 0.5), (k + 1) * rise - 0.15, -4.1);
+    P(artBox(0.3, 0.16, 1.25), '#F4EBDD', 1.3, 1.5 - 0.08, -3.78);                       // half landing
+    for (let k = 0; k < 6; k++) P(artBox(run + 0.01, 0.3, 0.6), k % 2 ? '#F4EBDD' : '#EADFCC', 1.15 - run * (k + 0.5), 1.5 + (k + 1) * rise - 0.15, -3.47);
+    const ang = Math.atan2(1.5, 0.87), len = Math.hypot(1.5, 0.87) + 0.1;
+    P(artRB(len, 0.06, 0.06, 0.025, 1), accent, 0.725, 0.75 + 0.85, -3.82, 0, 0, ang);
+    P(artRB(len, 0.06, 0.06, 0.025, 1), accent, 0.725, 2.25 + 0.85, -3.17, 0, 0, -ang);
+    for (const [u, yy, z] of [[0.3, 0.42, -3.82], [1.15, 1.92, -3.82], [1.15, 1.92, -3.17], [0.3, 3.42, -3.17]]) P(artCyl(0.025, 0.025, 0.85, 6), '#8C96A8', u, yy, z, 0, 0, 0, 1, 1, 1, shiny);
+  } else {
+    P(artBox(STAIR_W - 0.1, 0.16, 1.3), '#F4EBDD', STAIR_W / 2, -0.08, -3.8);
+  }
+  const sdx = layout.stairX - x0, SDZ = -2.95;
+  P(artRB(0.12, 2.15, 0.14, 0.04, 1), '#2ECC71', sdx - 0.48, 1.075, SDZ); P(artRB(0.12, 2.15, 0.14, 0.04, 1), '#2ECC71', sdx + 0.48, 1.075, SDZ);
+  P(artRB(1.08, 0.14, 0.14, 0.04, 1), '#2ECC71', sdx, 2.15, SDZ);
+  P(artRB(0.66, 0.34, 0.08, 0.03, 1), '#1FAF5C', sdx, 2.45, SDZ);
+  B.add(artPln(0.6, 0.3), artTexMat('exit', artExitTex(), true), artXf(X(sdx), y + 2.45, SDZ + 0.045), '#ffffff');
+  B.add(artPln(1.0, 0.8), artPoolM(), artXf(X(sdx), y + 2.45, SDZ + 0.06), '#1A5A30');
+  const stairDoor = new THREE.Group(); stairDoor.position.set(X(sdx - 0.42), y, SDZ); fg.add(stairDoor);
+  { const db = new ArtBatch();
+    db.add(artRB(0.84, 2.06, 0.06, 0.03, 1), clay, artXf(0.42, 1.03, 0), '#DFF5E6');
+    db.add(artRB(0.36, 0.5, 0.07, 0.03, 1), clay, artXf(0.42, 1.45, 0.004), '#9FD4FF');
+    db.add(artBox(0.84, 0.08, 0.07), clay, artXf(0.42, 0.95, 0.004), '#2ECC71');
+    db.add(artSph(0.05, 8, 6), shiny, artXf(0.74, 1.0, 0.05), ART_CHROME);
+    db.flush(stairDoor, owned, true, true); }
+  // shaft landings: brass jambs, threshold, floor badge and the hanging half-moon indicator
+  for (let s = 0; s < layout.nShafts; s++) {
+    const sx = layout.shaftX[s] - x0;
+    for (const dx of [-1.02, 1.02]) P(artRB(0.08, CH, 0.1, 0.03, 1), '#C9A24A', sx + dx, CH / 2, -1.23, 0, 0, 0, 1, 1, 1, shiny);
+    P(artBox(2.0, 0.025, 0.1), '#C9A24A', sx, 0.012, -1.16, 0, 0, 0, 1, 1, 1, shiny);
+    P(artCyl(0.2, 0.2, 0.05, 14, false, -Math.PI / 2, Math.PI), '#C9A24A', sx + 0.62, CH, -1.16, Math.PI / 2, 0, 0, 1, 1, 1, shiny);
+    B.add(artPln(0.7, 0.31), artTexMat('signicon' + i, artSignTex(i, 'icon'), true), artXf(X(sx - 0.62), y + 2.38, -1.17), '#ffffff');
+  }
+  // theme props
+  const anims = artThemeProps(id, { P, B, X, y, r, fg, owned, accent, clay, shiny, glow, glass });
+  B.flush(fg, owned, true, true);
+  // row highlight (hint / tap)
+  const glowMat = new THREE.MeshBasicMaterial({ map: artCachedTex('rowglow', 4, 64, (g) => { const gr = g.createLinearGradient(0, 0, 0, 64); gr.addColorStop(0, 'rgba(255,255,255,0.15)'); gr.addColorStop(1, 'rgba(255,255,255,1)'); g.fillStyle = gr; g.fillRect(0, 0, 4, 64); }),
+    color: '#FFE9A8', transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+  owned.push(glowMat);
+  const row = new THREE.Mesh(artPln(layout.width, CH), glowMat); row.position.set((layout.x0 + layout.x1) / 2, y + CH / 2, -0.03);
+  row.visible = false; row.renderOrder = 3; fg.add(row);
+  let glowOn = false, glowK = 0;
+  ticks.push((t, dt) => {
+    glowK += ((glowOn ? 1 : 0) - glowK) * Math.min(1, dt * 8);
+    row.visible = glowK > 0.01; glowMat.opacity = glowK * (0.16 + 0.06 * Math.sin(t * 6));
+    for (const a of anims) a(t, dt);
+  });
+  return { group: fg, index: i, theme: th, y,
+    stairDoor: new THREE.Vector3(layout.stairX, y, ART.LANE_Z),
+    roomDoor: new THREE.Vector3(layout.roomDoorX, y, ART.LANE_Z),
+    setStairDoor(o) { stairDoor.rotation.y = -Math.max(0, Math.min(1, o)) * 1.5; },
+    setRoomDoor(o) { roomDoor.rotation.y = -Math.max(0, Math.min(1, o)) * 1.3; },
+    setGlow(on) { glowOn = !!on; } };
+}
+
+/* Theme props for one floor. Static parts go into the floor batch; animated parts return tick functions. */
+function artThemeProps(id, k) {
+  const { P, B, X, y, r, fg, owned, accent, shiny, glow, glass } = k, D = ART.DEPTH, anims = [];
+  const sub = (u, yy, z) => { const g = new THREE.Group(); g.position.set(X(u), y + yy, z); fg.add(g); return g; };
+  const flushTo = (bb, g, cast = true) => bb.flush(g, owned, cast, true);
+  const chair = (u, z, ry, col) => { P(artRB(0.38, 0.07, 0.38, 0.03, 1), col, u, 0.46, z, 0, ry); P(artRB(0.38, 0.4, 0.06, 0.03, 1), col, u - Math.sin(ry) * 0.17, 0.68, z - Math.cos(ry) * 0.17, 0, ry);
+    for (const [a, b] of [[-0.14, -0.14], [0.14, -0.14], [-0.14, 0.14], [0.14, 0.14]]) P(artCyl(0.022, 0.022, 0.45, 5), '#6B5B4E', u + a, 0.22, z + b); };
+  const books = (u0, u1, yy, z, hMax) => { for (let u = u0; u < u1 - 0.05;) { const w = 0.05 + r() * 0.05, h = hMax * (0.7 + r() * 0.3); P(artBox(w - 0.005, h, 0.24), artPick(r, ['#E8413A', '#2F6FE0', '#FFC928', '#35C24A', '#9A55E6', '#FF8A1F', '#FFF3E0', '#19C2D6']), u + w / 2, yy + h / 2, z); u += w; } };
+  if (id === 'lobby') {
+    P(artRB(0.95, 0.03, 0.6, 0.01, 1), '#B5553F', 2.2, 0.015, -3.85);
+    P(artRB(1.6, 0.95, 0.62, 0.08), '#C98B55', 5.0, 0.475, -3.8); P(artRB(1.72, 0.08, 0.74, 0.03), '#FFF3E0', 5.0, 0.99, -3.8);
+    P(artRB(1.62, 0.12, 0.02, 0.01, 1), accent, 5.0, 0.72, -3.48);
+    P(artRB(0.5, 0.34, 0.05, 0.02, 1), '#3B4A6B', 4.6, 1.28, -3.95); P(artPln(0.42, 0.26), '#9FD4FF', 4.6, 1.28, -3.92, 0, 0, 0, 1, 1, 1, glow); P(artBox(0.06, 0.12, 0.06), '#3B4A6B', 4.6, 1.08, -3.95);
+    P(artCyl(0.12, 0.12, 0.02, 12), ART_BRASS, 5.45, 1.04, -3.7, 0, 0, 0, 1, 1, 1, shiny); P(artSph(0.09, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2), ART_BRASS, 5.45, 1.05, -3.7, 0, 0, 0, 1, 1, 1, shiny);
+    P(artCyl(0.25, 0.2, 0.42, 12), '#D98A5E', 6.08, 0.21, -3.95); P(artCyl(0.05, 0.07, 1.2, 6), '#8A5A3C', 6.08, 1.0, -3.95);
+    for (let a = 0; a < 7; a++) { const ang = a / 7 * Math.PI * 2; P(artSph(0.5, 10, 6), a % 2 ? '#58A848' : '#6BBF59', 6.08 + Math.cos(ang) * 0.32, 1.55, -3.95 - Math.sin(ang) * 0.32, 0, ang, -0.5, 1, 0.12, 0.3); }
+    P(artRB(1.15, 0.42, 0.62, 0.12), '#6FA8FF', 3.35, 0.3, -4.05); P(artRB(1.15, 0.5, 0.18, 0.08), '#5A92E8', 3.35, 0.68, -4.3);
+    for (const du of [-0.58, 0.58]) P(artRB(0.16, 0.5, 0.62, 0.07), '#5A92E8', 3.35 + du, 0.4, -4.05);
+    P(artCyl(0.28, 0.28, 0.06, 20), '#FFF3E0', 4.6, 2.2, -D + 0.04, Math.PI / 2); P(artTor(0.28, 0.035, 6, 20), accent, 4.6, 2.2, -D + 0.07);
+    P(artBox(0.03, 0.18, 0.02), '#2B2B3A', 4.6, 2.27, -D + 0.09); P(artBox(0.13, 0.03, 0.02), '#2B2B3A', 4.66, 2.2, -D + 0.09);
+    for (const u of [2.95, 3.85]) { P(artCyl(0.035, 0.05, 0.8, 8), ART_BRASS, u, 0.4, -2.1, 0, 0, 0, 1, 1, 1, shiny); P(artSph(0.06, 8, 6), ART_BRASS, u, 0.82, -2.1, 0, 0, 0, 1, 1, 1, shiny); P(artCyl(0.14, 0.16, 0.04, 12), ART_BRASS, u, 0.02, -2.1, 0, 0, 0, 1, 1, 1, shiny); }
+    P(artCyl(0.03, 0.03, 0.9, 6), '#C0392B', 3.4, 0.66, -2.1, 0, 0, Math.PI / 2);
+  } else if (id === 'cafe') {
+    P(artRB(1.9, 1.0, 0.62, 0.08), '#8A5A3C', 5.15, 0.5, -3.85); P(artRB(2.0, 0.08, 0.72, 0.03), '#FFF3E0', 5.15, 1.04, -3.85);
+    for (let s = 0; s < 6; s++) P(artBox(0.15, 0.7, 0.02), s % 2 ? '#FFFFFF' : accent, 4.4 + s * 0.3, 0.55, -3.535);
+    P(artRB(0.5, 0.55, 0.4, 0.06), ART_CHROME, 5.7, 1.36, -3.95, 0, 0, 0, 1, 1, 1, shiny); P(artRB(0.52, 0.08, 0.42, 0.03), '#2B2B3A', 5.7, 1.66, -3.95);
+    P(artSph(0.05, 8, 6), accent, 5.55, 1.45, -3.74); P(artCyl(0.05, 0.04, 0.08, 8), '#FFFFFF', 5.7, 1.12, -3.8);
+    P(artCyl(0.03, 0.03, 0.16, 6), ART_BRASS, 4.6, 1.16, -3.85, 0, 0, 0, 1, 1, 1, shiny); P(artCyl(0.3, 0.3, 0.03, 18), ART_BRASS, 4.6, 1.25, -3.85, 0, 0, 0, 1, 1, 1, shiny);
+    P(artCyl(0.22, 0.22, 0.2, 18), '#FF9ECF', 4.6, 1.37, -3.85); P(artCyl(0.23, 0.23, 0.05, 18), '#FFFFFF', 4.6, 1.48, -3.85); P(artSph(0.05, 8, 6), '#E53935', 4.6, 1.54, -3.85);
+    P(artSph(0.29, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), '#DDF4FF', 4.6, 1.27, -3.85, 0, 0, 0, 1, 1.1, 1, glass);
+    P(artRB(0.66, 0.84, 0.05, 0.03), '#8A5A3C', 4.6, 1.8, -D + 0.03); P(artRB(0.56, 0.74, 0.03, 0.02, 1), '#2F3B35', 4.6, 1.8, -D + 0.06);
+    for (let k = 0; k < 4; k++) P(artBox(0.3 + (k % 2) * 0.12, 0.03, 0.01), '#FFF4D6', 4.55, 2.02 - k * 0.15, -D + 0.08);
+    for (const [u, z] of [[3.15, -3.4], [4.35, -2.25]]) {
+      P(artCyl(0.42, 0.42, 0.05, 18), '#FFF3E0', u, 0.74, z); P(artCyl(0.04, 0.05, 0.7, 8), '#6B5B4E', u, 0.37, z); P(artCyl(0.22, 0.24, 0.04, 14), '#6B5B4E', u, 0.02, z);
+      P(artCyl(0.055, 0.045, 0.09, 10), '#FFFFFF', u + 0.12, 0.81, z); P(artCyl(0.09, 0.09, 0.01, 12), '#FFFFFF', u + 0.12, 0.77, z); P(artCyl(0.05, 0.05, 0.01, 10), '#7A4A2A', u + 0.12, 0.855, z);
+      chair(u - 0.6, z, Math.PI / 2, accent); chair(u + 0.6, z, -Math.PI / 2, accent);
+    }
+  } else if (id === 'library') {
+    const shelf = (u, w, h) => { P(artRB(w, h, 0.4, 0.04), '#8A5A3C', u, h / 2, -D + 0.22); P(artBox(w - 0.1, h - 0.1, 0.02), '#6B4530', u, h / 2, -D + 0.04);
+      for (let yy = 0.06; yy < h - 0.2; yy += 0.42) { P(artBox(w - 0.06, 0.04, 0.36), '#A87148', u, yy, -D + 0.24); books(u - w / 2 + 0.06, u + w / 2 - 0.06, yy + 0.02, -D + 0.24, 0.32); } };
+    shelf(4.6, 0.66, 2.3); shelf(6.08, 0.56, 2.3); shelf(3.75, 1.0, 0.9);
+    P(artCyl(0.04, 0.06, 0.1, 8), ART_BRASS, 3.95, 0.98, -D + 0.24, 0, 0, 0, 1, 1, 1, shiny); P(artSph(0.16, 14, 10), '#4FA3E8', 3.95, 1.2, -D + 0.24); P(artSph(0.1, 8, 6), '#5BC25A', 4.0, 1.25, -D + 0.33, 0, 0, 0, 1, 0.8, 0.5); P(artTor(0.18, 0.012, 4, 18, Math.PI), ART_BRASS, 3.95, 1.2, -D + 0.24, 0, Math.PI / 2, 0, 1, 1, 1, shiny);
+    P(artRB(2.4, 0.03, 1.5, 0.02, 1), '#B5553F', 4.4, 0.015, -3.1); P(artRB(2.0, 0.035, 1.1, 0.02, 1), '#E8C468', 4.4, 0.02, -3.1); P(artRB(1.8, 0.04, 0.9, 0.02, 1), '#C96A4F', 4.4, 0.025, -3.1);
+    P(artRB(0.8, 0.4, 0.72, 0.1), '#2F6FE0', 3.05, 0.3, -3.55); P(artRB(0.8, 0.55, 0.2, 0.08), '#2A5FC8', 3.05, 0.75, -3.85); for (const du of [-0.38, 0.38]) P(artRB(0.14, 0.55, 0.72, 0.06), '#2A5FC8', 3.05 + du, 0.45, -3.55);
+    P(artCyl(0.025, 0.025, 1.5, 6), '#6B5B4E', 3.65, 0.75, -3.9); P(artCyl(0.16, 0.2, 0.04, 12), '#6B5B4E', 3.65, 0.02, -3.9); P(artCone(0.22, 0.25, 14, true), '#FFDD57', 3.65, 1.55, -3.9); P(artSph(0.08, 8, 6), '#FFF1C8', 3.65, 1.47, -3.9, 0, 0, 0, 1, 1, 1, glow);
+    P(artSph(0.42, 14, 8), '#FFDD57', 5.25, 0.25, -2.4, 0, 0, 0, 1, 0.62, 1);
+    for (let k = 0; k < 4; k++) P(artRB(0.36, 0.08, 0.26, 0.02, 1), artPick(r, ['#E8413A', '#35C24A', '#FF8A1F', '#9A55E6']), 6.0, 0.04 + k * 0.08, -2.25, 0, k * 0.3);
+  } else if (id === 'play') {
+    P(artRB(0.5, 0.08, 0.6, 0.03), '#6FA8FF', 2.95, 1.15, -3.95);
+    for (const du of [-0.22, 0.22]) P(artCyl(0.03, 0.03, 1.2, 6), '#FF7A7A', 2.95 + du * 0.0 - 0.2, 0.6, -3.95 + du);
+    for (let k = 1; k < 5; k++) P(artCyl(0.02, 0.02, 0.44, 5), '#FFFFFF', 2.75, k * 0.23, -3.95, Math.PI / 2);
+    P(artRB(1.7, 0.06, 0.5, 0.03), '#FFDD57', 3.9, 0.62, -3.95, 0, 0, -0.62); for (const dz of [-0.25, 0.25]) P(artRB(1.7, 0.12, 0.04, 0.02, 1), '#FFB347', 3.9, 0.68, -3.95 + dz, 0, 0, -0.62);
+    P(artRB(1.7, 0.45, 0.12, 0.05), '#6FA8FF', 5.3, 0.225, -2.75); P(artRB(1.7, 0.45, 0.12, 0.05), '#6FA8FF', 5.3, 0.225, -4.05);
+    P(artRB(0.12, 0.45, 1.3, 0.05), '#6FA8FF', 4.45, 0.225, -3.4); P(artRB(0.12, 0.45, 1.3, 0.05), '#6FA8FF', 6.15, 0.225, -3.4);
+    for (let k = 0; k < 40; k++) P(artSph(0.09, 8, 6), artPick(r, ART_TOYS), 4.6 + r() * 1.4, 0.12 + r() * 0.26, -3.95 + r() * 1.1);
+    const bc = ['#E8413A', '#FFC928', '#2F6FE0', '#35C24A'];
+    P(artRB(0.3, 0.3, 0.3, 0.05), bc[0], 3.4, 0.15, -2.2, 0, 0.2); P(artRB(0.3, 0.3, 0.3, 0.05), bc[1], 3.72, 0.15, -2.25, 0, -0.1);
+    P(artRB(0.3, 0.3, 0.3, 0.05), bc[2], 3.55, 0.45, -2.22, 0, 0.5); P(artRB(0.28, 0.28, 0.28, 0.05), bc[3], 3.58, 0.74, -2.2, 0, 0.9);
+    P(artTor(0.45, 0.04, 6, 18, Math.PI * 0.6), '#C8782E', 6.0, 0.45, -4.05, 0, 0, Math.PI * 1.2);
+    P(artCap(0.14, 0.4), '#FFB347', 6.0, 0.62, -4.05, 0, 0, Math.PI / 2); P(artRB(0.2, 0.34, 0.2, 0.08), '#FFB347', 6.22, 0.85, -4.05, 0, 0, -0.4);
+    P(artRB(0.06, 0.3, 0.16, 0.03, 1), '#8A5A3C', 6.12, 0.92, -4.05, 0, 0, -0.4); for (const du of [-0.16, 0.16]) P(artCyl(0.03, 0.03, 0.42, 5), '#C8782E', 6.0 + du, 0.36, -4.05);
+    P(artSph(0.17, 12, 8), '#C8915A', 2.9, 0.18, -2.25); P(artSph(0.13, 12, 8), '#C8915A', 2.9, 0.44, -2.25); for (const du of [-0.1, 0.1]) P(artSph(0.05, 8, 6), '#C8915A', 2.9 + du, 0.55, -2.25);
+    P(artSph(0.05, 8, 6), '#F2D2B0', 2.9, 0.42, -2.13); P(artSph(0.08, 8, 6), '#F2D2B0', 2.9, 0.18, -2.1, 0, 0, 0, 1, 1, 0.5);
+    for (let k = 0; k < 11; k++) { const u = 1.7 + k * 0.44; P(artRB(0.2, 0.2, 0.02, 0.02, 1), ART_TOYS[k % 8], u, 2.38 - Math.sin(k / 10 * Math.PI) * 0.12, -D + 0.08, 0, 0, Math.PI / 4); }
+    P(artBox(4.6, 0.012, 0.012), '#6B5B4E', 3.9, 2.5, -D + 0.08);
+  } else if (id === 'pool') {
+    const pu = 4.4, pz = -3.35, pw = 2.6, pd = 1.5;
+    P(artRB(pw + 0.3, 0.3, 0.16, 0.06), '#F4F4F4', pu, 0.15, pz + pd / 2 + 0.08); P(artRB(pw + 0.3, 0.3, 0.16, 0.06), '#F4F4F4', pu, 0.15, pz - pd / 2 - 0.08);
+    P(artRB(0.16, 0.3, pd, 0.06), '#F4F4F4', pu - pw / 2 - 0.07, 0.15, pz); P(artRB(0.16, 0.3, pd, 0.06), '#F4F4F4', pu + pw / 2 + 0.07, 0.15, pz);
+    const water = new THREE.Mesh(artPln(pw, pd), artMatC('water', () => new THREE.MeshStandardMaterial({ map: artRippleTex(), roughness: 0.15, metalness: 0.1, emissive: '#1C8FA8', emissiveIntensity: 0.25 })));
+    water.rotation.x = -Math.PI / 2; water.position.set(X(pu), y + 0.24, pz); water.receiveShadow = true; fg.add(water);
+    for (const dz of [-0.2, 0.2]) P(artTor(0.16, 0.025, 5, 12, Math.PI), ART_CHROME, pu - pw / 2 - 0.05, 0.3, pz + pd / 2 - 0.3 + dz, 0, Math.PI / 2, 0, 1, 1, 1, shiny);
+    const duck = sub(pu + 0.5, 0.26, pz - 0.1);
+    { const db = new ArtBatch(); db.add(artSph(0.16, 12, 8), k.clay, artXf(0, 0.06, 0, 0, 0, 0, 1.2, 0.8, 1), '#FFD93D'); db.add(artSph(0.1, 12, 8), k.clay, artXf(0.12, 0.2, 0), '#FFD93D');
+      db.add(artRB(0.1, 0.04, 0.08, 0.02, 1), k.clay, artXf(0.23, 0.19, 0), '#FF8A1F'); db.add(artSph(0.018, 6, 4), k.clay, artXf(0.17, 0.24, 0.07), '#2B2B3A'); db.add(artSph(0.018, 6, 4), k.clay, artXf(0.17, 0.24, -0.07), '#2B2B3A');
+      flushTo(db, duck); duck.rotation.y = -0.9; }
+    P(artTor(0.24, 0.07, 8, 20), '#E53935', 2.95, 1.6, -D + 0.1);
+    for (let q = 0; q < 4; q++) P(artTor(0.24, 0.075, 8, 4, Math.PI / 6), '#FFFFFF', 2.95, 1.6, -D + 0.1, 0, 0, q * Math.PI / 2 + Math.PI / 6);
+    P(artSph(0.32, 16, 10), '#B68CFF', 6.05, 0.32, -4.1);
+    for (const dz of [0, 0.3]) { P(artCyl(0.025, 0.025, 0.45, 6), '#8C96A8', 6.0, 0.1, -2.25 + dz, 0, 0, Math.PI / 2, 1, 1, 1, shiny); for (const du of [-0.18, 0.18]) P(artCyl(0.09, 0.09, 0.07, 12), '#3B4A6B', 6.0 + du, 0.1, -2.25 + dz, 0, 0, Math.PI / 2); }
+    P(artRB(1.1, 0.03, 0.55, 0.01, 1), '#FF9ECF', 2.95, 0.015, -3.2); for (let s = 0; s < 3; s++) P(artBox(1.1, 0.035, 0.08), '#FFFFFF', 2.95, 0.02, -3.35 + s * 0.15);
+    anims.push((t) => { const o = artRippleTex().offset; o.x = (t * 0.03) % 1; o.y = Math.sin(t * 0.4) * 0.05; duck.position.y = y + 0.26 + Math.sin(t * 2.2) * 0.02; duck.rotation.z = Math.sin(t * 1.7) * 0.08; });
+  } else if (id === 'music') {
+    P(artRB(2.7, 0.14, 1.85, 0.05), '#7A4E32', 5.0, 0.07, -3.55); P(artBox(2.6, 0.02, 0.02), '#FFC93C', 5.0, 0.14, -2.62);
+    P(artRB(1.3, 1.1, 0.5, 0.06), '#2B2B3A', 3.2, 0.55, -4.15); P(artRB(1.36, 0.06, 0.56, 0.03), '#3A3A4A', 3.2, 1.13, -4.15);
+    P(artRB(1.24, 0.1, 0.3, 0.03), '#2B2B3A', 3.2, 0.78, -3.82); P(artBox(1.16, 0.04, 0.22), '#FFFFFF', 3.2, 0.85, -3.8);
+    for (let q = 0; q < 10; q++) if (q % 7 !== 2 && q % 7 !== 6) P(artBox(0.05, 0.03, 0.12), '#2B2B3A', 2.68 + q * 0.115, 0.885, -3.84);
+    P(artRB(0.5, 0.08, 0.3, 0.03), '#9A55E6', 3.2, 0.48, -3.35); P(artCyl(0.04, 0.04, 0.44, 6), '#6B5B4E', 3.2, 0.22, -3.35);
+    P(artCyl(0.32, 0.32, 0.3, 18), '#E8413A', 5.3, 0.48, -3.75, Math.PI / 2); P(artCyl(0.29, 0.29, 0.02, 18), '#FFF3E0', 5.3, 0.48, -3.59, Math.PI / 2);
+    P(artCyl(0.18, 0.18, 0.14, 16), '#E8413A', 4.75, 0.7, -3.4); P(artCyl(0.17, 0.17, 0.01, 16), '#FFFFFF', 4.75, 0.775, -3.4); P(artCyl(0.02, 0.02, 0.6, 5), '#8C96A8', 4.75, 0.33, -3.4, 0, 0, 0, 1, 1, 1, shiny);
+    P(artCyl(0.15, 0.15, 0.12, 14), '#E8413A', 5.45, 0.88, -3.75, 0.4);
+    P(artCyl(0.26, 0.26, 0.015, 18), ART_BRASS, 5.9, 1.25, -3.6, 0.25, 0, 0.1, 1, 1, 1, shiny); P(artCyl(0.02, 0.02, 1.1, 5), '#8C96A8', 5.9, 0.7, -3.6, 0, 0, 0, 1, 1, 1, shiny);
+    const gx = 6.05, gz = -2.95;
+    P(artSph(0.22, 14, 10), '#FF8A1F', gx, 0.42, gz, 0, 0, 0, 1, 1, 0.35); P(artSph(0.16, 14, 10), '#FF8A1F', gx, 0.68, gz, 0, 0, 0, 1, 1, 0.35);
+    P(artCyl(0.06, 0.06, 0.02, 12), '#2B2B3A', gx, 0.5, gz + 0.08, Math.PI / 2); P(artRB(0.07, 0.55, 0.04, 0.02, 1), '#7A4E32', gx, 1.0, gz); P(artRB(0.1, 0.14, 0.05, 0.02, 1), '#5A3825', gx, 1.32, gz);
+    P(artCyl(0.02, 0.02, 1.0, 5), '#2B2B3A', 4.3, 0.5, -2.75); P(artRB(0.4, 0.3, 0.02, 0.01, 1), '#2B2B3A', 4.3, 1.05, -2.72, -0.4);
+    B.add(artCone(0.75, 2.3, 18, true), artBeamM(), artXf(X(5.2), y + 1.4, -3.65), '#B48CFF');
+    P(artCyl(0.12, 0.16, 0.25, 10), '#2B2B3A', 5.2, 2.55, -3.65);
+    const noteGeo = artGeo('note', () => mergeGeometries([new THREE.SphereGeometry(0.07, 10, 6).scale(1.25, 0.9, 0.5), new THREE.BoxGeometry(0.02, 0.24, 0.02).translate(0.075, 0.12, 0), new THREE.BoxGeometry(0.1, 0.03, 0.02).translate(0.12, 0.22, 0).rotateZ(-0.3)]));
+    const noteMat = artMatC('notes', () => new THREE.MeshBasicMaterial({ toneMapped: false }));
+    const notes = new THREE.InstancedMesh(noteGeo, noteMat, 4); fg.add(notes);
+    const nc = ['#FFFFFF', '#FF5FAE', '#FFC93C', '#9A55E6'].map((h) => new THREE.Color(h)); nc.forEach((c, q) => notes.setColorAt(q, c));
+    const m = new THREE.Matrix4(), q4 = new THREE.Quaternion(), sv = new THREE.Vector3(), pv = new THREE.Vector3();
+    anims.push((t) => { for (let q = 0; q < 4; q++) { const ph = ((t * 0.35 + q / 4) % 1); const s = Math.sin(ph * Math.PI) * 1.6;
+      pv.set(X(3.0 + q * 0.18 + Math.sin(t * 2 + q) * 0.15), y + 1.3 + ph * 1.2, -3.85); sv.set(s, s, s); q4.setFromAxisAngle(sv.clone().set(0, 0, 1), Math.sin(t * 3 + q) * 0.3); m.compose(pv, q4, sv); notes.setMatrixAt(q, m); }
+      notes.instanceMatrix.needsUpdate = true; });
+  } else if (id === 'garden') {
+    for (const [u, w] of [[3.75, 1.3], [5.45, 1.3]]) { P(artRB(w, 0.5, 0.55, 0.05), '#B97A4C', u, 0.25, -4.1); P(artBox(w - 0.1, 0.04, 0.45), '#6B4A33', u, 0.5, -4.1); }
+    for (let q = 0; q < 3; q++) { const u = 3.35 + q * 0.4; P(artCyl(0.015, 0.015, 0.5, 4), '#3E8E3A', u, 0.75, -4.1); P(artSph(0.2, 10, 7), q % 2 ? '#58A848' : '#4C9A3E', u, 0.92, -4.1); for (let s = 0; s < 3; s++) P(artSph(0.055, 8, 6), '#E53935', u - 0.1 + s * 0.1, 0.8 + (s % 2) * 0.15, -3.93); }
+    for (let q = 0; q < 6; q++) { const u = 4.9 + q * 0.22; P(artCyl(0.012, 0.012, 0.35, 4), '#3E8E3A', u, 0.68, -4.05 + (q % 2) * 0.12); P(artSph(0.07, 8, 6), ART_TOYS[(q * 3) % 8], u, 0.88, -4.05 + (q % 2) * 0.12, 0, 0, 0, 1, 1.2, 1); }
+    for (let q = 0; q < 3; q++) { const u = 5.0 + q * 0.5; P(artCyl(0.13, 0.1, 0.22, 10), '#D98A5E', u, 0.11, -2.2); P(artCyl(0.012, 0.012, 0.3, 4), '#3E8E3A', u, 0.36, -2.2); P(artSph(0.1, 10, 6), ['#FF5FAE', '#FFC928', '#B68CFF'][q], u, 0.54, -2.2, 0, 0, 0, 1, 0.8, 1); }
+    P(artCyl(0.14, 0.16, 0.26, 12), '#6FA8FF', 3.3, 0.13, -2.25); P(artCyl(0.02, 0.03, 0.34, 6), '#6FA8FF', 3.52, 0.25, -2.25, 0, 0, -0.9); P(artTor(0.1, 0.02, 4, 10, Math.PI), '#6FA8FF', 3.3, 0.3, -2.25);
+    for (let q = 0; q < 5; q++) P(artBox(0.03, 0.03, D - 1.4), '#FFFFFF', 1.9 + q * 1.1, 2.55, -D / 2 - 0.6, 0.12);
+    const flowers = [];
+    for (const [u, z, h] of [[4.6, -4.2, 1.75], [6.12, -4.1, 1.55]]) {
+      const g = sub(u, 0, z), fb = new ArtBatch();
+      fb.add(artCyl(0.035, 0.045, h, 6), k.clay, artXf(0, h / 2, 0), '#3E8E3A');
+      fb.add(artSph(0.16, 8, 6), k.clay, artXf(0.12, h * 0.45, 0, 0, 0, -0.6, 1, 0.3, 0.6), '#58A848'); fb.add(artSph(0.16, 8, 6), k.clay, artXf(-0.12, h * 0.6, 0, 0, 0, 0.6, 1, 0.3, 0.6), '#58A848');
+      for (let q = 0; q < 12; q++) { const a = q / 12 * Math.PI * 2; fb.add(artSph(0.1, 8, 6), k.clay, artXf(Math.cos(a) * 0.22, h + Math.sin(a) * 0.22, 0.03, 0, 0, a, 1.3, 0.55, 0.3), '#FFC928'); }
+      fb.add(artCyl(0.14, 0.14, 0.08, 14), k.clay, artXf(0, h, 0.06, Math.PI / 2), '#7A4E2D');
+      flushTo(fb, g); flowers.push(g);
+      P(artCyl(0.2, 0.16, 0.3, 12), '#D98A5E', u, 0.15, z);
+    }
+    const bfly = sub(4.0, 1.8, -3.0), wing = new ArtBatch();
+    wing.add(artSph(0.1, 8, 6), k.clay, artXf(-0.08, 0, 0, 0, 0, 0.4, 1, 0.8, 0.15), '#FF9ECF'); wing.add(artSph(0.1, 8, 6), k.clay, artXf(0.08, 0, 0, 0, 0, -0.4, 1, 0.8, 0.15), '#FF9ECF');
+    wing.add(artCap(0.02, 0.1, 2, 6), k.clay, artXf(0, 0, 0), '#2B2B3A'); flushTo(wing, bfly, false);
+    anims.push((t) => { flowers.forEach((g, q) => { g.rotation.z = Math.sin(t * 1.3 + q * 2) * 0.05; });
+      bfly.position.set(X(4.0 + Math.sin(t * 0.5) * 1.2), y + 1.8 + Math.sin(t * 1.3) * 0.3, -3.0 + Math.cos(t * 0.5) * 0.4); bfly.scale.x = 0.3 + 0.7 * Math.abs(Math.sin(t * 14)); bfly.rotation.y = Math.cos(t * 0.5) > 0 ? 0.3 : -0.3; });
+  } else if (id === 'stars') {
+    P(artCyl(1.05, 1.05, 0.02, 24), '#3B4A8B', 4.5, 0.012, -3.2); P(artCyl(0.85, 0.85, 0.025, 24), '#FF5FAE', 4.5, 0.014, -3.2, 0, 0, 0, 1, 1, 1); P(artCyl(0.8, 0.8, 0.03, 24), '#3B4A8B', 4.5, 0.016, -3.2);
+    const tu = 3.3, tz = -3.8;
+    for (let q = 0; q < 3; q++) { const a = q / 3 * Math.PI * 2; P(artCyl(0.025, 0.025, 1.0, 5), '#8C96A8', tu + Math.cos(a) * 0.2, 0.48, tz + Math.sin(a) * 0.2, Math.sin(a) * 0.35, 0, -Math.cos(a) * 0.35, 1, 1, 1, shiny); }
+    P(artCyl(0.11, 0.15, 1.1, 14), '#E3E8EE', tu + 0.15, 1.25, tz, 0, 0, -0.95, 1, 1, 1, shiny); P(artCyl(0.16, 0.16, 0.1, 14), accent, tu + 0.15, 1.25, tz, 0, 0, -0.95);
+    P(artCyl(0.17, 0.17, 0.05, 14), '#2B2B3A', tu + 0.6, 1.55, tz, 0, 0, -0.95);
+    P(artSph(0.3, 16, 10), '#FFF1B8', 4.6, 2.12, -D + 0.05, 0, 0, 0, 1, 1, 0.3, glow); P(artSph(0.08, 8, 6), '#E8D890', 4.55, 2.2, -D + 0.13, 0, 0, 0, 1, 1, 0.3);
+    P(artSph(0.42, 14, 8), '#FF9ECF', 6.0, 0.25, -2.55, 0, 0, 0, 1, 0.62, 1); P(artSph(0.38, 14, 8), '#B68CFF', 2.9, 0.23, -2.4, 0, 0, 0, 1, 0.6, 1);
+    const mob = sub(5.1, 2.7, -3.2), mb = new ArtBatch();
+    mb.add(artBox(1.2, 0.02, 0.02), k.clay, artXf(0, -0.02, 0), '#C9D2F0'); mb.add(artBox(0.02, 0.02, 1.0), k.clay, artXf(0, -0.02, 0), '#C9D2F0');
+    for (const [x, z, l, rr, col] of [[-0.6, 0, 0.5, 0.16, '#FFB347'], [0.6, 0, 0.75, 0.12, '#4FA3E8'], [0, 0.5, 0.6, 0.08, '#E8413A'], [0, -0.5, 0.85, 0.1, '#7FD1B9']]) {
+      mb.add(artBox(0.006, l, 0.006), k.clay, artXf(x, -l / 2, z), '#C9D2F0'); mb.add(artSph(rr, 12, 8), k.clay, artXf(x, -l - rr, z), col);
+      if (col === '#FFB347') mb.add(artTor(rr * 1.6, 0.015, 4, 20), k.clay, artXf(x, -l - rr, z, 1.2), '#FFE0A0');
+    }
+    flushTo(mb, mob, false);
+    const starMat = artMatC('twinkle', () => new THREE.MeshBasicMaterial({ color: '#FFF1A0', toneMapped: false }));
+    const stars = new THREE.InstancedMesh(artStar(), starMat, 12); fg.add(stars);
+    const spots = []; for (let q = 0; q < 12; q++) { let u; do { u = 1.6 + r() * 4.7; } while (Math.abs(u - 3.75) < 0.6 || Math.abs(u - 5.45) < 0.6 || Math.abs(u - 2.2) < 0.5); spots.push([X(u), y + 0.9 + r() * 1.6, r() * 6]); }
+    const m = new THREE.Matrix4(), pv = new THREE.Vector3(), sv = new THREE.Vector3(), qq = new THREE.Quaternion();
+    anims.push((t) => { mob.rotation.y = t * 0.25;
+      spots.forEach(([sx, sy, ph], q) => { const s = 0.05 + 0.04 * (0.5 + 0.5 * Math.sin(t * 2.2 + ph)); pv.set(sx, sy, -D + 0.04); sv.set(s, s, s); qq.setFromAxisAngle(pv.clone().set(0, 0, 1), ph); m.compose(pv, qq, sv); stars.setMatrixAt(q, m); });
+      stars.instanceMatrix.needsUpdate = true; });
+  }
+  return anims;
+}
+
+/* ======== art: lift car ======== */
+function buildCar(shaftIndex, capacity) {
+  const col = ART_CAR_COLORS[shaftIndex % ART_CAR_COLORS.length], W = ART.CAR_W, CH = ART.CAR_H, D = ART.CAR_D, hz = D / 2;
+  const group = new THREE.Group(), body = new THREE.Group(); group.add(body);
+  const owned = [], clay = artClay(), shiny = artShiny(), glow = artGlow();
+  const B = new ArtBatch(), P = (geo, hex, x, y, z, mat = clay, rx = 0, ry = 0, rz = 0, sx = 1, sy = sx, sz = sx) => B.add(geo, mat, artXf(x, y, z, rx, ry, rz, sx, sy, sz), hex);
+  const dark = artMixHex(col, '#2B2B3A', 0.25), WH = 2.22;
+  P(artRB(W, 0.16, D, 0.05), dark, 0, -0.08, 0); P(artBox(W - 0.2, 0.02, D - 0.24), '#C98B55', 0, 0.006, -0.02);
+  for (const sx of [-1, 1]) { P(artRB(0.12, WH, D, 0.04), col, sx * (W / 2 - 0.06), WH / 2, 0); P(artBox(0.02, 1.9, D - 0.36), '#FFF1D6', sx * (W / 2 - 0.13), 1.0, -0.05); }
+  P(artRB(W, WH, 0.12, 0.04), col, 0, WH / 2, -hz + 0.06);
+  P(artRB(W + 0.06, 0.2, D + 0.06, 0.07), col, 0, WH + 0.1, 0);
+  for (const sx of [-1, 1]) P(artRB(0.4, WH, 0.14, 0.04), col, sx * 0.7, WH / 2, hz - 0.07);
+  P(artRB(1.02, 0.38, 0.14, 0.04), col, 0, WH - 0.19, hz - 0.07);
+  P(artRB(W + 0.1, 0.06, D + 0.1, 0.03, 1), ART_BRASS, 0, WH - 0.02, 0, shiny);
+  P(artRB(W + 0.02, 0.1, 0.05, 0.02, 1), ART_BRASS, 0, -0.04, hz + 0.0, shiny);
+  P(artCyl(0.025, 0.025, 1.4, 8), ART_CHROME, 0, 0.95, -hz + 0.2, shiny, 0, 0, Math.PI / 2);
+  for (const sx of [-1, 1]) { P(artCyl(0.025, 0.025, 1.4, 8), ART_CHROME, sx * (W / 2 - 0.22), 0.95, -0.2, shiny, Math.PI / 2); P(artBox(0.04, 0.04, 0.12), ART_CHROME, sx * 0.6, 0.95, -hz + 0.15, shiny); }
+  P(artPln(1.4, 1.75), '#FFE7B8', 0, 1.05, -hz + 0.125, glow);
+  P(artPln(1.2, 1.4), '#FFF4D8', 0, WH - 0.005, -0.1, glow, Math.PI / 2);
+  P(artRB(0.3, 0.12, 0.3, 0.05, 1), artMixHex(col, '#ffffff', 0.3), 0, WH + 0.25, -0.3);
+  B.flush(body, owned, true, true);
+  // doors: solid frame + glass window, slide behind the front pillars
+  const glassMat = artGlass();
+  const mkDoor = (side) => {
+    const g = new THREE.Group(), db = new ArtBatch();
+    db.add(artRB(0.52, 1.0, 0.04, 0.015, 1), clay, artXf(0, 0.5, 0), '#F4F1EA'); db.add(artRB(0.52, 0.17, 0.04, 0.015, 1), clay, artXf(0, 1.765, 0), '#F4F1EA');
+    for (const dx of [-0.22, 0.22]) db.add(artBox(0.08, 0.7, 0.04), clay, artXf(dx, 1.35, 0), '#F4F1EA');
+    db.add(artBox(0.035, 1.85, 0.05), clay, artXf(-side * 0.255, 0.925, 0.005), ART_BRASS);
+    db.add(artPln(0.36, 0.7), glassMat, artXf(0, 1.35, 0), '#BFE6FF');
+    db.flush(g, owned, true, true); g.position.set(side * 0.25, 0, hz - 0.18); body.add(g); return g;
+  };
+  const doorL = mkDoor(-1), doorR = mkDoor(1);
+  const glowMat = new THREE.MeshBasicMaterial({ color: '#FFE2A0', transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+  const doorway = new THREE.Mesh(artPln(1.0, 1.85), glowMat); doorway.position.set(0, 0.925, hz - 0.1); doorway.renderOrder = 3; doorway.visible = false; body.add(doorway);
+  // sign above the doors: target number + arrow
+  const signMat = new THREE.MeshBasicMaterial({ map: artSignTex(null, 0), transparent: true }); owned.push(glowMat, signMat);
+  const sign = new THREE.Mesh(artPln(0.76, 0.33), signMat); sign.position.set(0, WH - 0.19, hz + 0.002); body.add(sign);
+  // seat lamps + ding lamp on the roof
+  const lampMat = new THREE.MeshBasicMaterial({ toneMapped: false }); owned.push(lampMat);
+  const lamps = new THREE.InstancedMesh(artSph(0.075, 10, 8), lampMat, ART.MAX_CAP + 1); body.add(lamps);
+  const C_ON = new THREE.Color('#FFC93C').multiplyScalar(1.3), C_OFF = new THREE.Color('#5A4A2A'), C_RED = new THREE.Color('#FF3030').multiplyScalar(1.3);
+  const C_DING = new THREE.Color('#FFB020').multiplyScalar(1.6), C_DOFF = new THREE.Color('#7A5A2A');
+  const tmpM = new THREE.Matrix4();
+  const riderSpots = [[0, 0.3], [-0.5, 0.3], [0.5, 0.3], [0, -0.5], [-0.5, -0.5], [0.5, -0.5]].map(([x, z]) => new THREE.Vector3(x, 0, z));
+  let used = 0, cap = capacity, flashT = -1, dingT = -1, door = 0, target = null, dir = 0, swayT = -1, disposed = false;
+  const paintLamps = () => {
+    const red = flashT >= 0 && Math.floor((artNow - flashT) * 8) % 2 === 0;
+    for (let q = 0; q < ART.MAX_CAP; q++) {
+      const on = q < cap;
+      tmpM.makeScale(on ? 1 : 0.0001, on ? 1 : 0.0001, on ? 1 : 0.0001).setPosition((q - (cap - 1) / 2) * 0.22, WH + 0.24, hz - 0.12);
+      lamps.setMatrixAt(q, tmpM); lamps.setColorAt(q, red ? C_RED : q < used ? C_ON : C_OFF);
+    }
+    const ding = dingT >= 0 && artNow - dingT < 0.9 && Math.floor((artNow - dingT) * 6) % 2 === 0;
+    tmpM.makeScale(1.4, 1.4, 1.4).setPosition(0, WH + 0.36, -0.3); lamps.setMatrixAt(ART.MAX_CAP, tmpM); lamps.setColorAt(ART.MAX_CAP, ding ? C_DING : C_DOFF);
+    lamps.instanceMatrix.needsUpdate = true; lamps.instanceColor.needsUpdate = true;
+  };
+  const setSign = () => { signMat.map = artSignTex(target, target == null ? 0 : dir); signMat.needsUpdate = true; };
+  const h = { group, riderSpots,
+    setDoors(o) {
+      o = Math.max(0, Math.min(1, o));
+      if (o > 0 && door === 0) dingT = artNow;
+      door = o; const e = 1 - (1 - o) * (1 - o);
+      doorL.position.x = -0.25 - 0.43 * e; doorR.position.x = 0.25 + 0.43 * e;
+      glowMat.opacity = 0.45 * e; doorway.visible = e > 0.01;
+    },
+    setLoad(u, c) { used = u; cap = Math.max(1, Math.min(ART.MAX_CAP, c)); paintLamps(); },
+    flashFull() { flashT = artNow; },
+    setTarget(f) { target = f == null ? null : f; setSign(); },
+    setMoving(d) { const nd = Math.sign(d || 0); if (nd === 0 && dir !== 0) swayT = artNow; dir = nd; setSign(); },
+    dispose() {
+      if (disposed) return; disposed = true; artLive.delete(live);
+      if (group.parent) group.parent.remove(group);
+      for (const g of owned) g.dispose(); lamps.dispose();
+    },
+  };
+  const live = { tick: () => {
+    if (flashT >= 0 && artNow - flashT > 0.75) flashT = -1;
+    if (flashT >= 0 || dingT >= 0) { paintLamps(); if (dingT >= 0 && artNow - dingT > 1) dingT = -1; }
+    if (swayT >= 0) { const k = artNow - swayT; body.rotation.z = Math.sin(k * 14) * 0.012 * Math.exp(-k * 4); if (k > 1.2) { swayT = -1; body.rotation.z = 0; } }
+  } };
+  artLive.add(live);
+  h.setLoad(0, capacity);
+  return h;
+}
+
+/* ======== art: people ======== */
+const ART_BODY = {
+  adult:   { hip: 0.5,  legR: 0.09,  tor: 0.24, torLen: 0.34, head: 0.33, arm: 0.42, armR: 0.075 },
+  kid:     { hip: 0.28, legR: 0.08,  tor: 0.18, torLen: 0.14, head: 0.29, arm: 0.27, armR: 0.065 },
+  grandma: { hip: 0.4,  legR: 0.09,  tor: 0.25, torLen: 0.22, head: 0.3,  arm: 0.36, armR: 0.075 },
+};
+const ART_STEAM_MAT = () => artMatC('steam', () => new THREE.MeshStandardMaterial({ color: '#FFFFFF', roughness: 1, transparent: true, opacity: 0.85, depthWrite: false }));
+function buildPerson(kind, seed) {
+  const r = artRng((seed | 0) * 7919 + 101);
+  const dims = ART_BODY[kind === 'kid' ? 'kid' : kind === 'grandma' ? 'grandma' : 'adult'];
+  const { hip, legR, tor, torLen, head: hr, arm, armR } = dims;
+  const skin = artPick(r, ART_SKINS);
+  let hair = artPick(r, ART_HAIRS), top = artPick(r, ART_CLOTHES), pants = artPick(r, ART_PANTS), shoes = artPick(r, ['#2B2B3A', '#5A3825', '#7A2A33']);
+  let style = artPick(r, ['cap', 'bun', 'pigtails', 'curly', 'long', 'cap']), hat = null, look = 'casual';
+  if (kind === 'adult') look = artPick(r, ['suit', 'dress', 'worker', 'chef', 'doctor']);
+  else if (kind === 'kid') look = artPick(r, ['backpack', 'balloon', 'backpack']);
+  else if (kind === 'grandma') { look = r() < 0.6 ? 'grandma' : 'grandpa'; hair = artPick(r, ['#D9D9D9', '#E8E8E8', '#C8C8C8']); style = look === 'grandma' ? 'bun' : 'bald'; }
+  else if (kind === 'courier') { look = 'courier'; top = '#E04A3C'; hat = 'cap'; }
+  else if (kind === 'dogwalker') look = 'walker';
+  if (look === 'worker') { hat = 'hard'; top = '#FF8A1F'; pants = '#3B4A6B'; }
+  if (look === 'chef') { hat = 'toque'; top = '#F7F7F7'; pants = '#3A3A48'; }
+  if (look === 'doctor') { top = '#F7F7F7'; }
+  if (look === 'suit') { top = artPick(r, ['#3B4A6B', '#55657F', '#6FA8FF']); style = artPick(r, ['cap', 'curly']); }
+  if (look === 'grandpa') hat = r() < 0.5 ? 'flat' : null;
+  if (look === 'balloon' || (kind === 'kid' && r() < 0.3)) { if (!hat && r() < 0.4) hat = 'kidcap'; }
+  const sleeve = look === 'worker' ? '#3B4A6B' : look === 'doctor' ? '#F7F7F7' : top;
+  const dress = look === 'dress' || look === 'grandma';
+  const torH = torLen + tor * 2, torC = hip + torH / 2 - 0.06, torTop = torC + torH / 2, shY = torTop - tor * 0.85;
+  const HS = 1.25, headY = torTop + hr * HS * 0.6, height = headY + hr * HS * 0.92;
+  const group = new THREE.Group(), rig = new THREE.Group(); group.add(rig);
+  const bodyMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.72 });
+  const headMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6 });
+  const faceMat = new THREE.MeshStandardMaterial({ map: artFaceTex(0, false), transparent: true, roughness: 0.6, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 });
+  const mats = [bodyMat, headMat, faceMat];
+  const owned = [];
+  const mk = (bb, parent, cast = true) => { const ms = bb.flush(parent, owned, cast, false); ms.forEach((m) => { m.castShadow = cast; }); return ms[0]; };
+  // legs (pivot at hip)
+  const legs = [-1, 1].map((sd) => {
+    const g = new THREE.Group(); g.position.set(sd * tor * 0.45, hip, 0); rig.add(g);
+    const lb = new ArtBatch(); lb.add(artCap(legR, Math.max(0.01, hip - legR * 2)), bodyMat, artXf(0, -hip / 2 + 0.02, 0), dress && look === 'grandma' ? '#E0C8B0' : pants);
+    lb.add(artRB(legR * 2.3, 0.11, legR * 3.2, 0.04, 1), bodyMat, artXf(0, -hip + 0.055, legR * 0.5), shoes); mk(lb, g); return g;
+  });
+  // torso and everything worn on it
+  const T = new ArtBatch(), tp = (geo, hex, x, yy, z, rx = 0, ry = 0, rz = 0, sx = 1, sy = sx, sz = sx) => T.add(geo, bodyMat, artXf(x, yy, z, rx, ry, rz, sx, sy, sz), hex);
+  tp(artCap(tor, torLen, 4, 12), top, 0, torC, 0, 0, 0, 0, 1, 1, 0.86);
+  tp(artCyl(legR * 1.0, legR * 1.1, 0.12, 8), skin, 0, torTop - 0.02, 0);
+  if (dress) tp(artCyl(tor * 0.95, tor * 1.5, hip * 0.62, 16), look === 'grandma' ? '#B68CFF' : top, 0, hip + 0.02 - hip * 0.31 + 0.1, 0);
+  else tp(artCyl(tor * 0.98, tor * 1.02, 0.14, 14), pants, 0, hip + 0.04, 0, 0, 0, 0, 1, 1, 0.86);
+  if (look === 'suit') { tp(artRB(0.07, 0.24, 0.03, 0.01, 1), '#E53935', 0, torTop - 0.2, tor * 0.84); tp(artRB(0.16, 0.07, 0.05, 0.02, 1), '#FFFFFF', 0, torTop - 0.07, tor * 0.78); }
+  if (look === 'worker') for (const yy of [torC - 0.06, torC + 0.1]) tp(artTor(tor * 1.0, 0.022, 4, 20), '#FFF4D6', 0, yy, 0, Math.PI / 2, 0, 0, 1, 0.86, 1);
+  if (look === 'chef') { for (let q = 0; q < 3; q++) for (const dx of [-0.07, 0.07]) tp(artSph(0.022, 6, 4), '#3A3A48', dx, torC + 0.12 - q * 0.1, tor * 0.84); tp(artTor(0.1, 0.03, 4, 12), '#E53935', 0, torTop - 0.04, 0.04, Math.PI / 2 - 0.3); }
+  if (look === 'doctor') { tp(artCyl(tor * 1.05, tor * 1.25, 0.36, 14, true), '#F7F7F7', 0, hip - 0.1, 0, 0, 0, 0, 1, 1, 0.9); tp(artRB(0.12, 0.2, 0.03, 0.01, 1), '#6FA8FF', 0, torTop - 0.13, tor * 0.8);
+    tp(artTor(tor * 0.62, 0.016, 4, 16, Math.PI), '#6E7787', 0, torTop - 0.12, tor * 0.55, 0.3, 0, Math.PI); tp(artCyl(0.04, 0.04, 0.02, 10), '#C9CED6', 0.05, torC, tor * 0.86, Math.PI / 2); }
+  if (look === 'backpack') { const bc = artPick(r, ART_TOYS); tp(artRB(tor * 1.5, tor * 1.9, tor * 0.8, 0.06), bc, 0, torC + 0.02, -tor * 0.95); tp(artRB(tor * 1.1, tor * 0.6, 0.06, 0.03, 1), artMixHex(bc, '#ffffff', 0.35), 0, torC - 0.06, -tor * 1.36); }
+  if (look === 'courier') { for (let q = 0; q < 3; q++) { tp(artRB(0.46, 0.07, 0.46, 0.02, 1), '#E8C48A', 0, shY - 0.16 + q * 0.075, tor + 0.22, 0, (q - 1) * 0.08); } tp(artRB(0.2, 0.01, 0.2, 0.005, 1), '#E04A3C', 0, shY - 0.16 + 0.15, tor + 0.22); tp(artTor(tor * 0.72, 0.03, 4, 16), '#FFC928', 0, torTop - 0.05, 0, Math.PI / 2); }
+  if (look === 'grandma' || look === 'grandpa') tp(artCyl(tor * 1.02, tor * 1.02, torLen * 0.9, 14, true), look === 'grandma' ? '#FF9ECF' : '#8BC34A', 0, torC + 0.02, 0, 0, 0, 0, 1, 1, 0.88);
+  const torso = mk(T, rig);
+  // arms (pivot at shoulder); hand-held items live on the arm so they swing with it
+  const arms = [-1, 1].map((sd) => {
+    const g = new THREE.Group(); g.position.set(sd * (tor * 0.95 + armR * 0.5), shY, 0); rig.add(g);
+    const ab = new ArtBatch(), ap = (geo, hex, x, yy, z, rx = 0, ry = 0, rz = 0, sx = 1, sy = sx, sz = sx) => ab.add(geo, bodyMat, artXf(x, yy, z, rx, ry, rz, sx, sy, sz), hex);
+    ap(artCap(armR, Math.max(0.01, arm - armR * 2), 3, 8), sleeve, 0, -arm / 2 + armR * 0.5, 0);
+    ap(artSph(armR * 1.35, 10, 8), skin, 0, -arm + armR * 0.3, 0);
+    const hy = -arm + armR * 0.3;
+    if (sd > 0) {
+      if (look === 'suit') { ap(artRB(0.3, 0.22, 0.09, 0.03, 1), '#7A5A44', 0.02, hy - 0.15, 0); ap(artTor(0.05, 0.012, 4, 8, Math.PI), '#5A3825', 0.02, hy - 0.04, 0); }
+      if (look === 'worker') { ap(artRB(0.32, 0.17, 0.15, 0.03, 1), '#E53935', 0.02, hy - 0.13, 0); ap(artBox(0.2, 0.03, 0.03), '#2B2B3A', 0.02, hy - 0.03, 0); }
+      if (look === 'chef') { ap(artCyl(0.17, 0.15, 0.025, 14), '#FFFFFF', 0.03, hy - 0.06, 0.06); ap(artCyl(0.11, 0.11, 0.11, 14), '#FF9ECF', 0.03, hy + 0.01, 0.06); ap(artCyl(0.115, 0.115, 0.03, 14), '#FFFFFF', 0.03, hy + 0.07, 0.06); ap(artSph(0.03, 6, 4), '#E53935', 0.03, hy + 0.1, 0.06); }
+      if (look === 'balloon') { const bc = artPick(r, ['#FF5FAE', '#FFC928', '#6FA8FF', '#35C24A']); ap(artCyl(0.005, 0.005, 0.85, 3), '#6B5B4E', 0.12, hy + 0.42, 0, 0, 0, -0.28); ap(artSph(0.16, 12, 10), bc, 0.24, hy + 0.98, 0, 0, 0, 0, 1, 1.15, 1); ap(artCone(0.03, 0.05, 6), bc, 0.24, hy + 0.79, 0, Math.PI); }
+      if (look === 'grandma' || look === 'grandpa') { const ch = shY + hy; ap(artCyl(0.018, 0.018, ch, 6), '#8A5A3C', 0.02, hy - ch / 2, 0.05); ap(artTor(0.06, 0.018, 4, 8, Math.PI), '#8A5A3C', -0.04, hy, 0.05); }
+    } else if (look === 'dress') { ap(artRB(0.2, 0.15, 0.08, 0.03, 1), '#FF5FAE', -0.02, hy - 0.12, 0); ap(artTor(0.07, 0.01, 4, 8, Math.PI), '#C0397A', -0.02, hy - 0.04, 0); }
+    mk(ab, g); return g;
+  });
+  // head: sphere + hair/hat + nose/ears (headMat, tinted red when angry) and a face overlay
+  const headG = new THREE.Group(); headG.position.y = headY; headG.scale.set(HS, 0.92 * HS, HS); rig.add(headG);
+  const HB = new ArtBatch(), hp = (geo, hex, x, yy, z, rx = 0, ry = 0, rz = 0, sx = 1, sy = sx, sz = sx) => HB.add(geo, headMat, artXf(x, yy, z, rx, ry, rz, sx, sy, sz), hex);
+  hp(artSph(hr, 20, 14), skin, 0, 0, 0);
+  hp(artSph(hr * 0.13, 8, 6), artMixHex(skin, '#C0604A', 0.18), 0, -0.06 * hr, hr * 0.98);
+  for (const sd of [-1, 1]) hp(artSph(hr * 0.17, 8, 6), skin, sd * hr * 0.97, -0.02 * hr, 0, 0, 0, 0, 0.6, 1, 1);
+  const capHair = () => hp(artSph(hr * 1.06, 18, 10, 0, Math.PI * 2, 0, Math.PI * 0.56), hair, 0, 0.06 * hr, -0.05 * hr, -0.5);
+  if (hat !== 'hard' && style !== 'bald') capHair();
+  if (style === 'bun') hp(artSph(hr * 0.36, 12, 8), hair, 0, hr * 0.78, -hr * 0.5);
+  if (style === 'pigtails') for (const sd of [-1, 1]) { hp(artSph(hr * 0.28, 10, 8), hair, sd * hr * 0.98, -hr * 0.05, -hr * 0.3); hp(artSph(hr * 0.09, 6, 4), artPick(r, ART_TOYS), sd * hr * 0.85, hr * 0.12, -hr * 0.3); }
+  if (style === 'curly') for (let q = 0; q < 7; q++) { const a = q / 7 * Math.PI * 2; hp(artSph(hr * 0.3, 10, 8), hair, Math.cos(a) * hr * 0.62, hr * 0.62, Math.sin(a) * hr * 0.55 - hr * 0.15); }
+  if (style === 'long') hp(artRB(hr * 1.7, hr * 1.2, hr * 0.55, hr * 0.25), hair, 0, -hr * 0.45, -hr * 0.62);
+  if (style === 'bald') { for (const sd of [-1, 1]) hp(artSph(hr * 0.33, 10, 8), hair, sd * hr * 0.86, hr * 0.05, -hr * 0.28, 0, 0, 0, 0.6, 0.8, 1); hp(artCap(hr * 0.08, hr * 0.32, 2, 6), hair, 0, -hr * 0.24, hr * 0.94, 0, 0, Math.PI / 2); }
+  if (look === 'grandma' || look === 'grandpa' || look === 'doctor' && r() < 0.5) {
+    for (const sd of [-1, 1]) hp(artTor(hr * 0.17, hr * 0.03, 5, 16), '#4A3A2A', sd * hr * 0.32, hr * 0.1, hr * 0.99);
+    hp(artBox(hr * 0.24, hr * 0.04, hr * 0.04), '#4A3A2A', 0, hr * 0.12, hr * 1.02);
+  }
+  if (look === 'doctor') { hp(artTor(hr * 1.0, hr * 0.04, 4, 20), '#6E7787', 0, hr * 0.42, 0, Math.PI / 2 + 0.15); hp(artCyl(hr * 0.22, hr * 0.22, 0.02, 14), '#E3E8EE', 0, hr * 0.62, hr * 0.84, Math.PI / 2 - 0.5); hp(artCyl(hr * 0.07, hr * 0.07, 0.025, 8), '#2B2B3A', 0, hr * 0.62, hr * 0.86, Math.PI / 2 - 0.5); }
+  if (hat === 'hard') { hp(artSph(hr * 1.1, 18, 8, 0, Math.PI * 2, 0, Math.PI / 2), '#FFC83D', 0, hr * 0.14, 0); hp(artCyl(hr * 1.25, hr * 1.25, 0.04, 20), '#FFC83D', 0, hr * 0.16, hr * 0.05); hp(artRB(hr * 0.25, hr * 0.2, hr * 1.9, hr * 0.08, 1), '#FFD866', 0, hr * 1.12, 0); }
+  if (hat === 'toque') { hp(artCyl(hr * 0.88, hr * 0.88, hr * 0.42, 18), '#FFFFFF', 0, hr * 0.72, -hr * 0.05); hp(artSph(hr * 0.72, 14, 10), '#FFFFFF', 0, hr * 1.2, -hr * 0.05, 0, 0, 0, 1, 0.75, 1); for (const sd of [-1, 1]) hp(artSph(hr * 0.48, 12, 8), '#FFFFFF', sd * hr * 0.45, hr * 1.12, -hr * 0.05); }
+  if (hat === 'cap' || hat === 'kidcap') { const cc = hat === 'cap' ? '#C62828' : artPick(r, ['#2F6FE0', '#35C24A', '#FF8A1F']); hp(artSph(hr * 1.08, 18, 8, 0, Math.PI * 2, 0, Math.PI / 2), cc, 0, hr * 0.1, -hr * 0.02, -0.2); hp(artRB(hr * 1.1, 0.035, hr * 0.8, 0.015, 1), cc, 0, hr * 0.28, hr * 0.92, 0.18); hp(artSph(hr * 0.1, 6, 4), '#FFFFFF', 0, hr * 1.17, -hr * 0.2); }
+  if (hat === 'flat') { hp(artSph(hr * 1.07, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), '#7A5A44', 0, hr * 0.18, -hr * 0.02, -0.15, 0, 0, 1, 0.55, 1); hp(artRB(hr * 1.0, 0.03, hr * 0.6, 0.012, 1), '#7A5A44', 0, hr * 0.28, hr * 0.88, 0.2); }
+  const headMesh = mk(HB, headG);
+  const face = new THREE.Mesh(artGeo('face|' + hr, () => new THREE.SphereGeometry(hr * 1.012, 18, 12, Math.PI / 2 - 1.0, 2.0, Math.PI / 2 - 0.85, 1.6)), faceMat);
+  face.renderOrder = 1; headG.add(face);
+  // dog (dog walker): own mesh + wagging tail, leash to the walker's hand
+  let tail = null, dog = null;
+  if (kind === 'dogwalker') {
+    dog = new THREE.Group(); dog.position.set(0.5, 0, 0.36); rig.add(dog);
+    const dc = artPick(r, ['#C8915A', '#F2E6D8', '#8A5A3C', '#E8C468']), de = artMixHex(dc, '#3A2A20', 0.45), db = new ArtBatch();
+    const dp = (geo, hex, x, yy, z, rx = 0, ry = 0, rz = 0, sx = 1, sy = sx, sz = sx) => db.add(geo, bodyMat, artXf(x, yy, z, rx, ry, rz, sx, sy, sz), hex);
+    dp(artCap(0.13, 0.26, 3, 10), dc, 0, 0.3, 0, Math.PI / 2); dp(artSph(0.15, 14, 10), dc, 0, 0.48, 0.24); dp(artRB(0.14, 0.1, 0.13, 0.04, 1), artMixHex(dc, '#ffffff', 0.4), 0, 0.43, 0.37);
+    dp(artSph(0.035, 8, 6), '#2B2B3A', 0, 0.47, 0.44); for (const sd of [-1, 1]) { dp(artSph(0.025, 6, 4), '#2B2B3A', sd * 0.06, 0.53, 0.36); dp(artSph(0.08, 8, 6), de, sd * 0.14, 0.44, 0.2, 0, 0, sd * 0.3, 0.45, 1, 0.8); }
+    for (const [sx, sz] of [[-0.08, 0.14], [0.08, 0.14], [-0.08, -0.14], [0.08, -0.14]]) dp(artCap(0.045, 0.12, 2, 6), dc, sx, 0.1, sz);
+    dp(artTor(0.1, 0.022, 4, 14), '#E53935', 0, 0.4, 0.16, Math.PI / 2 + 0.5);
+    const hand = new THREE.Vector3(tor * 0.95 + armR * 0.5 - 0.5, shY - arm * 0.92, arm * 0.39 - 0.36), coll = new THREE.Vector3(0, 0.42, 0.2);
+    db.add(artCyl(1, 1, 1, 4), bodyMat, artXfLine(hand, coll, 0.008), '#E53935');
+    mk(db, dog);
+    tail = new THREE.Group(); tail.position.set(0, 0.36, -0.26); dog.add(tail);
+    const tb = new ArtBatch(); tb.add(artCap(0.03, 0.14, 2, 6), bodyMat, artXf(0, 0.07, -0.04, -0.6), dc); mk(tb, tail);
+  }
+  // steam puffs (angry), bubble sprite
+  const steam = new THREE.InstancedMesh(artSph(1, 8, 6), ART_STEAM_MAT(), 6); steam.visible = false; steam.frustumCulled = false; group.add(steam);
+  const bubbleMat = new THREE.SpriteMaterial({ depthTest: false, depthWrite: false, transparent: true, fog: false, toneMapped: false });
+  const bubble = new THREE.Sprite(bubbleMat); bubble.renderOrder = 10; bubble.visible = false; bubble.center.set(0.5, 0.5);
+  bubble.position.set(0, height + ART.BUBBLE_Y, 0); bubble.scale.set(ART.BUBBLE_SIZE * ART_BUBBLE_BOOST, ART.BUBBLE_SIZE * ART_BUBBLE_BOOST, 1); group.add(bubble);
+  // state
+  let stage = 0, red = -1, blinkOn = false, disposed = false, alpha = 1, anim = 'idle', bubbleK = 1, dest = null;
+  const blinkPeriod = 2.8 + r() * 2.4, blinkOff = r() * 5, sm = new THREE.Matrix4(), sv = new THREE.Vector3(), sq = new THREE.Quaternion(), pv = new THREE.Vector3();
+  const setFace = () => { const t = artFaceTex(stage, blinkOn); if (faceMat.map !== t) { faceMat.map = t; } };
+  const h = { group, height,
+    setMood(st, m01) {
+      const s = Math.max(0, Math.min(3, st | 0));
+      const want = s >= 3 ? 0.55 + 0.35 * Math.max(0, Math.min(1, (m01 - 0.8) / 0.2)) : s === 2 ? 0.12 * Math.max(0, Math.min(1, (m01 - 0.6) / 0.2)) : 0;
+      if (s !== stage) { stage = s; setFace(); steam.visible = s >= 3; if (dest != null) { bubbleMat.map = makeBubbleTexture(dest, s); } }
+      if (Math.abs(want - red) > 0.01) { red = want; headMat.color.copy(ART_WHITE).lerp(ART_RED_TINT, red); }
+    },
+    setAnim(name, t) {
+      anim = name;
+      rig.position.set(0, 0, 0); rig.rotation.set(0, 0, 0); rig.scale.set(1, 1, 1); headG.rotation.set(0, 0, 0);
+      const [lL, lR] = legs, [aL, aR] = arms;
+      lL.rotation.set(0, 0, 0); lR.rotation.set(0, 0, 0);
+      aL.rotation.set(0, 0, 0.1); aR.rotation.set(0, 0, -0.1);
+      const slow = kind === 'grandma' ? 0.6 : 1;
+      if (name === 'walk' || name === 'run') {
+        const run = name === 'run', f = (run ? 13 : 8.5) * slow, s = Math.sin(t * f), a = run ? 0.7 : 0.45;
+        lL.rotation.x = s * a; lR.rotation.x = -s * a; aL.rotation.x = -s * a * 0.9; aR.rotation.x = s * a * 0.9;
+        rig.position.y = Math.abs(Math.cos(t * f)) * (run ? 0.07 : 0.04); if (run) rig.rotation.x = 0.12;
+        if (dog) dog.position.y = Math.abs(Math.sin(t * f * 1.3)) * 0.05;
+      } else if (name === 'stomp') {
+        const f = 6.5, s = Math.sin(t * f);
+        lL.rotation.x = -Math.max(0, s) * 0.9; lR.rotation.x = -Math.max(0, -s) * 0.9;
+        aL.rotation.set(-0.25 * s, 0, 0.35); aR.rotation.set(0.25 * s, 0, -0.35);
+        rig.position.y = Math.abs(s) * 0.08; rig.position.x = Math.sin(t * 37) * 0.015; headG.rotation.x = 0.15;
+      } else if (name === 'cheer') {
+        const p = (t % 0.6) / 0.6, hop = Math.sin(p * Math.PI);
+        rig.position.y = hop * 0.32; rig.scale.set(1 + (1 - hop) * 0.06, 0.9 + hop * 0.18, 1 + (1 - hop) * 0.06);
+        aL.rotation.set(0, 0, -2.5 + Math.sin(t * 14) * 0.25); aR.rotation.set(0, 0, 2.5 - Math.sin(t * 14) * 0.25);
+        headG.rotation.x = -0.15;
+      } else if (name === 'shake') {
+        headG.rotation.y = Math.sin(t * 16) * 0.5 * Math.max(0, 1 - t * 0.8);
+        aL.rotation.set(0, 0, 0.25); aR.rotation.set(0, 0, -0.25);
+      } else {                                                  // idle, by mood
+        rig.scale.y = 1 + Math.sin(t * 2.4) * 0.012;
+        if (stage === 1) lR.rotation.x = -Math.max(0, Math.sin(t * 7)) * 0.22;
+        if (stage >= 2) { aL.rotation.set(-1.25, 0, 0.95); aR.rotation.set(-1.25, 0, -0.95); }
+        if (stage >= 3) { rig.position.x = Math.sin(t * 41) * 0.03; lR.rotation.x = -Math.max(0, Math.sin(t * 11)) * 0.3; }
+        if (stage === 0) rig.position.y = Math.max(0, Math.sin(t * 3.2)) * 0.02;
+      }
+      if (look === 'courier' && name !== 'cheer') { aL.rotation.set(-1.15, 0, 0.28); aR.rotation.set(-1.15, 0, -0.28); }
+      if (dog && name !== 'cheer') aR.rotation.set(-0.4, 0, -0.1);
+      if (bubble.visible) {                                     // neighbours (queue gap 0.75, car gap 0.5) alternate heights
+        const inCar = group.parent && !group.parent.isScene, sz = ART.BUBBLE_SIZE * bubbleK * ART_BUBBLE_BOOST * (inCar ? 0.78 : 1);
+        const lvl = inCar ? (group.position.z < -0.1 ? 1 : 0) : Math.abs(Math.round(group.position.x / 0.75)) % 2;
+        bubble.scale.set(sz, sz, 1);
+        bubble.position.set(inCar ? group.position.x * 1.05 : 0, height + sz * 0.42 + lvl * sz * 0.8, 0);
+      }
+    },
+    setBubble(f) {
+      if (f == null) { bubble.visible = false; dest = null; return; }
+      dest = f; bubbleMat.map = makeBubbleTexture(f, stage); bubbleMat.needsUpdate = true; bubble.visible = true;
+    },
+    setBubbleScale(k) { bubbleK = k; const sz = ART.BUBBLE_SIZE * k * ART_BUBBLE_BOOST; bubble.scale.set(sz, sz, 1); },
+    setOpacity(a) {
+      a = Math.max(0, Math.min(1, a)); alpha = a;
+      const tr = a < 0.999;
+      for (const m of [bodyMat, headMat]) { if (m.transparent !== tr) { m.transparent = tr; m.needsUpdate = true; } m.opacity = a; }
+      faceMat.opacity = a; bubbleMat.opacity = a; group.visible = a > 0.01;
+      for (const o of [torso, headMesh]) if (o) o.castShadow = a > 0.5;
+    },
+    dispose() {
+      if (disposed) return; disposed = true; artLive.delete(live);
+      if (group.parent) group.parent.remove(group);
+      for (const g of owned) g.dispose(); for (const m of mats) m.dispose(); bubbleMat.dispose(); steam.dispose();
+    },
+  };
+  const live = { tick: (t) => {
+    const b = ((t + blinkOff) % blinkPeriod) < 0.13;
+    if (b !== blinkOn) { blinkOn = b; setFace(); }
+    if (tail) tail.rotation.y = Math.sin(t * (stage >= 2 ? 6 : 16)) * (stage >= 2 ? 0.2 : 0.6);
+    if (steam.visible) {
+      for (let q = 0; q < 6; q++) {
+        const sd = q % 2 ? 1 : -1, ph = (t * 1.3 + q * 0.33) % 1, s = 0.05 + ph * 0.08;
+        pv.set(sd * (hr * HS * 0.9 + ph * 0.25), headY + hr * 0.4 + ph * 0.5, 0); sv.set(s * (1 - ph * 0.5), s * (1 - ph * 0.5), s * (1 - ph * 0.5));
+        sm.compose(pv, sq, sv); steam.setMatrixAt(q, sm);
+      }
+      steam.instanceMatrix.needsUpdate = true; steam.position.copy(rig.position);
+    }
+  } };
+  artLive.add(live);
+  h.setAnim('idle', 0);
+  return h;
+}
+
+/* ======== art: ambient animation ======== */
+function animateArt(time, dt) {
+  artNow = time;
+  for (const o of artLive) o.tick(time, dt);
+}
+
+/* ======== layout ======== */
+function computeLayout(nFloors, nShafts) {
+  const width = ART.ROOM_W + nShafts * ART.SHAFT_W, x0 = -width / 2;
+  return { nFloors, nShafts, width, height: nFloors * ART.FLOOR_H, x0, x1: x0 + width,
+    floorY: Array.from({ length: nFloors }, (_, i) => i * ART.FLOOR_H),
+    shaftX: Array.from({ length: nShafts }, (_, s) => x0 + ART.ROOM_W + (s + 0.5) * ART.SHAFT_W),
+    stairX: x0 + 0.7, roomDoorX: x0 + 2.2,
+    queueX: Array.from({ length: 5 }, (_, k) => x0 + ART.ROOM_W - 0.7 - k * 0.75), // k=0 nearest the lifts
+    laneZ: ART.LANE_Z, carZ: ART.CAR_Z };
+}
+
+/* ======== renderer & camera ======== */
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(CAM_FOV, 1, 0.5, 400);
+const sky = buildSky(scene);
+const lights = buildLights(scene, renderer);
+const view = { ax: 0, ay: 0, aw: 1, ah: 1, D: 40, visH: 10, pxPerUnit: 10, camY: 0, camVY: 0, goalY: null,
+  yMin: 0, yMax: 0, pan: false, side: false };
+
+function readInsets() {
+  const s = getComputedStyle(document.getElementById('safe'));
+  return { t: parseFloat(s.paddingTop) || 0, r: parseFloat(s.paddingRight) || 0, b: parseFloat(s.paddingBottom) || 0, l: parseFloat(s.paddingLeft) || 0 };
+}
+
+function fitCamera() {
+  const W = innerWidth, H = innerHeight, ins = readInsets();
+  view.side = W / H > SIDE_RATIO;
+  document.body.classList.toggle('side', view.side);
+  if (view.side) { view.ax = ins.l + SIDE_COL; view.ay = ins.t; view.aw = W - view.ax - ins.r - SIDE_COL; view.ah = H - ins.t - ins.b; }
+  else { view.ax = ins.l; view.ay = ins.t + TOP_BAR; view.aw = W - ins.l - ins.r; view.ah = H - view.ay - ins.b; }
+  view.aw = Math.max(50, view.aw); view.ah = Math.max(50, view.ah);
+  renderer.setSize(W, H);
+  const L = G.layout; if (!L) return;
+  const tanH = Math.tan(CAM_FOV * DEG / 2), aspect = view.aw / view.ah, fitW = L.width + 1.5;
+  let vis = L.nFloors, D = 40;
+  for (; vis >= 1; vis--) {
+    const need = vis === L.nFloors ? L.height + VIEW_BOTTOM + VIEW_TOP : vis * ART.FLOOR_H + 1;
+    D = Math.max(need / 2 / tanH, fitW / 2 / (tanH * aspect));
+    if ((view.ah / (2 * D * tanH)) * ART.FLOOR_H >= MIN_FLOOR_PX || vis === 1) break;
+  }
+  view.D = D; view.visH = 2 * D * tanH; view.pxPerUnit = view.ah / view.visH;
+  view.yMin = -VIEW_BOTTOM + view.visH / 2; view.yMax = L.height + VIEW_TOP - view.visH / 2;
+  view.pan = view.yMax > view.yMin + 0.05;
+  if (!view.pan) { view.yMin = view.yMax = (L.height + VIEW_TOP - VIEW_BOTTOM) / 2; }
+  view.camY = clamp(view.camY, view.yMin, view.yMax);
+  camera.fov = CAM_FOV; camera.aspect = aspect;
+  camera.setViewOffset(view.aw, view.ah, -view.ax, -view.ay, W, H);
+  camera.updateProjectionMatrix();
+  const k = clamp(BUBBLE_PX / (ART.BUBBLE_SIZE * view.pxPerUnit), 0.8, 1.8);
+  view.bubbleK = k;
+  renderProgress();
+}
+
+function applyCamera() {
+  const yaw = CAM_YAW * DEG, pitch = CAM_PITCH * DEG;
+  camera.position.set(view.D * Math.sin(yaw) * Math.cos(pitch), view.camY + view.D * Math.sin(pitch), view.D * Math.cos(yaw) * Math.cos(pitch));
+  camera.lookAt(0, view.camY, 0);
+}
+
+function updateCameraMotion(dt) {
+  if (view.goalY != null) {
+    view.camY += (view.goalY - view.camY) * Math.min(1, dt * 6);
+    if (Math.abs(view.goalY - view.camY) < 0.01) view.goalY = null;
+  } else if (!(drag && drag.moved) && view.camVY) {
+    view.camY += view.camVY * dt; view.camVY *= Math.exp(-4 * dt);
+    if (Math.abs(view.camVY) < 0.05) view.camVY = 0;
+  }
+  const c = clamp(view.camY, view.yMin, view.yMax);
+  if (c !== view.camY) { view.camY = c; view.camVY = 0; }
+}
+
+const raycaster = new THREE.Raycaster(), cutPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0), ndc = new THREE.Vector2();
+function screenToWorld(cx, cy) {
+  ndc.set((cx / innerWidth) * 2 - 1, -(cy / innerHeight) * 2 + 1);
+  raycaster.setFromCamera(ndc, camera);
+  const v = new THREE.Vector3();
+  return raycaster.ray.intersectPlane(cutPlane, v) ? v : null;
+}
+const projV = new THREE.Vector3();
+function worldToScreen(x, y, z) {
+  projV.set(x, y, z).project(camera);
+  return { x: (projV.x + 1) / 2 * innerWidth, y: (1 - projV.y) / 2 * innerHeight };
+}
+
+/* ======== state ======== */
+const G = { levelIdx: 0, level: LEVELS[0], layout: null, time: 0, delivered: 0, leftStairs: 0, spawnTimer: 0, waveTimers: [],
+  cars: [], people: [], floors: [], phase: 'map', lastInputTime: 0, resumable: false, wonAt: 0, cardShown: false, stars: 0,
+  botT: 0, firstDone: false, nextId: 1, glow: [] };
+let building = null;
+const seedParam = parseInt(params.get('seed'), 10);
+function makeRng(seed) {   // mulberry32, the game's own seeded random numbers
+  let a = (seed >>> 0) || 1;
+  return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
+let rng = makeRng(Number.isFinite(seedParam) ? seedParam : (Date.now() & 0x7fffffff));
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const rint = (n) => Math.floor(rng() * n);
+
+function setupLevel(i) {
+  for (const p of G.people) p.art.dispose();
+  for (const c of G.cars) c.art.dispose();
+  building?.dispose();
+  G.levelIdx = i; G.level = LEVELS[i];
+  const L = G.layout = computeLayout(G.level.floors, G.level.cars);
+  building = buildBuilding(scene, L); lights.fit(L);
+  G.time = 0; G.delivered = 0; G.leftStairs = 0; G.spawnTimer = FIRST_ARRIVAL; G.firstDone = false; G.botT = 1;
+  G.waveTimers = G.level.waves.map((w) => w.every * 0.5);
+  G.people = []; G.lastInputTime = 0; G.cardShown = false; G.resumable = false; G.glow = new Array(L.nFloors).fill(0);
+  G.floors = L.floorY.map(() => ({ queue: [], stairHold: 0, roomHold: 0, stairOpen: 0, roomOpen: 0 }));
+  G.cars = L.shaftX.map((x, s) => {
+    const art = buildCar(s, G.level.cap); scene.add(art.group);
+    return { idx: s, y: 0, v: 0, target: null, queuedTarget: null, door: 0, doorState: 'closed', dwell: 0, boardGap: 0,
+      fullFlashed: false, riders: [], spots: new Array(ART.MAX_CAP).fill(null), seatsUsed: 0, cap: G.level.cap, art,
+      shownTarget: undefined, shownDir: 0 };
+  });
+  view.camY = -1e9; view.camVY = 0; view.goalY = null;
+  fitCamera();
+  view.camY = view.yMin;
+  renderProgress(); updateStairs();
+}
+
+function startLevel(i) {
+  i = clamp(i | 0, 0, LEVELS.length - 1);
+  setupLevel(i);
+  starTimers.forEach(clearTimeout); starTimers.length = 0;
+  document.getElementById('fx').innerHTML = '';
+  G.phase = 'play';
+  document.getElementById('map').hidden = true;
+  document.getElementById('mapBtn').hidden = false;
+  document.getElementById('win').hidden = true;
+  document.getElementById('hud').hidden = false;
+  speak('Going up!');
+}
+
+/* ======== people ======== */
+function pickKind() {
+  for (const k of G.level.specials) if (rng() < SPECIAL_CHANCE) return k;
+  return rng() < 0.35 ? 'kid' : 'adult';
+}
+
+function spawnPerson(origin, dest, kind) {
+  if (G.people.length >= MAX_PEOPLE) return null;
+  const q = G.floors[origin].queue; if (q.length >= QUEUE_MAX) return null;
+  kind = kind || pickKind();
+  const K = KINDS[kind], seed = 1 + rint(1e9);
+  const art = buildPerson(kind, seed); scene.add(art.group);
+  const L = G.layout;
+  const p = { id: G.nextId++, kind, seed, floor: origin, dest, x: L.roomDoorX, z: L.laneZ, rot: Math.PI / 2, state: 'arriving',
+    waited: 0, stage: 0, seats: K.seats, carIdx: -1, spots: [], patience: G.level.patience * K.patience, speed: WALK_SPEED * K.walk,
+    move: K.move, art, alpha: 0, fade: 1, anim: 'walk', animT: 0, shakeT: 0, phase: 0, timer: 0, shownAlpha: -1 };
+  art.setBubble(dest); art.setMood(0, 0); art.setOpacity(0);
+  q.push(p); G.people.push(p);
+  G.floors[origin].roomHold = 0.7;
+  return p;
+}
+
+function upper() { return 1 + rint(G.layout.nFloors - 1); }
+function spawnRandom() {
+  const n = G.layout.nFloors;
+  if (!G.firstDone) { G.firstDone = true; spawnPerson(0, upper(), rng() < 0.5 ? 'adult' : 'kid'); return; }
+  for (let tries = 0; tries < 6; tries++) {
+    const r = rng(); let o, d;
+    if (r < TRIP_MIX[0]) { o = 0; d = upper(); }
+    else if (r < TRIP_MIX[0] + TRIP_MIX[1] || n < 3) { o = upper(); d = 0; }
+    else { o = upper(); do { d = upper(); } while (d === o); }
+    if (G.floors[o].queue.length < QUEUE_MAX) { spawnPerson(o, d); return; }
+  }
+}
+
+function runWave(w) {
+  if (w.kind === 'rush') { for (let k = 0; k < w.n; k++) spawnPerson(0, upper()); }
+  else { let made = 0; for (let t = 0; t < w.n * 3 && made < w.n; t++) { let o = rint(G.layout.nFloors); if (o === 1) continue; if (spawnPerson(o, 1)) made++; } }
+}
+
+function setAnim(p, name) { if (p.anim !== name) { p.anim = name; p.animT = 0; } }
+
+function walkTo(p, tx, tz, dt, anim) {
+  const dx = tx - p.x, dz = tz - p.z, dist = Math.hypot(dx, dz);
+  if (dist < 0.02) { p.x = tx; p.z = tz; return true; }
+  const step = Math.min(dist, p.speed * dt);
+  p.x += dx / dist * step; p.z += dz / dist * step;
+  if (Math.abs(dx) > Math.abs(dz)) p.rot = dx > 0 ? Math.PI / 2 : -Math.PI / 2; else p.rot = dz < 0 ? Math.PI : 0;
+  setAnim(p, anim || p.move);
+  return false;
+}
+
+function moodStage(m) { let s = 0; while (s < MOOD_T.length && m >= MOOD_T[s]) s++; return s; }
+
+function startLeaving(p) {
+  const q = G.floors[p.floor].queue; const i = q.indexOf(p); if (i >= 0) q.splice(i, 1);
+  p.state = 'leavingStairs'; p.art.setBubble(null); p.speed = WALK_SPEED * 1.15;
+  G.leftStairs++; updateStairs(true); sfx('stomp');
+}
+
+function boardPerson(p, c) {
+  const q = G.floors[p.floor].queue; const i = q.indexOf(p); if (i >= 0) q.splice(i, 1);
+  p.state = 'boarding'; p.carIdx = c.idx; p.phase = 0; p.spots = [];
+  for (let k = 0; k < c.cap && p.spots.length < p.seats; k++) if (!c.spots[k]) p.spots.push(k);
+  p.spots.forEach((k) => { c.spots[k] = p; });
+  c.seatsUsed += p.seats; c.art.setLoad(c.seatsUsed, c.cap);
+}
+
+function exitPerson(p, c, f) {
+  c.riders.splice(c.riders.indexOf(p), 1);
+  p.spots.forEach((k) => { c.spots[k] = null; }); p.spots = [];
+  c.seatsUsed -= p.seats; c.art.setLoad(c.seatsUsed, c.cap);
+  const g = p.art.group; const local = g.position.clone();
+  c.art.group.remove(g); scene.add(g);
+  p.x = G.layout.shaftX[c.idx] + local.x; p.z = ART.CAR_Z + local.z; p.floor = f;
+  p.state = 'exiting';
+}
+
+function removePerson(p) {
+  p.art.dispose(); p.removed = true;
+  const i = G.people.indexOf(p); if (i >= 0) G.people.splice(i, 1);
+}
+
+function updatePerson(p, dt) {
+  const L = G.layout, fl = G.floors[p.floor];
+  p.animT += dt;
+  if (p.alpha < p.fade) p.alpha = Math.min(p.fade, p.alpha + dt / 0.3);
+  if (p.alpha > p.fade) p.alpha = Math.max(p.fade, p.alpha - dt / 0.35);
+  if (G.phase === 'play' && (p.state === 'arriving' || p.state === 'waiting' || p.state === 'boarding' || p.state === 'riding')) {
+    const inCar = p.state === 'boarding' || p.state === 'riding';
+    p.waited += dt * (inCar ? RIDE_PATIENCE_RATE : 1);
+    const m = p.waited / p.patience;
+    let st = moodStage(m); if (inCar) st = Math.min(st, 2);
+    if (st !== p.stage) { if (st === 3) sfx('grumble'); p.stage = st; }
+    p.art.setMood(Math.min(st, 3), clamp(m, 0, 1));
+    if (st >= 4 && !inCar) { startLeaving(p); return; }
+  }
+  switch (p.state) {
+    case 'arriving': case 'waiting': {
+      const slot = Math.max(0, fl.queue.indexOf(p));
+      if (walkTo(p, L.queueX[Math.min(slot, L.queueX.length - 1)], L.laneZ, dt)) {
+        p.state = 'waiting'; p.rot = 0;
+        if (p.shakeT > 0) { p.shakeT -= dt; setAnim(p, 'shake'); } else setAnim(p, 'idle');
+      }
+      break;
+    }
+    case 'boarding': {
+      const c = G.cars[p.carIdx], sx = L.shaftX[c.idx], spot = c.art.riderSpots[p.spots[0]];
+      if (p.phase === 0) { if (walkTo(p, sx, L.laneZ, dt)) p.phase = 1; }
+      else if (walkTo(p, sx + spot.x, ART.CAR_Z + spot.z, dt)) {
+        const g = p.art.group; scene.remove(g); c.art.group.add(g);
+        g.position.copy(spot); g.rotation.y = 0; p.rot = 0;
+        p.state = 'riding'; c.riders.push(p); setAnim(p, 'idle');
+      }
+      break;
+    }
+    case 'riding': setAnim(p, 'idle'); break;
+    case 'exiting':
+      if (walkTo(p, p.x, L.laneZ, dt)) {
+        p.state = 'celebrating'; p.carIdx = -1; p.timer = CELEBRATE_TIME; p.rot = 0;
+        p.art.setBubble(null); p.art.setMood(0, 0); setAnim(p, 'cheer');
+        G.delivered++; sfx('chirp'); renderProgress(true); checkWin();
+      }
+      break;
+    case 'celebrating':
+      p.timer -= dt; if (p.timer <= 0) p.state = 'toDoor';
+      break;
+    case 'toDoor':
+      if (walkTo(p, L.roomDoorX, L.laneZ + 0.35, dt)) { fl.roomHold = 0.6; p.fade = 0; setAnim(p, 'idle'); if (p.alpha <= 0) removePerson(p); }
+      break;
+    case 'leavingStairs':
+      if (walkTo(p, L.stairX, L.laneZ + 0.35, dt, 'stomp')) { fl.stairHold = 0.6; p.fade = 0; setAnim(p, 'idle'); if (p.alpha <= 0) removePerson(p); }
+      break;
+  }
+}
+
+/* ======== cars ======== */
+function carFloorAt(c) {
+  if (c.v !== 0) return -1;
+  const f = Math.round(c.y / ART.FLOOR_H);
+  return Math.abs(c.y - f * ART.FLOOR_H) < 0.02 ? f : -1;
+}
+
+function openDoors(c) { c.doorState = 'opening'; sfx('doorOpen'); }
+
+function arrive(c, f) {
+  if (c.target === f) c.target = null;
+  sfx('ding'); openDoors(c);
+  if (c.riders.some((p) => p.dest === f)) speak(NUMBER_WORDS[f]);
+}
+
+function moveCar(c, dt) {
+  const FH = ART.FLOOR_H;
+  if (c.target == null) {
+    const f = carFloorAt(c);
+    if (f >= 0 && G.phase === 'play') {
+      if (G.floors[f].queue.some((p) => p.state === 'waiting' && c.seatsUsed + p.seats <= c.cap)) openDoors(c);
+    }
+    return;
+  }
+  const goal = c.target * FH;
+  if (c.v === 0 && Math.abs(c.y - goal) < 0.02) { c.y = goal; arrive(c, c.target); return; }
+  const dir = Math.sign(goal - c.y);
+  let stopY = goal;
+  if (c.v === 0 || Math.sign(c.v) === dir) {
+    const brake = c.v * c.v / (2 * CAR_ACCEL);
+    for (const p of c.riders) {
+      const dy = p.dest * FH, ahead = (dy - c.y) * dir;
+      if (ahead > 0.01 && ahead < (stopY - c.y) * dir && ahead >= brake - 0.05) stopY = dy;
+    }
+  }
+  const d = stopY - c.y, sd = Math.sign(d);
+  const want = sd * Math.min(CAR_SPEED, Math.sqrt(2 * CAR_ACCEL * Math.abs(d)));
+  c.v += clamp(want - c.v, -CAR_ACCEL * dt, CAR_ACCEL * dt);
+  const step = c.v * dt;
+  if ((Math.abs(d) < 0.003 || (Math.sign(step) === sd && Math.abs(step) >= Math.abs(d))) && Math.abs(c.v) < 2) {
+    c.y = stopY; c.v = 0; arrive(c, Math.round(stopY / FH)); return;
+  }
+  c.y += step;
+}
+
+function updateCar(c, dt) {
+  switch (c.doorState) {
+    case 'opening':
+      c.door = Math.min(1, c.door + dt / DOOR_TIME);
+      if (c.door >= 1) {
+        c.doorState = 'open'; c.dwell = 0; c.boardGap = 0.15; c.fullFlashed = false;
+        const f = carFloorAt(c);
+        for (const p of [...c.riders]) if (p.dest === f) exitPerson(p, c, f);
+      }
+      break;
+    case 'open': {
+      c.dwell += dt; c.boardGap -= dt;
+      const f = carFloorAt(c);
+      let exiting = false, busy = false;
+      for (const p of G.people) if (p.carIdx === c.idx) {
+        if (p.state === 'exiting') exiting = busy = true; else if (p.state === 'boarding') busy = true;
+      }
+      const q = G.floors[f].queue, front = q[0];
+      let canBoard = false;
+      if (!exiting && front && front.state === 'waiting' && G.phase !== 'won') {
+        const fits = q.find((p) => p.state === 'waiting' && c.seatsUsed + p.seats <= c.cap);
+        if (fits) {
+          canBoard = true;
+          if (c.boardGap <= 0) { boardPerson(fits, c); c.boardGap = BOARD_GAP; }
+        } else if (!c.fullFlashed && c.seatsUsed >= c.cap) { c.fullFlashed = true; c.art.flashFull(); sfx('full'); front.shakeT = 1.2; }
+      }
+      if (!busy && !canBoard && c.dwell >= DWELL_MIN) { c.doorState = 'closing'; sfx('doorClose'); }
+      break;
+    }
+    case 'closing':
+      c.door = Math.max(0, c.door - dt / DOOR_TIME);
+      if (c.door <= 0) { c.doorState = 'closed'; if (c.queuedTarget != null) { c.target = c.queuedTarget; c.queuedTarget = null; } }
+      break;
+    case 'closed': moveCar(c, dt); break;
+  }
+}
+
+function tap(ci, floor) {
+  const c = G.cars[ci]; if (!c || G.phase !== 'play') return;
+  floor = clamp(floor | 0, 0, G.layout.nFloors - 1);
+  sfx('tap'); G.glow[floor] = 0.45;
+  if (c.doorState === 'closed') { c.target = floor; c.queuedTarget = null; }
+  else if (carFloorAt(c) === floor && c.doorState !== 'closing') { /* already here with doors open: keep any queued trip */ }
+  else c.queuedTarget = floor;
+}
+
+function nearestCar(floor) {
+  const y = floor * ART.FLOOR_H;
+  let best = -1, bd = Infinity;
+  for (const pass of [0, 1, 2]) {   // 0: closed and empty, 1: closed, 2: any
+    for (const c of G.cars) {
+      if (pass < 2 && c.doorState !== 'closed') continue;
+      if (pass === 0 && c.riders.length) continue;
+      const d = Math.abs(c.y - y); if (d < bd) { bd = d; best = c.idx; }
+    }
+    if (best >= 0) return best;
+  }
+  return 0;
+}
+
+/* ======== simulation ======== */
+function simStep(dt) {
+  G.time += dt;
+  if (G.phase === 'play') {
+    G.spawnTimer -= dt;
+    if (G.spawnTimer <= 0) { G.spawnTimer = G.level.every * (1 + (rng() * 2 - 1) * ARRIVE_JITTER); spawnRandom(); }
+    G.level.waves.forEach((w, i) => { G.waveTimers[i] -= dt; if (G.waveTimers[i] <= 0) { G.waveTimers[i] = w.every; runWave(w); } });
+    if (DEMO) { G.botT -= dt; if (G.botT <= 0) { G.botT = BOT_EVERY; const m = suggestMove(); if (m) tap(m.car, m.floor); } }
+  }
+  for (const c of G.cars) updateCar(c, dt);
+  for (const p of [...G.people]) if (!p.removed) updatePerson(p, dt);
+  for (const f of G.floors) {
+    f.stairHold -= dt; f.roomHold -= dt;
+    f.stairOpen = clamp(f.stairOpen + (f.stairHold > 0 ? dt : -dt) * 4, 0, 1);
+    f.roomOpen = clamp(f.roomOpen + (f.roomHold > 0 ? dt : -dt) * 4, 0, 1);
+  }
+  for (let i = 0; i < G.glow.length; i++) if (G.glow[i] > 0) G.glow[i] -= dt;
+  if (G.phase === 'won' && !G.cardShown && G.time - G.wonAt >= WIN_DELAY) showWinCard();
+}
+
+function checkWin() {
+  if (G.phase !== 'play' || G.delivered < G.level.target) return;
+  G.phase = 'won'; G.wonAt = G.time;
+  G.stars = G.leftStairs === 0 ? 3 : G.leftStairs <= 2 ? 2 : 1;
+  saveStars(G.levelIdx, G.stars);
+}
+
+/* ======== input ======== */
+let drag = null;                 // the pointer currently panning (or the last one pressed)
+const ptrs = new Map();          // every finger/mouse by pointerId, so a second finger doesn't drop the first tap
+const DRAG_PX = 12;              // a move further than this is a swipe, never a tap
+canvas.addEventListener('pointerdown', (e) => {
+  const d = { id: e.pointerId, x: e.clientX, y: e.clientY, lastY: e.clientY, lastT: performance.now(), moved: false };
+  ptrs.set(e.pointerId, d); if (!(drag && drag.moved)) drag = d;
+  view.camVY = 0;
+  try { canvas.setPointerCapture(e.pointerId); } catch {}
+});
+canvas.addEventListener('pointermove', (e) => {
+  const d = ptrs.get(e.pointerId); if (!d) return;
+  if (!d.moved && Math.hypot(e.clientX - d.x, e.clientY - d.y) > DRAG_PX) { d.moved = true; if (!(drag && drag.moved && drag !== d)) drag = d; }
+  if (d !== drag) { d.lastY = e.clientY; return; }
+  if (d.moved && view.pan) {
+    const du = (e.clientY - drag.lastY) / view.pxPerUnit, now = performance.now();
+    view.camY = clamp(view.camY + du, view.yMin, view.yMax); view.goalY = null;
+    view.camVY = du / Math.max(0.008, (now - drag.lastT) / 1000); drag.lastT = now;
+  }
+  drag.lastY = e.clientY;
+});
+canvas.addEventListener('pointerup', (e) => {
+  const d = ptrs.get(e.pointerId); if (!d) return;
+  ptrs.delete(e.pointerId);
+  if (!d.moved) { if (drag === d) view.camVY = 0; handleTap(e.clientX, e.clientY); }
+  else if (performance.now() - d.lastT > 90) view.camVY = 0;
+  if (drag === d) drag = null;
+});
+canvas.addEventListener('pointercancel', (e) => { const d = ptrs.get(e.pointerId); ptrs.delete(e.pointerId); if (drag === d) drag = null; });
+for (const ev of ['pointerdown', 'pointerup', 'touchend', 'click']) addEventListener(ev, unlockAudio, true);
+
+function ripple(x, y) {
+  const r = document.createElement('div'); r.className = 'ripple'; r.style.left = x + 'px'; r.style.top = y + 'px';
+  document.getElementById('fx').appendChild(r); setTimeout(() => r.remove(), 600);
+}
+
+function handleTap(cx, cy) {
+  if (G.phase !== 'play') return;
+  ripple(cx, cy);
+  const w = screenToWorld(cx, cy); if (!w) return;
+  const L = G.layout;
+  if (w.x < L.x0 - 0.5 || w.x > L.x1 + 0.5 || w.y < -0.5 || w.y > L.height + 0.5) return;
+  const floor = clamp(Math.floor(w.y / ART.FLOOR_H), 0, L.nFloors - 1);
+  let car = -1;
+  for (let s = 0; s < L.nShafts; s++) if (Math.abs(w.x - L.shaftX[s]) < ART.SHAFT_W / 2) car = s;
+  if (car < 0) car = w.x < L.x0 + ART.ROOM_W ? nearestCar(floor) : L.nShafts - 1;
+  G.lastInputTime = G.time;
+  tap(car, floor);
+}
+
+for (const el of [document.getElementById('home'), document.getElementById('hudR'), document.getElementById('hud')]) {
+  for (const ev of ['pointerdown', 'pointerup', 'click', 'touchstart']) el.addEventListener(ev, (e) => e.stopPropagation(), { passive: true });
+}
+
+/* ======== hint & bot ======== */
+function suggestMove() {
+  if (G.phase !== 'play') return null;
+  const free = G.cars.filter((c) => c.target == null && c.queuedTarget == null && (c.doorState === 'closed' || c.doorState === 'open'));
+  for (const c of free) {
+    const here = Math.round(c.y / ART.FLOOR_H);
+    let best = -1, bd = Infinity;
+    for (const p of c.riders) { const d = Math.abs(p.dest - here); if (p.dest !== carFloorAt(c) && d < bd) { bd = d; best = p.dest; } }
+    if (best >= 0) return { car: c.idx, floor: best };
+  }
+  let worst = -1, wm = -1;
+  G.floors.forEach((fl, f) => {
+    if (!fl.queue.length) return;
+    const claimed = G.cars.some((c) => c.target === f || c.queuedTarget === f || (carFloorAt(c) === f && c.seatsUsed < c.cap));
+    if (claimed) return;
+    const m = Math.max(...fl.queue.map((p) => p.waited / p.patience));
+    if (m > wm) { wm = m; worst = f; }
+  });
+  if (worst < 0) return null;
+  let car = -1, bd = Infinity;
+  for (const c of free) { if (c.seatsUsed >= c.cap) continue; const d = Math.abs(c.y - worst * ART.FLOOR_H); if (d < bd) { bd = d; car = c.idx; } }
+  return car >= 0 ? { car, floor: worst } : null;
+}
+
+const handEl = document.getElementById('hand');
+function updateHint() {
+  const delay = G.levelIdx === 0 ? HINT_DELAY_L1 : HINT_DELAY;
+  const m = G.phase === 'play' && !(drag && drag.moved) && G.time - G.lastInputTime > delay ? suggestMove() : null;
+  if (!m) { handEl.hidden = true; return; }
+  const L = G.layout, s = worldToScreen(L.shaftX[m.car], m.floor * ART.FLOOR_H + 1.2, 0);
+  if (s.y < view.ay + 10 || s.y > view.ay + view.ah - 30) { handEl.hidden = true; return; }
+  handEl.hidden = false; handEl.style.left = s.x + 'px'; handEl.style.top = s.y + 'px';
+}
+
+/* ======== hud & screens ======== */
+const PERSON_SVG = '<svg viewBox="0 0 12 16" aria-hidden="true"><circle cx="6" cy="3.6" r="3"/><path d="M1.5 16v-5a4.5 4.5 0 0 1 9 0v5z"/></svg>';
+let progMode = '';
+function renderProgress(bump) {
+  const t = G.level.target, d = Math.min(G.delivered, t);
+  const hud = document.getElementById('hud'), icons = document.getElementById('progIcons'), bar = document.getElementById('progBar');
+  const avail = innerWidth - 64 - 114 - 64;
+  const mode = !view.side && t * 16 + 16 <= avail ? 'icons' : 'bar';
+  if (mode !== progMode || icons.children.length !== t) {
+    progMode = mode; icons.hidden = mode !== 'icons'; bar.hidden = mode !== 'bar';
+    icons.innerHTML = mode === 'icons' ? Array.from({ length: t }, () => '<span class="pi">' + PERSON_SVG + '</span>').join('') : '';
+  }
+  [...icons.children].forEach((el, i) => el.classList.toggle('on', i < d));
+  hud.style.setProperty('--p', String(d / t));
+  document.getElementById('progText').textContent = d + '/' + t;
+  document.documentElement.dataset.delivered = String(G.delivered);
+}
+
+function updateStairs(bump) {
+  const el = document.getElementById('stairs');
+  el.hidden = G.leftStairs <= 0;
+  document.getElementById('stairsN').textContent = String(G.leftStairs);
+  if (bump) { el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump'); }
+}
+
+const edgeUp = document.getElementById('edgeUp'), edgeDown = document.getElementById('edgeDown');
+function updateEdges() {
+  let up = -1, down = -1, upF = -1, downF = -1;
+  if (G.phase === 'play' && view.pan) {
+    const lo = view.camY - view.visH / 2, hi = view.camY + view.visH / 2;
+    G.floors.forEach((fl, f) => {
+      if (!fl.queue.length) return;
+      const cy = f * ART.FLOOR_H + 1.5, st = Math.max(...fl.queue.map((p) => Math.min(3, p.stage)));
+      if (cy > hi - 0.6) { if (st > up || upF < 0) { up = st; upF = f; } }
+      else if (cy < lo + 0.6) { if (st > down || downF < 0) { down = st; downF = f; } }
+    });
+  }
+  const place = (el, stage, f, top) => {
+    el.hidden = f < 0; if (f < 0) return;
+    el.querySelector('span').textContent = MOOD_FACES[stage];
+    el.classList.toggle('angry', stage >= 3); el.dataset.floor = String(f);
+    el.style.left = (view.ax + view.aw / 2) + 'px';
+    el.style.top = (top ? view.ay + 8 : view.ay + view.ah - 60) + 'px';
+  };
+  place(edgeUp, up, upF, true); place(edgeDown, down, downF, false);
+}
+for (const el of [edgeUp, edgeDown]) {
+  el.addEventListener('pointerdown', (e) => e.stopPropagation());
+  el.addEventListener('click', () => { const f = +el.dataset.floor; view.goalY = clamp(f * ART.FLOOR_H + 1.5, view.yMin, view.yMax); G.lastInputTime = G.time; });
+}
+
+function highestUnlocked() {
+  const s = loadStars(); let u = 0;
+  for (let i = 0; i < LEVELS.length; i++) if (s[i + 1]) u = Math.min(LEVELS.length - 1, i + 1);
+  return u;
+}
+
+function renderMap() {
+  const s = loadStars(), u = highestUnlocked(), box = document.getElementById('levels');
+  box.innerHTML = '';
+  LEVELS.forEach((_, i) => {
+    const b = document.createElement('button'); b.className = 'lv' + (i > u ? ' locked' : '');
+    b.style.gridRow = String(5 - Math.floor(i / 2)); b.style.gridColumn = String(1 + (i % 2));
+    const n = s[i + 1] || 0;
+    b.innerHTML = i > u ? '🔒' : (i + 1) + '<small>' + [0, 1, 2].map((k) => k < n ? '<i>★</i>' : '☆').join('') + '</small>';
+    b.setAttribute('aria-label', 'Level ' + (i + 1));
+    if (i <= u) b.addEventListener('click', () => startLevel(i)); else b.disabled = true;
+    box.appendChild(b);
+  });
+}
+
+const starTimers = [];
+function showMap() {
+  G.resumable = G.phase === 'play';
+  G.phase = 'map';
+  document.getElementById('win').hidden = true;
+  document.getElementById('map').hidden = false;
+  document.getElementById('mapBtn').hidden = true;
+  renderMap();
+}
+document.getElementById('mapBtn').addEventListener('click', () => { if (G.phase !== 'map') showMap(); });
+document.getElementById('play').addEventListener('click', () => {
+  if (G.resumable) { G.resumable = false; G.phase = 'play'; document.getElementById('map').hidden = true; document.getElementById('mapBtn').hidden = false; document.getElementById('hud').hidden = false; }
+  else startLevel(highestUnlocked());
+});
+
+function showWinCard() {
+  G.cardShown = true;
+  const win = document.getElementById('win'); win.hidden = false;
+  const stars = [...document.querySelectorAll('.star')];
+  stars.forEach((el, i) => { el.className = 'star' + (i < G.stars ? ' on' : ''); el.style.animationDelay = (0.25 + i * 0.35) + 's'; void el.offsetWidth; el.classList.add('show'); });
+  for (let i = 0; i < G.stars; i++) starTimers.push(setTimeout(() => sfx('star', i), 250 + i * 350));
+  document.getElementById('bNext').hidden = G.levelIdx >= LEVELS.length - 1;
+  sfx('fanfare'); speak('Hooray!');
+  const fx = document.getElementById('fx');
+  const cols = FLOOR_THEMES.map((t) => t.color).concat(['#FFC93C', '#ffffff']);
+  for (let k = 0; k < 40; k++) {
+    const c = document.createElement('div'); c.className = 'conf';
+    c.style.left = (rng() * 100) + '%'; c.style.background = cols[k % cols.length];
+    c.style.animationDelay = (rng() * 0.8) + 's'; c.style.animationDuration = (2.2 + rng() * 1.2) + 's';
+    fx.appendChild(c); setTimeout(() => c.remove(), 4500);
+  }
+}
+document.getElementById('bReplay').addEventListener('click', () => startLevel(G.levelIdx));
+document.getElementById('bNext').addEventListener('click', () => startLevel(G.levelIdx + 1));
+document.getElementById('bMap').addEventListener('click', showMap);
+
+/* ======== sound ======== */
+const SND = { ctx: null, master: null, motor: null, motorGain: null, noise: null, lastSpeak: -9 };
+let muted = FORCE_MUTE || loadKey('muted') === '1';
+
+function unlockAudio() {
+  if (FORCE_MUTE || muted) return;
+  if (!SND.ctx) {
+    const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+    try { SND.ctx = new AC(); } catch { return; }
+    const c = SND.ctx;
+    SND.master = c.createGain(); SND.master.gain.value = 0.6; SND.master.connect(c.destination);
+    SND.motor = c.createOscillator(); SND.motor.type = 'sawtooth'; SND.motor.frequency.value = 55;
+    const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 180;
+    SND.motorGain = c.createGain(); SND.motorGain.gain.value = 0;
+    SND.motor.connect(lp).connect(SND.motorGain).connect(SND.master); SND.motor.start();
+    const len = c.sampleRate; SND.noise = c.createBuffer(1, len, c.sampleRate);
+    const d = SND.noise.getChannelData(0); for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  }
+  if (SND.ctx.state !== 'running' && !document.hidden) SND.ctx.resume().catch(() => {});
+}
+// hidden tab: suspend audio, silence the motor hum and speech; resume on return
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    if (SND.motorGain) SND.motorGain.gain.value = 0;
+    if (SND.ctx) SND.ctx.suspend().catch(() => {});
+    if (!FORCE_MUTE) try { window.speechSynthesis && speechSynthesis.cancel(); } catch {}
+  } else if (SND.ctx && !muted && !FORCE_MUTE) SND.ctx.resume().catch(() => {});
+});
+
+function tone(f0, t0, dur, type = 'sine', vol = 0.3, f1) {
+  const c = SND.ctx, o = c.createOscillator(), g = c.createGain();
+  o.type = type; o.frequency.setValueAtTime(f0, t0); if (f1) o.frequency.exponentialRampToValueAtTime(f1, t0 + dur);
+  g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(vol, t0 + 0.012); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  o.connect(g).connect(SND.master); o.start(t0); o.stop(t0 + dur + 0.05);
+  return o;
+}
+function noise(t0, dur, fa, fb, vol = 0.2, type = 'bandpass') {
+  const c = SND.ctx, s = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain();
+  s.buffer = SND.noise; f.type = type; f.Q.value = 1.2; f.frequency.setValueAtTime(fa, t0); f.frequency.exponentialRampToValueAtTime(fb, t0 + dur);
+  g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(vol, t0 + dur * 0.3); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  s.connect(f).connect(g).connect(SND.master); s.start(t0); s.stop(t0 + dur + 0.05);
+}
+
+function sfx(name, arg) {
+  if (FORCE_MUTE || muted || !SND.ctx || SND.ctx.state !== 'running') return;
+  const t = SND.ctx.currentTime;
+  switch (name) {
+    case 'ding': tone(1046, t, 0.7, 'sine', 0.25); tone(784, t + 0.22, 0.9, 'sine', 0.25); break;
+    case 'doorOpen': noise(t, 0.4, 600, 1800, 0.08); break;
+    case 'doorClose': noise(t, 0.4, 1800, 600, 0.08); break;
+    case 'chirp': [660, 880, 1175].forEach((f, i) => tone(f, t + i * 0.08, 0.14, 'triangle', 0.2)); break;
+    case 'grumble': { const o = tone(110, t, 0.55, 'sawtooth', 0.12, 80); const l = SND.ctx.createOscillator(), lg = SND.ctx.createGain();
+      l.frequency.value = 11; lg.gain.value = 18; l.connect(lg).connect(o.frequency); l.start(t); l.stop(t + 0.6); break; }
+    case 'stomp': tone(90, t, 0.18, 'sine', 0.4, 40); tone(90, t + 0.22, 0.18, 'sine', 0.4, 40); tone(320, t + 0.45, 0.35, 'sawtooth', 0.04, 200); break;
+    case 'full': tone(200, t, 0.22, 'sine', 0.3, 140); break;
+    case 'tap': tone(1500, t, 0.04, 'square', 0.05); break;
+    case 'fanfare': [523, 659, 784, 1046].forEach((f, i) => tone(f, t + i * 0.13, i === 3 ? 0.7 : 0.18, 'triangle', 0.22)); break;
+    case 'star': tone(1318 + (arg || 0) * 220, t, 0.35, 'sine', 0.2); break;
+  }
+}
+
+function updateMotor() {
+  if (!SND.motorGain) return;
+  const v = G.phase === 'map' || muted ? 0 : Math.max(0, ...G.cars.map((c) => Math.abs(c.v))) / CAR_SPEED;
+  SND.motorGain.gain.setTargetAtTime(v * 0.08, SND.ctx.currentTime, 0.08);
+  SND.motor.frequency.setTargetAtTime(50 + v * 25, SND.ctx.currentTime, 0.1);
+}
+
+function speak(text) {
+  if (FORCE_MUTE || muted) return;
+  const ss = window.speechSynthesis; if (!ss || typeof SpeechSynthesisUtterance === 'undefined') return;
+  const now = performance.now() / 1000; if (now - SND.lastSpeak < 1.5) return; SND.lastSpeak = now;
+  try {
+    const u = new SpeechSynthesisUtterance(text); u.lang = 'en-GB'; u.rate = 1; u.pitch = 1.2;
+    const v = ss.getVoices().find((x) => x.lang === 'en-GB') || ss.getVoices().find((x) => /^en/.test(x.lang)); if (v) u.voice = v;
+    ss.speak(u);
+  } catch {}
+}
+
+const muteBtn = document.getElementById('muteBtn');
+function showMute() { muteBtn.textContent = muted ? '🔇' : '🔊'; }
+muteBtn.addEventListener('click', () => {
+  if (FORCE_MUTE) return;
+  muted = !muted; saveKey('muted', muted ? '1' : '0'); showMute();
+  if (muted) { if (SND.ctx) SND.ctx.suspend().catch(() => {}); try { window.speechSynthesis && speechSynthesis.cancel(); } catch {} }
+  else unlockAudio();
+});
+
+/* ======== persistence ======== */
+function loadKey(k) { try { return localStorage.getItem('goingup.' + k); } catch { return null; } }
+function saveKey(k, v) { try { localStorage.setItem('goingup.' + k, v); } catch {} }
+function loadStars() { try { return JSON.parse(loadKey('stars') || '{}') || {}; } catch { return {}; } }
+function saveStars(i, n) { const s = loadStars(); if ((s[i + 1] || 0) < n) { s[i + 1] = n; saveKey('stars', JSON.stringify(s)); } }
+
+/* ======== test hooks ======== */
+window.__game = { G, LEVELS, FLOOR_THEMES, view, tap, suggestMove, startLevel,
+  win() { if (G.phase === 'play') { G.delivered = G.level.target; renderProgress(); checkWin(); } },
+  step(sec) { const n = Math.round(sec / FIXED_DT); for (let i = 0; i < n; i++) simStep(FIXED_DT); } };
+
+/* ======== main loop ======== */
+function syncVisuals() {
+  const L = G.layout;
+  for (const c of G.cars) {
+    c.art.group.position.set(L.shaftX[c.idx], c.y, ART.CAR_Z);
+    building.shafts[c.idx].setCarY(c.y);
+    const e = c.door * c.door * (3 - 2 * c.door); c.art.setDoors(e);
+    const t = c.target ?? c.queuedTarget ?? null; if (t !== c.shownTarget) { c.shownTarget = t; c.art.setTarget(t); }
+    const dir = Math.sign(c.v); if (dir !== c.shownDir) { c.shownDir = dir; c.art.setMoving(dir); }
+  }
+  for (const p of G.people) {
+    if (p.state !== 'riding') { p.art.group.position.set(p.x, L.floorY[p.floor], p.z); p.art.group.rotation.y = p.rot; }
+    p.art.setAnim(p.anim, p.animT);
+    const k = (view.bubbleK || 1) * (p.state === 'riding' || p.state === 'boarding' ? RIDER_BUBBLE : 1);
+    if (k !== p.shownK) { p.shownK = k; p.art.setBubbleScale(k); }
+    if (p.alpha !== p.shownAlpha) { p.shownAlpha = p.alpha; p.art.setOpacity(p.alpha); }
+  }
+  G.floors.forEach((f, i) => {
+    const fh = building.floors[i];
+    if (f.stairOpen !== f.shownStair) { f.shownStair = f.stairOpen; fh.setStairDoor(f.stairOpen); }
+    if (f.roomOpen !== f.shownRoom) { f.shownRoom = f.roomOpen; fh.setRoomDoor(f.roomOpen); }
+    const g = G.glow[i] > 0; if (g !== f.shownGlow) { f.shownGlow = g; fh.setGlow(g); }
+  });
+}
+
+let last = performance.now(), lastSim = last, acc = 0, artTime = 0, frameCount = 0;
+function advanceSim(now, maxDt) {
+  const dt = Math.min(maxDt, Math.max(0, (now - lastSim) / 1000)); lastSim = now;
+  if (G.phase !== 'play' && G.phase !== 'won') return;
+  acc += dt * SPEED; let n = 0;
+  while (acc >= FIXED_DT && n < 2000) { simStep(FIXED_DT); acc -= FIXED_DT; n++; }
+  if (n >= 2000) acc = 0;
+}
+// ?demo also ticks from a timer, so headless runs (where animation frames are rare) still play and draw
+if (TICK) setInterval(() => tick(performance.now(), 0.5), 100);
+function frame(now) {
+  requestAnimationFrame(frame);
+  tick(performance.now(), 0.1);
+}
+function tick(now, maxDt) {
+  const dt = Math.min(maxDt, Math.max(0, (now - last) / 1000)); last = now;
+  advanceSim(now, maxDt);
+  updateCameraMotion(dt); applyCamera();
+  syncVisuals();
+  artTime += dt; sky.update(artTime); animateArt(artTime, dt);
+  updateHint(); updateEdges(); updateMotor();
+  document.documentElement.dataset.phase = G.phase;
+  if (TICK) document.documentElement.dataset.dbg = innerWidth + 'x' + innerHeight + ' f=' + (++frameCount) + ' t=' + G.time.toFixed(1) + ' people=' + G.people.length + ' ' + G.people.map((p) => p.state[0]).join('');
+  renderer.render(scene, camera);
+}
+
+addEventListener('resize', fitCamera);
+addEventListener('orientationchange', () => setTimeout(fitCamera, 200));
+showMute();
+const lvParam = parseInt(params.get('level'), 10);
+if (Number.isFinite(lvParam)) startLevel(lvParam - 1);
+else { setupLevel(highestUnlocked()); showMap(); }
+requestAnimationFrame(frame);
+</script>
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').then(() => navigator.serviceWorker.ready).then((reg) => {
+    const send = () => reg.active && reg.active.postMessage({ cache: [location.href, ...performance.getEntriesByType('resource').map((r) => r.name)] });
+    send(); setTimeout(send, 5000); setTimeout(send, 20000);
+  }).catch(() => {});
+}
+</script>
+</body>
+</html>
