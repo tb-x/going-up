@@ -281,7 +281,7 @@ const LEVELS = [
     wings: { garden: { R: 'playground' } } },
   // 4 small office tower
   { floors: ['parking', 'lobby', 'cafe', 'office', 'office2'], cars: 1, cap: 4, every: 5.5, patience: 36, target: 10, specials: SP1, waves: [],
-    wings: { office: { R: 'toilets' } } },
+    wings: {} },
   // 5 hotel
   { floors: ['parking', 'lobby', 'restaurant', 'hotel', 'hotel2', 'pool'], cars: 2, cap: 4, every: 5.0, patience: 31, target: 12, specials: SP1, waves: [],
     wings: { lobby: { R: 'toilets' } } },
@@ -290,10 +290,10 @@ const LEVELS = [
     wings: { parking2: { L: 'bikes' } } },
   // 7 office tower with a restaurant and a pool
   { floors: ['parking', 'lobby', 'office', 'restaurant', 'office2', 'pool', 'garden'], cars: 2, cap: 4, every: 4.6, patience: 30, target: 14, specials: SP2, waves: [],
-    wings: { office: { R: 'toilets' } } },
+    wings: {} },
   // 8 office tower over the subway
   { floors: ['subway', 'parking', 'lobby', 'restaurant', 'office', 'office2', 'pool'], cars: 2, cap: 3, every: 5.0, patience: 32, target: 15, specials: SP3, waves: [],
-    wings: { lobby: { R: 'toilets' } } },
+    wings: {} },
   // 9 big hotel
   { floors: ['subway', 'parking', 'lobby', 'restaurant', 'hotel', 'hotel2', 'pool', 'garden'], cars: 2, cap: 4, every: 5.2, patience: 32, target: 15, specials: SP3, waves: [RUSH],
     wings: { lobby: { R: 'toilets' } } },
@@ -310,7 +310,7 @@ const LEVELS = [
     wings: { office: { R: 'toilets' } } },
   // 14 mixed tower at night
   { floors: ['subway', 'parking2', 'parking', 'lobby', 'cafe', 'office', 'home', 'home2', 'home3', 'garden'], cars: 3, cap: 5, every: 3.6, patience: 26, target: 24, specials: SP3, waves: [RUSH, LUNCH],
-    wings: { lobby: { R: 'toilets' }, parking2: { L: 'laundry' }, garden: { R: 'playground' } } },
+    wings: { parking2: { L: 'laundry' }, garden: { R: 'playground' } } },
 ];
 // time of day per level ('day' | 'dusk' | 'night'), a night about every third level; the art switches sky and lights with artSetTime(time)
 const LEVEL_TIMES = ['day', 'day', 'night', 'day', 'dusk', 'night', 'day', 'dusk', 'night', 'day', 'dusk', 'night', 'day', 'night'];
@@ -1653,12 +1653,7 @@ function buildBuilding(scene, layout) {
     { const cb = new ArtBatch(); cb.add(artBox(0.95, 1.1, 0.26), shiny, artXf(0, 0, 0), '#4C5157');
       for (const y of [-0.3, 0, 0.3]) cb.add(artBox(0.97, 0.03, 0.28), shiny, artXf(0, y, 0), '#3B4148');
       cb.add(artBox(0.5, 0.1, 0.1), shiny, artXf(0, 0.6, 0), '#8E949A'); cb.flush(cw, owned, false, true); }
-    const lampMat = new THREE.MeshBasicMaterial({ toneMapped: false }); owned.push(lampMat);
-    const lamps = new THREE.InstancedMesh(artSph(0.06, 10, 8), lampMat, nFloors);
-    const off = new THREE.Color('#3A3A36'), on = new THREE.Color('#FFC93C').multiplyScalar(1.4);
-    for (let f = 0; f < nFloors; f++) { lamps.setMatrixAt(f, artXf(sx + 0.825, fY(f) + 3.41, 0.07, 0, 0, 0, 1.4)); lamps.setColorAt(f, off); }
-    sg.add(lamps);
-    let lit = -1, lastY = null;
+    let lastY = null;                                         // (the per-floor "lift is here" lamps were removed)
     shafts.push({ group: sg, index: s, setCarY(y) {
       if (y === lastY) return; lastY = y;
       const carTop = y + ART.CAR_H + 0.05;
@@ -1667,12 +1662,6 @@ function buildBuilding(scene, layout) {
       cw.position.set(sx, cwY, wheelZ - wheelR);
       cwCable.position.y = cwY + 0.6; cwCable.scale.y = Math.max(0.01, wheelY - cwY - 0.6);
       wheel.rotation.x = -y / wheelR;
-      const f = Math.round((y - yB) / FH), here = Math.abs(y - fY(Math.max(0, Math.min(nFloors - 1, f)))) < 0.35 ? f : -1;
-      if (here !== lit) {
-        if (lit >= 0 && lit < nFloors) lamps.setColorAt(lit, off);
-        if (here >= 0 && here < nFloors) lamps.setColorAt(here, on);
-        lit = here; lamps.instanceColor.needsUpdate = true;
-      }
     } });
     shafts[s].setCarY(fY(layout.groundIndex || 0));
   }
@@ -1983,16 +1972,15 @@ function artR2Occupants(id, wing, ctx, parent, sd) {
     add('adult', 21, { look: 'suit' }, 'talk', cu - tw / 2 - 0.35, -3.05, PI / 2);
     add('adult', 22, { look: 'dress' }, 'talk', cu + tw / 2 + 0.35, -3.05, -PI / 2);
     add('adult', 23, { look: 'casual' }, 'phone', m0 > (v ? 1.8 : W / 2) ? 0.7 : W - 0.7, -2.1, 0);
-  } else if (id === 'hotel' && wing === 'L' && v) {
-    add('adult', 33, { look: 'casual', top: '#C9A46A' }, 'phone', W - 1.0, -2.0, 0);      // hotel2: a guest by the bed
+  } else if (id === 'hotel' && wing === 'L') {
+    if (v) add('adult', 33, { look: 'casual', top: '#C9A46A' }, 'phone', W - 1.0, -2.0, 0);      // hotel2: a guest by the bed
+    out.push(...artHotelMaidL(ctx, parent, sd, v));             // housekeeper: makes beds, wipes, vacuums (art: staff & diners)
   } else if (id === 'hotel' && wing === 'R') {
-    const c0 = Math.min(3.4, W * 0.5) + 0.1, cu = R2_fit(ctx, (c0 + W) / 2 - 0.55, 1.1, W);
-    if (cu != null) add('adult', 31, { look: 'dress', top: '#5B7A99' }, 'push', cu + 0.55 - 0.85, -2.25, PI / 2);
+    out.push(...artHotelMaidR(ctx, parent, sd));                // housekeeper pushing her cart along the corridor
   } else if (id === 'restaurant' && wing === 'L') {
-    add('adult', 41, { look: 'suit', top: '#2E3236' }, 'carry', W * 0.5, -1.55, PI / 2);
+    out.push(...artDiningRoom(ctx, parent, sd));                // diners at the tables and the waiter
   } else if (id === 'restaurant') {
-    const ru = R2_fit(ctx, W * 0.42 - 0.6, 1.2, W) ?? 0.2;
-    add('adult', 42, { look: 'chef' }, 'cook', ru + 0.6, -3.45, PI);
+    out.push(...artKitchen(ctx, parent, sd));                   // the chef: stir, toss, chop, plate
   } else if (id === 'subway' && wing === 'L') {
     add('adult', 51, { look: 'worker' }, 'talk', W * 0.42, -2.9, 0);
   } else if (id === 'home') {                                   // positions from R2_homePlan, the same as the furniture
@@ -2022,18 +2010,27 @@ function artR2Occupants(id, wing, ctx, parent, sd) {
   }
   return out;
 }
-/* Occupants of the classic rooms, in the old single-wing u coordinates (mapped and mirrored by X). */
+/* Occupants of the classic rooms, in artWing's u coordinates (metres from the wing's rx0), next to the props they use. */
 function artWingOccupants(id, wing, X, y, parent, sd, inStrip) {
   const out = [], PI = Math.PI, R = wing === 'R';
-  const face = (fx, fz, tx, tz) => Math.atan2(X(tx) - X(fx), tz - fz);       // rotation.y that looks from f to t
-  const add = (kind, seed, opts, pose, u, z, ry, yy = 0) => { if (inStrip && inStrip(X(u), 0.35, z)) return; out.push(artOccupant(parent, kind, seed + sd * 17, opts, pose, X(u), y + yy, z, ry)); };
-  if (id === 'lobby') { if (!R) add('adult', 61, { look: 'suit', top: '#3E4B5E' }, 'talk', 5.0, -4.28, 0); else add('grandma', 62, null, 'read', 3.35, -3.98, 0); }
-  else if (id === 'cafe') { if (!R) add('adult', 63, { look: 'casual', top: '#3E4B5E' }, 'cook', 5.62, -4.3, 0); add(R ? 'kid' : 'adult', 64, null, 'read', 2.55, -3.4, face(2.55, -3.4, 3.15, -3.4)); }
-  else if (id === 'library') { if (!R) { add('adult', 65, null, 'read', 3.05, -3.5, 0); add('adult', 66, { look: 'casual', top: '#6F8A5E' }, 'look', 4.6, -3.72, PI); } else add('kid', 67, null, 'look', 3.75, -3.85, PI); }
-  else if (id === 'play') { if (!R) { add('adult', 68, { look: 'dress', top: '#C9A46A' }, 'wave', 2.9, -3.05, 0); add('kid', 69, null, 'play', 5.3, -3.4, 0, 0.05); } else add('kid', 70, null, 'play', 4.1, -2.65, 0); }
-  else if (id === 'pool') { add('kid', 71, { look: 'casual' }, 'swim', 4.4, -3.35, PI / 2, -0.25); if (!R) add('adult', 72, { look: 'casual', top: '#C8322A' }, 'guard', 2.95, -2.55, 0); }
-  else if (id === 'garden') { add('adult', 73 + (R ? 1 : 0), { look: 'casual', top: '#6F8A5E' }, 'water', R ? 5.5 : 4.0, -3.5, PI); }
-  else if (id === 'stars') { if (!R) add('adult', 75, { look: 'casual', top: '#3E4B5E' }, 'look', 4.2, -3.6, face(4.2, -3.6, 3.75, -3.8)); else add('kid', 76, null, 'wave', 4.4, -2.9, 0); }
+  const add = (kind, seed, opts, pose, u, z, ry, yy = 0) => { if (inStrip && inStrip(X(u), 0.3, z)) return; out.push(artOccupant(parent, kind, seed + sd * 17, opts, pose, X(u), y + yy, z, ry)); };
+  if (id === 'lobby') {
+    if (!R) { add('adult', 61, { look: 'suit', top: '#3E4B5E' }, 'talk', 5.65, -4.25, 0); add('adult', 77, { look: 'casual', top: '#8C5A4A' }, 'read', 2.15, -3.88, 0); }
+    else { add('adult', 78, { look: 'suit', top: '#2F3A4F' }, 'look', 0.6, -4.22, 0); add('grandma', 62, null, 'read', 5.35, -3.3, 0); }
+  } else if (id === 'cafe') {
+    if (!R) { add('adult', 63, { look: 'casual', top: '#3E4B5E' }, 'cook', 5.55, -4.3, 0); add('adult', 64, null, 'read', 0.43, -3.55, PI / 2); }
+    else add('kid', 79, null, 'read', 3.4, -3.96, 0);
+  } else if (id === 'play') {
+    if (!R) { add('adult', 68, { look: 'dress', top: '#C9A46A' }, 'wave', 2.95, -3.3, 0.3); add('kid', 69, null, 'play', 1.0, -3.55, 0, 0.05); }
+    else add('kid', 70, null, 'play', 5.2, -3.35, 0);
+  } else if (id === 'pool') {
+    if (!R) { add('kid', 71, { look: 'casual' }, 'swim', 4.3, -3.3, PI / 2, -0.25); add('adult', 72, { look: 'casual', top: '#C8322A' }, 'guard', 6.15, -2.75, -0.4); }
+    else { add('kid', 80, { look: 'casual' }, 'swim', 1.85, -3.35, PI / 2, -0.25); add('adult', 81, { look: 'casual', top: '#5B7A99' }, 'wave', 3.4, -3.25, -PI / 2); }
+  } else if (id === 'library') {
+    if (!R) { add('adult', 65, null, 'read', 2.9, -3.38, -0.6); add('adult', 66, { look: 'casual', top: '#6F8A5E' }, 'look', 5.85, -3.75, PI); }
+    else add('kid', 67, null, 'look', 3.1, -3.8, PI);
+  } else if (id === 'garden') add('adult', 73 + (R ? 1 : 0), { look: 'casual', top: '#6F8A5E' }, 'water', R ? 5.35 : 5.3, R ? -3.5 : -3.6, PI);
+  else if (id === 'stars') { if (!R) add('adult', 75, { look: 'casual', top: '#3E4B5E' }, 'look', 3.75, -3.7, PI / 2); else add('kid', 76, null, 'wave', 1.5, -3.1, 0); }
   return out;
 }
 /* Floor sign atlas: per floor one row of 272 px: a 256 x 256 plaque (cut edge), a 256 x 160 lift sign and the 256 x 112
@@ -2111,34 +2108,32 @@ function artBackEntrance(ex, y, fg, owned, S) {
 }
 const CH_BACK = ART.FLOOR_H - ART.SLAB;
 /* A restyled classic room (lobby, café, play, pool, library, garden, stars, fallback) in one wing [rx0, rx1]. */
+// Each theme has its own layout per wing ('L': stair column at rx0, lift core at rx1; 'R': lift core at rx0, side wall
+// at rx1), in metres from rx0 for the default wing widths (6.6 / 7.0), scaled to the real width. Kept clear: z > -1.75
+// (lane and queues), the lobby back-door strip, and the room spot at x = layout.roomDoorXs[0|1] (0.9 m wide, from the lane
+// to z -2.75) where people stand when they go into the room (pushed to floors[i].group.userData.roomSpots as { wing, x, z }).
+// Props go into the structure batch S (merged per building and material, no sun shadow; blob decals as contact shadows).
+// Radiators only under windows with nothing standing in front of them. Plants keep their leaves 0.9 m from both ends.
 function artWing(id, i, wing, rx0, rx1, y, doorX, fg, owned, anims, S, PB) {
-  const FH = ART.FLOOR_H, SL = ART.SLAB, D = ART.DEPTH, CH = FH - SL, W = rx1 - rx0, wc = (rx0 + rx1) / 2;
+  const FH = ART.FLOOR_H, SL = ART.SLAB, D = ART.DEPTH, CH = FH - SL, W = rx1 - rx0, wc = (rx0 + rx1) / 2, R = wing === 'R';
   const th = artTheme(i), accent = th.color, dark = id === 'stars', wallHex = ART_WALL_BASE[id] || '#E4DED3';
   const clay = artClay(), conc = artConc(), shiny = artShiny(), glow = artGlow(), glass = artGlass();
-  const B = PB || new ArtBatch(), r = artRng(1000 + i * 77 + id.length * 13 + (wing === 'R' ? 500 : 0));
+  const B = S, r = artRng(1000 + i * 77 + id.length * 13 + (R ? 500 : 0));
   const Ps = (geo, hex, x, yy, z, rx = 0, ry = 0, rz = 0, sx = 1, sy = sx, sz = sx, mat = clay) => S.add(geo, mat, artXf(x, y + yy, z, rx, ry, rz, sx, sy, sz), hex);
-  // the old single-wing props were laid out for u in [1.45, 6.4]; map them onto this wing (mirrored on the right)
-  // the old single-wing props were laid out for u in [1.45, 6.4] with the door at u = 2.2: anchor that on this wing's
-  // door (left wing: props to the right of it; right wing: mirrored, props towards the core) and drop any piece that
-  // would stand in the 1.3 m strip people use from the lane to the door
-  let X;
-  if (doorX != null && wing === 'L') { const k = (rx1 - 0.1 - doorX) / 4.2; X = (u) => doorX + (u - 2.2) * k; }
-  else if (doorX != null) { const k = Math.min(1.3, (doorX - 0.1 - rx0) / 4.2); X = (u) => doorX - (u - 2.2) * k; }
-  else { const k = W / 4.95; X = (u) => (wing === 'L' ? rx0 + (u - 1.45) * k : rx1 - (u - 1.45) * k); }
-  const inStrip = (x, hw, z) => (doorX != null && z > -D + 0.12 && Math.abs(x - doorX) < 0.65 + hw) || (backDoor != null && Math.abs(x - backDoor) < 0.7 + hw);
-  const P = (geo, hex, u, yy, z, rx = 0, ry = 0, rz = 0, sx = 1, sy = sx, sz = sx, mat = clay) => {
-    if (!geo.boundingBox) geo.computeBoundingBox();
-    const bb = geo.boundingBox, hw = Math.max(Math.abs(bb.min.x), Math.abs(bb.max.x)) * sx, hd = Math.max(Math.abs(bb.min.z), Math.abs(bb.max.z)) * sz;
-    if (inStrip(X(u), (ry ? Math.max(hw, hd) : hw) * 0.8, z)) return;
-    B.add(geo, mat, artXf(X(u), y + yy, z, rx, ry, rz, sx, sy, sz), hex);
-  };
-  const backDoor = id === 'lobby' && wing === 'L' && artEntranceX > rx0 + 1 && artEntranceX < rx1 - 1 ? artEntranceX : null;
-  // the lobby (floor 0) gets a row of tall shop-front windows; other rooms two windows with a sill and radiator
+  const LAID = ['lobby', 'cafe', 'play', 'pool', 'library', 'garden', 'stars'].includes(id), ku = W / (R ? 7.0 : 6.6);
+  // laid-out themes: u = metres from rx0; anything else keeps the old single-wing u in [1.45, 6.4] (mirrored on the right)
+  const X = LAID ? (u) => rx0 + u * ku : (u) => (R ? rx1 - (u - 1.45) * (W / 4.95) : rx0 + (u - 1.45) * (W / 4.95));
+  const spotX = R ? rx0 + 0.55 * W : rx0 + 2.2;              // = layout.roomDoorXs[1 | 0]
+  const backDoor = id === 'lobby' && !R && artEntranceX > rx0 + 1 && artEntranceX < rx1 - 1 ? artEntranceX : null;
+  const inStrip = (x, hw, z, hd = 0.3) => (backDoor != null && Math.abs(x - backDoor) < 0.7 + hw) || (Math.abs(x - spotX) < 0.45 + hw && z + hd > -2.75 && z - hd < -0.3);
+  (fg.userData.roomSpots = fg.userData.roomSpots || []).push({ wing, x: spotX, z: -2.3 });
+  // windows: per theme and wing, so they fall between the tall furniture; the lobby gets tall shop-front glass
   const tall = id === 'lobby', wh = tall ? 2.0 : 1.1, wy = tall ? 1.38 : 1.72;
-  const slots = tall ? Array.from({ length: Math.max(0, Math.floor((W - 1.2) / 1.3)) }, (_, k) => rx0 + 0.6 + 0.65 + k * 1.3) : [0.32, 0.72].map((f) => rx0 + W * f);
-  const wins = slots.map((wx) => (!tall && doorX != null && Math.abs(wx - doorX) < 1.1 ? wx + (wx < doorX ? -0.6 : 0.6) : wx))
-    .filter((wx) => wx > rx0 + 0.6 && wx < rx1 - 0.6 && (backDoor == null || Math.abs(wx - backDoor) > 1.4) && (!tall || doorX == null || Math.abs(wx - doorX) > 1.15));
-  if (tall) {                                                  // lobby: wall pieces around see-through windows and the back door
+  const WINS = { lobby: R ? [1.95, 3.25, 4.55] : null, cafe: R ? [1.6, 5.3] : [1.0, 2.9], play: R ? [2.0, 5.6] : [1.1, 3.0], pool: R ? [2.0, 4.6] : [1.0, 4.3],
+    library: R ? [1.0, 6.1] : [0.9, 2.5], garden: R ? [1.7, 5.35] : [1.8, 4.0], stars: R ? [1.3, 5.6] : [1.0, 5.9] }[id];
+  const slots = WINS ? WINS.map(X) : tall ? Array.from({ length: Math.max(0, Math.floor((W - 1.2) / 1.3)) }, (_, k) => rx0 + 1.25 + k * 1.3) : [0.32, 0.72].map((f) => rx0 + W * f);
+  const wins = slots.filter((wx) => wx > rx0 + 0.6 && wx < rx1 - 0.6 && (backDoor == null || Math.abs(wx - backDoor) > 1.4));
+  if (true) {                                                  // wall pieces around see-through windows (and the lobby's back door)
     const wm = artTexMat('wall' + id, artWallTex(id)), wb = wy - wh / 2, wt = wy + wh / 2;
     const piece = (a, b, y0, y1) => { if (b - a > 0.01 && y1 - y0 > 0.01) S.add(artPln(b - a, y1 - y0), wm, artXf((a + b) / 2, y + (y0 + y1) / 2, -D), '#ffffff', [(b - a) / 4.95, (y1 - y0) / CH]); };
     const open = wins.map((wx) => [wx - 0.5, wx + 0.5, wb]).concat(backDoor != null ? [[backDoor - 0.75, backDoor + 0.75, 0]] : []).sort((p, q) => p[0] - q[0]);
@@ -2165,15 +2160,14 @@ function artWing(id, i, wing, rx0, rx1, y, doorX, fg, owned, anims, S, PB) {
   S.add(artPln(W, 0.5), artAoM(), artXf(wc, y + CH - 0.25, -D + 0.004), '#000000');
   S.add(artPln(W, 0.35), artAoM(), artXf(wc, y + 0.175, -D + 0.004, 0, 0, Math.PI), '#000000');
   S.add(artPln(W, 0.7), artAoM(), artXf(wc, y + 0.007, -D + 0.35, -Math.PI / 2), '#000000');
-  // windows (kept off the door), radiators below
+  // windows (frames, glass, sill); radiators come after the props, under the windows nothing stands in front of
+  const wallBusy = wins.map((wx) => [wx - 0.6, wx + 0.6]);     // back-wall spans taken (windows, then boards and pictures)
   for (const wx of wins) {
-    if (!tall) Ps(artBox(1.1, wh + 0.1, 0.04), '#3B4148', wx, wy, -D + 0.02, 0, 0, 0, 1, 1, 1, shiny);
-    else for (const dx of [-0.53, 0.53]) Ps(artBox(0.06, wh + 0.1, 0.12), '#3B4148', wx + dx, wy, -D + 0.02, 0, 0, 0, 1, 1, 1, shiny);
-    if (tall) S.add(artPln(1.0, wh), artGlass(), artXf(wx, y + wy, -D + 0.02), '#BFD2DC');               // see-through: the street behind
-    else S.add(artPln(1.0, wh), artTexMat('win' + (dark ? 'n' : 'd'), artSkyWinTex(dark), true), artXf(wx, y + wy, -D + 0.045), '#ffffff');
+    for (const dx of [-0.53, 0.53]) Ps(artBox(0.06, wh + 0.1, 0.12), '#3B4148', wx + dx, wy, -D + 0.02, 0, 0, 0, 1, 1, 1, shiny);   // jambs (no backing box: it would block the view)
+    for (const dy of [-wh / 2 - 0.02, wh / 2 + 0.02]) Ps(artBox(1.12, 0.06, 0.12), '#3B4148', wx, wy + dy, -D + 0.02, 0, 0, 0, 1, 1, 1, shiny);
+    S.add(artPln(1.0, wh), artGlass(), artXf(wx, y + wy, -D + 0.02), '#BFD2DC');                        // see-through: the street behind
     Ps(artBox(0.035, wh, 0.03), '#3B4148', wx, wy, -D + 0.06, 0, 0, 0, 1, 1, 1, shiny); Ps(artBox(1.0, 0.035, 0.03), '#3B4148', wx, wy + wh * 0.25, -D + 0.06, 0, 0, 0, 1, 1, 1, shiny);
     Ps(artBox(1.22, 0.05, 0.16), '#D8D0C2', wx, wy - wh / 2 - 0.02, -D + 0.08, 0, 0, 0, 1, 1, 1, conc);
-    if (id !== 'pool' && !tall) { Ps(artBox(0.9, 0.5, 0.07), '#E8E6E0', wx, 0.42, -D + 0.07); for (let q = 0; q < 9; q++) Ps(artBox(0.04, 0.52, 0.09), '#D9D6CE', wx - 0.4 + q * 0.1, 0.42, -D + 0.08); }
   }
   // ceiling services: duct with hangers, sprinklers, smoke detector, pendant lights with light pools
   Ps(artBox(W - 0.3, 0.24, 0.34), '#B9BEC3', wc, CH - 0.17, -D + 0.42, 0, 0, 0, 1, 1, 1, shiny);
@@ -2188,101 +2182,599 @@ function artWing(id, i, wing, rx0, rx1, y, doorX, fg, owned, anims, S, PB) {
     S.add(artPln(2.6, 2.2), artPoolM(), artXf(lx, y + 0.012, -2.5, -Math.PI / 2), dark ? '#2A2440' : '#4A3C28');
     S.add(artPln(2.0, 1.4), artPoolM(), artXf(lx, y + CH - 0.85, -D + 0.12), dark ? '#201C34' : '#3A2E1E'); }
   for (const f of [0.15, 0.9]) { Ps(artBox(0.09, 0.09, 0.015), '#F2F0EA', rx0 + W * f, 0.3, -D + 0.008); Ps(artBox(0.05, 0.02, 0.016), '#5A6068', rx0 + W * f, 0.3, -D + 0.012); }
-  if (doorX != null) Ps(artBox(0.08, 0.12, 0.015), '#F2F0EA', doorX + 0.62, 1.1, -D + 0.008);
-  if (id !== 'pool' && id !== 'library') { const pc = artPick(r, ['#8FA6B4', '#C9A46A', '#6F8A5E', '#B5655A']), px = rx0 + W * (wing === 'L' ? 0.52 : 0.5);
-    if ((doorX == null || Math.abs(px - doorX) > 0.9) && (backDoor == null || Math.abs(px - backDoor) > 1.2)) { B.add(artBox(0.5, 0.62, 0.03), clay, artXf(px, y + 1.75, -D + 0.02), '#3B3027'); B.add(artBox(0.4, 0.52, 0.01), clay, artXf(px, y + 1.75, -D + 0.036), '#EFEAE0'); B.add(artBox(0.3, 0.2, 0.012), clay, artXf(px, y + 1.68, -D + 0.04), pc); } }
-  const props = artThemeProps(id, { P, B, X, y, r, fg, owned, accent, clay, shiny, glow, glass, wing, inStrip });
+  // prop placement: drops anything standing in a kept-clear strip (flat rugs and mats may stay), notes floor footprints
+  const foot = [];
+  const Pw = (geo, hex, x, yy, z, rx = 0, ry = 0, rz = 0, sx = 1, sy = sx, sz = sx, mat = clay) => {
+    if (!geo.boundingBox) geo.computeBoundingBox();
+    // world box of the turned bounding box (three.js Euler 'XYZ': R = Rx Ry Rz)
+    const bb = geo.boundingBox, c = [(bb.min.x + bb.max.x) / 2 * sx, (bb.min.y + bb.max.y) / 2 * sy, (bb.min.z + bb.max.z) / 2 * sz];
+    const h = [(bb.max.x - bb.min.x) / 2 * Math.abs(sx), (bb.max.y - bb.min.y) / 2 * Math.abs(sy), (bb.max.z - bb.min.z) / 2 * Math.abs(sz)];
+    const A = Math.cos(rx), Bs = Math.sin(rx), C = Math.cos(ry), Ds = Math.sin(ry), E = Math.cos(rz), F = Math.sin(rz);
+    const M = [[C * E, -C * F, Ds], [A * F + Bs * E * Ds, A * E - Bs * F * Ds, -Bs * C], [Bs * F - A * E * Ds, Bs * E + A * F * Ds, A * C]];
+    const o = M.map((row) => row[0] * c[0] + row[1] * c[1] + row[2] * c[2]), e = M.map((row) => Math.abs(row[0]) * h[0] + Math.abs(row[1]) * h[1] + Math.abs(row[2]) * h[2]);
+    const bx = x + o[0], bz = z + o[2], top = yy + o[1] + e[1], bot = yy + o[1] - e[1];
+    if (top > 0.06 && inStrip(bx, e[0] * 0.9, bz, e[2] * 0.9)) return;
+    if (bot < 0.7 && top > 0.12) foot.push([bx - e[0], bx + e[0], bz - e[2], bz + e[2]]);
+    B.add(geo, mat, artXf(x, y + yy, z, rx, ry, rz, sx, sy, sz), hex);
+  };
+  const P = (geo, hex, u, yy, z, rx, ry, rz, sx, sy, sz, mat) => Pw(geo, hex, X(u), yy, z, rx, ry, rz, sx, sy, sz, mat);
+  const blob = (x, z, w, d, ry = 0) => { if (!inStrip(x, w * 0.3, z, d * 0.3)) B.add(artPln(1, 1), artBlobM(), artXf(x, y + 0.035, z, -Math.PI / 2, 0, ry, w, d, 1)); };
+  const wallP = (x, hw, fn) => { if (wallBusy.some(([a, b]) => x + hw > a && x - hw < b) || inStrip(x, hw, -D + 0.05, 0.05)) return false; wallBusy.push([x - hw, x + hw]); fn(); return true; };
+  const plantX = (x, rad) => Math.min(rx1 - 0.9 - rad, Math.max(rx0 + 0.9 + rad, x));
+  const props = artThemeProps(id, { P, Pw, B, X, y, r, fg, owned, accent, clay, shiny, glow, glass, wing, inStrip, blob, wallP, plantX, wallBusy, rx0, rx1, W });
   for (const a of props) anims.push(a);
-  for (const f of artWingOccupants(id, wing, X, y, fg, i * 10 + (wing === 'R' ? 1 : 0), inStrip)) anims.push(f);
-  if (!PB) B.flush(fg, owned, true, true);
+  for (const f of artWingOccupants(id, wing, X, y, fg, i * 10 + (R ? 1 : 0), inStrip)) anims.push(f);
+  if (!tall && id !== 'pool' && id !== 'garden') for (const wx of wins) {
+    if (foot.some(([a, b, z0]) => a < wx + 0.5 && b > wx - 0.5 && z0 < -D + 0.3)) continue;
+    Ps(artBox(0.9, 0.5, 0.07), '#E8E6E0', wx, 0.42, -D + 0.07); for (let q = 0; q < 9; q++) Ps(artBox(0.04, 0.52, 0.09), '#D9D6CE', wx - 0.4 + q * 0.1, 0.42, -D + 0.08);
+    for (const dx of [-0.42, 0.42]) Ps(artCyl(0.012, 0.012, 0.17, 6), '#C9CED2', wx + dx, 0.085, -D + 0.08, 0, 0, 0, 1, 1, 1, shiny);
+  }
 }
-/* Theme props for one wing (classic rooms). Static parts go into the wing batch; animated parts return ticks. */
+/* Theme props for one wing (classic rooms): furniture builders, then one layout per theme and wing (u = metres from
+   rx0, see artWing). Static parts go into the batch; animated parts return ticks. */
 function artThemeProps(id, k) {
-  const { P, B, X, y, r, fg, owned, accent, shiny, glow, glass } = k, D = ART.DEPTH, anims = [];
-  const sub = (u, yy, z) => { const g = new THREE.Group(); g.position.set(X(u), y + yy, z); g.visible = !(k.inStrip && k.inStrip(X(u), 0.3, z)); fg.add(g); return g; };
-  const flushTo = (bb, g, cast = true) => bb.flush(g, owned, cast, true);
-  const chair = (u, z, ry, col) => { P(artRB(0.38, 0.07, 0.38, 0.03, 1), col, u, 0.46, z, 0, ry); P(artRB(0.38, 0.4, 0.06, 0.03, 1), col, u - Math.sin(ry) * 0.17, 0.68, z - Math.cos(ry) * 0.17, 0, ry);
-    for (const [a, b] of [[-0.14, -0.14], [0.14, -0.14], [-0.14, 0.14], [0.14, 0.14]]) P(artCyl(0.022, 0.022, 0.45, 5), '#6B5B4E', u + a, 0.22, z + b); };
-  const books = (u0, u1, yy, z, hMax) => { for (let u = u0; u < u1 - 0.05;) { const w = 0.05 + r() * 0.05, h = hMax * (0.7 + r() * 0.3); P(artBox(w - 0.005, h, 0.24), artPick(r, ['#E8413A', '#2F6FE0', '#FFC928', '#35C24A', '#9A55E6', '#FF8A1F', '#FFF3E0', '#19C2D6']), u + w / 2, yy + h / 2, z); u += w; } };
-  if (id === 'lobby') {
-    P(artRB(0.95, 0.03, 0.6, 0.01, 1), '#B5553F', 2.2, 0.015, -3.85);
-    P(artRB(1.6, 0.95, 0.62, 0.08), '#C98B55', 5.0, 0.475, -3.8); P(artRB(1.72, 0.08, 0.74, 0.03), '#FFF3E0', 5.0, 0.99, -3.8);
-    P(artRB(1.62, 0.12, 0.02, 0.01, 1), accent, 5.0, 0.72, -3.48);
-    P(artRB(0.5, 0.34, 0.05, 0.02, 1), '#3B4A6B', 4.6, 1.28, -3.95); P(artPln(0.42, 0.26), '#9FD4FF', 4.6, 1.28, -3.92, 0, 0, 0, 1, 1, 1, glow); P(artBox(0.06, 0.12, 0.06), '#3B4A6B', 4.6, 1.08, -3.95);
-    P(artCyl(0.12, 0.12, 0.02, 12), ART_BRASS, 5.45, 1.04, -3.7, 0, 0, 0, 1, 1, 1, shiny); P(artSph(0.09, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2), ART_BRASS, 5.45, 1.05, -3.7, 0, 0, 0, 1, 1, 1, shiny);
-    P(artCyl(0.25, 0.2, 0.42, 12), '#D98A5E', 6.08, 0.21, -3.95); P(artCyl(0.05, 0.07, 1.2, 6), '#8A5A3C', 6.08, 1.0, -3.95);
-    for (let a = 0; a < 7; a++) { const ang = a / 7 * Math.PI * 2; P(artSph(0.5, 10, 6), a % 2 ? '#58A848' : '#6BBF59', 6.08 + Math.cos(ang) * 0.32, 1.55, -3.95 - Math.sin(ang) * 0.32, 0, ang, -0.5, 1, 0.12, 0.3); }
-    P(artRB(1.15, 0.42, 0.62, 0.12), '#6FA8FF', 3.35, 0.3, -4.05); P(artRB(1.15, 0.5, 0.18, 0.08), '#5A92E8', 3.35, 0.68, -4.3);
-    for (const du of [-0.58, 0.58]) P(artRB(0.16, 0.5, 0.62, 0.07), '#5A92E8', 3.35 + du, 0.4, -4.05);
-    P(artCyl(0.28, 0.28, 0.06, 20), '#FFF3E0', 4.6, 2.2, -D + 0.04, Math.PI / 2); P(artTor(0.28, 0.035, 6, 20), accent, 4.6, 2.2, -D + 0.07);
-    P(artBox(0.03, 0.18, 0.02), '#2B2B3A', 4.6, 2.27, -D + 0.09); P(artBox(0.13, 0.03, 0.02), '#2B2B3A', 4.66, 2.2, -D + 0.09);
-  } else if (id === 'cafe') {
-    P(artRB(1.9, 1.0, 0.62, 0.08), '#8A5A3C', 5.15, 0.5, -3.85); P(artRB(2.0, 0.08, 0.72, 0.03), '#FFF3E0', 5.15, 1.04, -3.85);
-    for (let s = 0; s < 6; s++) P(artBox(0.15, 0.7, 0.02), s % 2 ? '#FFFFFF' : accent, 4.4 + s * 0.3, 0.55, -3.535);
-    P(artRB(0.5, 0.55, 0.4, 0.06), ART_CHROME, 5.7, 1.36, -3.95, 0, 0, 0, 1, 1, 1, shiny); P(artRB(0.52, 0.08, 0.42, 0.03), '#2B2B3A', 5.7, 1.66, -3.95);
-    P(artSph(0.05, 8, 6), accent, 5.55, 1.45, -3.74); P(artCyl(0.05, 0.04, 0.08, 8), '#FFFFFF', 5.7, 1.12, -3.8);
-    P(artCyl(0.03, 0.03, 0.16, 6), ART_BRASS, 4.6, 1.16, -3.85, 0, 0, 0, 1, 1, 1, shiny); P(artCyl(0.3, 0.3, 0.03, 18), ART_BRASS, 4.6, 1.25, -3.85, 0, 0, 0, 1, 1, 1, shiny);
-    P(artCyl(0.22, 0.22, 0.2, 18), '#FF9ECF', 4.6, 1.37, -3.85); P(artCyl(0.23, 0.23, 0.05, 18), '#FFFFFF', 4.6, 1.48, -3.85); P(artSph(0.05, 8, 6), '#E53935', 4.6, 1.54, -3.85);
-    P(artSph(0.29, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), '#DDF4FF', 4.6, 1.27, -3.85, 0, 0, 0, 1, 1.1, 1, glass);
-    P(artRB(0.66, 0.84, 0.05, 0.03), '#8A5A3C', 4.6, 1.8, -D + 0.03); P(artRB(0.56, 0.74, 0.03, 0.02, 1), '#2F3B35', 4.6, 1.8, -D + 0.06);
-    for (let k = 0; k < 4; k++) P(artBox(0.3 + (k % 2) * 0.12, 0.03, 0.01), '#FFF4D6', 4.55, 2.02 - k * 0.15, -D + 0.08);
-    for (const [u, z] of [[3.15, -3.4], [4.35, -2.25]]) {
-      P(artCyl(0.42, 0.42, 0.05, 18), '#FFF3E0', u, 0.74, z); P(artCyl(0.04, 0.05, 0.7, 8), '#6B5B4E', u, 0.37, z); P(artCyl(0.22, 0.24, 0.04, 14), '#6B5B4E', u, 0.02, z);
-      P(artCyl(0.055, 0.045, 0.09, 10), '#FFFFFF', u + 0.12, 0.81, z); P(artCyl(0.09, 0.09, 0.01, 12), '#FFFFFF', u + 0.12, 0.77, z); P(artCyl(0.05, 0.05, 0.01, 10), '#7A4A2A', u + 0.12, 0.855, z);
-      chair(u - 0.6, z, Math.PI / 2, accent); chair(u + 0.6, z, -Math.PI / 2, accent);
-    }
-  } else if (id === 'library') {
-    const shelf = (u, w, h) => { P(artRB(w, h, 0.4, 0.04), '#8A5A3C', u, h / 2, -D + 0.22); P(artBox(w - 0.1, h - 0.1, 0.02), '#6B4530', u, h / 2, -D + 0.04);
-      for (let yy = 0.06; yy < h - 0.2; yy += 0.42) { P(artBox(w - 0.06, 0.04, 0.36), '#A87148', u, yy, -D + 0.24); books(u - w / 2 + 0.06, u + w / 2 - 0.06, yy + 0.02, -D + 0.24, 0.32); } };
-    shelf(4.6, 0.66, 2.3); shelf(6.08, 0.56, 2.3); shelf(3.75, 1.0, 0.9);
-    P(artCyl(0.04, 0.06, 0.1, 8), ART_BRASS, 3.95, 0.98, -D + 0.24, 0, 0, 0, 1, 1, 1, shiny); P(artSph(0.16, 14, 10), '#4FA3E8', 3.95, 1.2, -D + 0.24); P(artSph(0.1, 8, 6), '#5BC25A', 4.0, 1.25, -D + 0.33, 0, 0, 0, 1, 0.8, 0.5); P(artTor(0.18, 0.012, 4, 18, Math.PI), ART_BRASS, 3.95, 1.2, -D + 0.24, 0, Math.PI / 2, 0, 1, 1, 1, shiny);
-    P(artRB(2.4, 0.03, 1.5, 0.02, 1), '#B5553F', 4.4, 0.015, -3.1); P(artRB(2.0, 0.035, 1.1, 0.02, 1), '#E8C468', 4.4, 0.02, -3.1); P(artRB(1.8, 0.04, 0.9, 0.02, 1), '#C96A4F', 4.4, 0.025, -3.1);
-    P(artRB(0.8, 0.4, 0.72, 0.1), '#2F6FE0', 3.05, 0.3, -3.55); P(artRB(0.8, 0.55, 0.2, 0.08), '#2A5FC8', 3.05, 0.75, -3.85); for (const du of [-0.38, 0.38]) P(artRB(0.14, 0.55, 0.72, 0.06), '#2A5FC8', 3.05 + du, 0.45, -3.55);
-    P(artCyl(0.025, 0.025, 1.5, 6), '#6B5B4E', 3.65, 0.75, -3.9); P(artCyl(0.16, 0.2, 0.04, 12), '#6B5B4E', 3.65, 0.02, -3.9); P(artCone(0.22, 0.25, 14, true), '#FFDD57', 3.65, 1.55, -3.9); P(artSph(0.08, 8, 6), '#FFF1C8', 3.65, 1.47, -3.9, 0, 0, 0, 1, 1, 1, glow);
-    P(artSph(0.42, 14, 8), '#FFDD57', 5.25, 0.25, -2.4, 0, 0, 0, 1, 0.62, 1);
-    for (let k = 0; k < 4; k++) P(artRB(0.36, 0.08, 0.26, 0.02, 1), artPick(r, ['#E8413A', '#35C24A', '#FF8A1F', '#9A55E6']), 6.0, 0.04 + k * 0.08, -2.25, 0, k * 0.3);
-  } else if (id === 'play') {
-    P(artRB(0.5, 0.08, 0.6, 0.03), '#6FA8FF', 2.95, 1.15, -3.95);
-    for (const du of [-0.22, 0.22]) P(artCyl(0.03, 0.03, 1.2, 6), '#FF7A7A', 2.95 + du * 0.0 - 0.2, 0.6, -3.95 + du);
-    for (let k = 1; k < 5; k++) P(artCyl(0.02, 0.02, 0.44, 5), '#FFFFFF', 2.75, k * 0.23, -3.95, Math.PI / 2);
-    P(artRB(1.7, 0.06, 0.5, 0.03), '#FFDD57', 3.9, 0.62, -3.95, 0, 0, -0.62); for (const dz of [-0.25, 0.25]) P(artRB(1.7, 0.12, 0.04, 0.02, 1), '#FFB347', 3.9, 0.68, -3.95 + dz, 0, 0, -0.62);
-    P(artRB(1.7, 0.45, 0.12, 0.05), '#6FA8FF', 5.3, 0.225, -2.75); P(artRB(1.7, 0.45, 0.12, 0.05), '#6FA8FF', 5.3, 0.225, -4.05);
-    P(artRB(0.12, 0.45, 1.3, 0.05), '#6FA8FF', 4.45, 0.225, -3.4); P(artRB(0.12, 0.45, 1.3, 0.05), '#6FA8FF', 6.15, 0.225, -3.4);
-    for (let k = 0; k < 40; k++) P(artSph(0.09, 8, 6), artPick(r, ART_TOYS), 4.6 + r() * 1.4, 0.12 + r() * 0.26, -3.95 + r() * 1.1);
-    const bc = ['#E8413A', '#FFC928', '#2F6FE0', '#35C24A'];
-    P(artRB(0.3, 0.3, 0.3, 0.05), bc[0], 3.4, 0.15, -2.2, 0, 0.2); P(artRB(0.3, 0.3, 0.3, 0.05), bc[1], 3.72, 0.15, -2.25, 0, -0.1);
-    P(artRB(0.3, 0.3, 0.3, 0.05), bc[2], 3.55, 0.45, -2.22, 0, 0.5); P(artRB(0.28, 0.28, 0.28, 0.05), bc[3], 3.58, 0.74, -2.2, 0, 0.9);
-    P(artTor(0.45, 0.04, 6, 18, Math.PI * 0.6), '#C8782E', 6.0, 0.45, -4.05, 0, 0, Math.PI * 1.2);
-    P(artCap(0.14, 0.4), '#FFB347', 6.0, 0.62, -4.05, 0, 0, Math.PI / 2); P(artRB(0.2, 0.34, 0.2, 0.08), '#FFB347', 6.22, 0.85, -4.05, 0, 0, -0.4);
-    P(artRB(0.06, 0.3, 0.16, 0.03, 1), '#8A5A3C', 6.12, 0.92, -4.05, 0, 0, -0.4); for (const du of [-0.16, 0.16]) P(artCyl(0.03, 0.03, 0.42, 5), '#C8782E', 6.0 + du, 0.36, -4.05);
-    P(artSph(0.17, 12, 8), '#C8915A', 2.9, 0.18, -2.25); P(artSph(0.13, 12, 8), '#C8915A', 2.9, 0.44, -2.25); for (const du of [-0.1, 0.1]) P(artSph(0.05, 8, 6), '#C8915A', 2.9 + du, 0.55, -2.25);
-    P(artSph(0.05, 8, 6), '#F2D2B0', 2.9, 0.42, -2.13); P(artSph(0.08, 8, 6), '#F2D2B0', 2.9, 0.18, -2.1, 0, 0, 0, 1, 1, 0.5);
-    for (let k = 0; k < 11; k++) { const u = 1.7 + k * 0.44; P(artRB(0.2, 0.2, 0.02, 0.02, 1), ART_TOYS[k % 8], u, 2.38 - Math.sin(k / 10 * Math.PI) * 0.12, -D + 0.08, 0, 0, Math.PI / 4); }
-    P(artBox(4.6, 0.012, 0.012), '#6B5B4E', 3.9, 2.5, -D + 0.08);
-  } else if (id === 'pool') {
-    const pu = 4.4, pz = -3.35, pw = 2.6, pd = 1.5;
-    const WT = 0.5;                                          // water top: at the swimmers' chins
-    P(artRB(pw + 0.3, WT + 0.06, 0.16, 0.06), '#E4E8E6', pu, (WT + 0.06) / 2, pz - pd / 2 - 0.08);
-    P(artRB(0.16, WT + 0.06, pd, 0.06), '#E4E8E6', pu - pw / 2 - 0.07, (WT + 0.06) / 2, pz); P(artRB(0.16, WT + 0.06, pd, 0.06), '#E4E8E6', pu + pw / 2 + 0.07, (WT + 0.06) / 2, pz);
-    P(artBox(pw + 0.3, 0.07, 0.16), '#F4F4F4', pu, 0.035, pz + pd / 2 + 0.08);                         // low front kerb + glass-like tiled lip
-    for (let q = 0; q < 12; q++) P(artBox((pw + 0.3) / 12 - 0.01, 0.06, 0.18), q % 2 ? '#CFE3E6' : '#F4F4F4', pu - (pw + 0.3) / 2 + (q + 0.5) * (pw + 0.3) / 12, WT + 0.03, pz + pd / 2 + 0.08);
+  const { P, Pw, B, X, y, r, fg, owned, accent, shiny, glow, glass, blob, wallP } = k, D = ART.DEPTH, CH = ART.FLOOR_H - ART.SLAB, PI = Math.PI, anims = [], R = k.wing === 'R';
+  const clay = k.clay, wood = artWood(), fab = artFabric(), conc = artConc();
+  const free = (x, hw, z, hd = 0.3) => !k.inStrip(x, hw, z, hd);
+  const sub = (x, yy, z) => { const g = new THREE.Group(); g.position.set(x, y + yy, z); g.visible = free(x, 0.3, z); fg.add(g); return g; };
+  const flushTo = (bb, g) => bb.flush(g, owned, false, true);
+  const G = (x, z, ry = 0) => { const c = Math.cos(ry), s = Math.sin(ry);   // a part at local (ou, yy, oz) of a piece turned by ry
+    return (geo, hex, ou, yy, oz, mat = clay, rx = 0, rz = 0) => Pw(geo, hex, x + ou * c + oz * s, yy, z - ou * s + oz * c, rx, ry, rz, 1, 1, 1, mat); };
+  const waterM = () => artMatC('water', () => new THREE.MeshStandardMaterial({ map: artRippleTex(), roughness: 0.15, metalness: 0.1, emissive: '#1C8FA8', emissiveIntensity: 0.25,
+    transparent: true, opacity: 0.7, depthWrite: false }));
+  const GREENS = ['#4E7F3A', '#5D8F45', '#6E9F50', '#43733A'];
+  const BOOKS = ['#8C3B2E', '#2F4A6B', '#6B7F3A', '#C9A46A', '#5A3F5E', '#3E5F5A', '#B5655A', '#D8CDB8', '#7A2E2E', '#2E3E4E', '#5B7A99', '#9C7A3C'];
+  const LEGS = [[-1, -1], [1, -1], [-1, 1], [1, 1]];
+
+  /* ======== art: room furniture ======== */
+  const chair = (x, z, ry, col, s = 1) => {
+    if (!free(x, 0.25 * s, z, 0.25 * s)) return; const g = G(x, z, ry);
+    g(artBox(0.4 * s, 0.05 * s, 0.4 * s), col, 0, 0.45 * s, 0, wood); g(artBox(0.4 * s, 0.36 * s, 0.035 * s), col, 0, 0.66 * s, -0.185 * s, wood);
+    for (const [a, b] of LEGS) g(artCyl(0.016 * s, 0.016 * s, 0.44 * s, 5), '#3B3027', a * 0.175 * s, 0.22 * s, b * 0.175 * s, wood);
+    blob(x, z, 0.6 * s, 0.6 * s, ry); };
+  const stool = (x, z, h = 0.72, col = '#3B3027') => { if (!free(x, 0.2, z, 0.2)) return;
+    Pw(artCyl(0.17, 0.17, 0.05, 14), col, x, h, z, 0, 0, 0, 1, 1, 1, wood); Pw(artCyl(0.018, 0.018, h, 6), '#2E3236', x, h / 2, z, 0, 0, 0, 1, 1, 1, shiny);
+    Pw(artTor(0.13, 0.012, 4, 14), '#2E3236', x, h * 0.35, z, PI / 2, 0, 0, 1, 1, 1, shiny); Pw(artCyl(0.18, 0.2, 0.02, 14), '#2E3236', x, 0.01, z, 0, 0, 0, 1, 1, 1, shiny); blob(x, z, 0.5, 0.5); };
+  const roundTable = (x, z, rr = 0.36, top = '#E9E2D4', h = 0.74) => { if (!free(x, rr, z, rr)) return;
+    Pw(artCyl(rr, rr, 0.035, 18), top, x, h, z, 0, 0, 0, 1, 1, 1, conc); Pw(artCyl(0.03, 0.03, h - 0.02, 8), '#2E3236', x, (h - 0.02) / 2, z, 0, 0, 0, 1, 1, 1, shiny);
+    Pw(artCyl(0.2, 0.22, 0.025, 14), '#2E3236', x, 0.0125, z, 0, 0, 0, 1, 1, 1, shiny); blob(x, z, rr * 2.8, rr * 2.8); };
+  const table = (x, z, w, d, top = '#A87148', h = 0.74, leg = '#5A3825') => { if (!free(x, w / 2, z, d / 2)) return;
+    Pw(artBox(w, 0.04, d), top, x, h - 0.02, z, 0, 0, 0, 1, 1, 1, wood);
+    for (const [a, b] of LEGS) Pw(artBox(0.045, h - 0.04, 0.045), leg, x + a * (w / 2 - 0.06), (h - 0.04) / 2, z + b * (d / 2 - 0.06), 0, 0, 0, 1, 1, 1, wood);
+    blob(x, z, w + 0.35, d + 0.35); };
+  const cup = (x, z, yy) => { Pw(artCyl(0.07, 0.07, 0.008, 12), '#F4F1EA', x, yy + 0.004, z); Pw(artCyl(0.042, 0.034, 0.07, 10), '#F4F1EA', x, yy + 0.043, z); Pw(artCyl(0.038, 0.038, 0.005, 10), '#5A3A26', x, yy + 0.074, z); };
+  const openBook = (x, z, yy, ry = 0) => { const g = G(x, z, ry); g(artBox(0.3, 0.012, 0.21), '#7A2E2E', 0, yy + 0.006, 0); for (const s of [-1, 1]) g(artBox(0.14, 0.012, 0.2), '#F4F1EA', s * 0.072, yy + 0.016, 0); };
+  const sofa = (x, z, ry, len, col) => {                       // seat top 0.45 (sitting people), back on local -z, arms at both ends
+    const hw = ry ? Math.max(len / 2, 0.42) : len / 2, hd = ry ? hw : 0.42; if (!free(x, hw, z, hd)) return;
+    const g = G(x, z, ry), dk = artMixHex(col, '#000000', 0.2), n = len > 1.2 ? 2 : 1, cw = (len - 0.34) / n;
+    g(artBox(len, 0.22, 0.8), dk, 0, 0.2, 0, fab);
+    for (let q = 0; q < n; q++) g(artRB(cw - 0.01, 0.14, 0.6, 0.1), col, -len / 2 + 0.17 + cw * (q + 0.5), 0.38, 0.08, fab);
+    g(artRB(len - 0.32, 0.5, 0.2, 0.1), col, 0, 0.6, -0.29, fab);
+    for (const s of [-1, 1]) g(artRB(0.17, 0.52, 0.8, 0.1), dk, s * (len / 2 - 0.085), 0.36, 0, fab);
+    for (const [a, b] of LEGS) g(artCyl(0.022, 0.018, 0.09, 6), '#2B2B30', a * (len / 2 - 0.1), 0.045, b * 0.32, wood);
+    blob(x, z, len + 0.4, 1.15, ry); };
+  const armchair = (x, z, ry, col) => sofa(x, z, ry, 0.85, col);
+  const coffeeTable = (x, z, w = 0.8, d = 0.5) => { if (!free(x, w / 2, z, d / 2)) return;
+    Pw(artBox(w, 0.04, d), '#7A5638', x, 0.42, z, 0, 0, 0, 1, 1, 1, wood); Pw(artBox(w - 0.08, 0.02, d - 0.08), '#6B4530', x, 0.13, z, 0, 0, 0, 1, 1, 1, wood);
+    for (const [a, b] of LEGS) Pw(artBox(0.04, 0.4, 0.04), '#5A3825', x + a * (w / 2 - 0.04), 0.2, z + b * (d / 2 - 0.04), 0, 0, 0, 1, 1, 1, wood);
+    for (let q = 0; q < 3; q++) Pw(artBox(0.21, 0.01, 0.28), ['#C8322A', '#E8E2D6', '#2F6FE0'][q], x - w * 0.22 + q * 0.07, 0.445 + q * 0.01, z + 0.02 * q, 0, q * 0.3 - 0.3, 0);
+    Pw(artBox(0.26, 0.05, 0.19), '#5B7A99', x + w * 0.22, 0.165, z); Pw(artBox(0.24, 0.03, 0.17), '#E8C468', x + w * 0.22, 0.205, z);
+    blob(x, z, w + 0.3, d + 0.3); };
+  const rug = (x, z, w, d, c1, c2) => { Pw(artBox(w, 0.012, d), c1, x, 0.006, z, 0, 0, 0, 1, 1, 1, fab); if (c2) Pw(artBox(w - 0.24, 0.012, d - 0.24), c2, x, 0.012, z, 0, 0, 0, 1, 1, 1, fab); };
+  const roundRug = (x, z, rr, cols) => cols.forEach((c, q) => Pw(artCyl(rr * (1 - q * 0.12), rr * (1 - q * 0.12), 0.012, 28), c, x, 0.006 + q * 0.004, z, 0, 0, 0, 1, 1, 1, fab));
+  const plant = (x, z, s = 1, pot = '#B5673F') => {          // potted fig ~1.5 s tall; leaves stay within 0.42 s of the trunk
+    const rad = 0.42 * s; x = k.plantX(x, rad); if (!free(x, rad, z, rad)) return;
+    Pw(artCyl(0.2 * s, 0.15 * s, 0.38 * s, 12), pot, x, 0.19 * s, z); Pw(artCyl(0.18 * s, 0.18 * s, 0.02, 12), '#3B2A1E', x, 0.375 * s, z);
+    Pw(artCyl(0.022 * s, 0.032 * s, 0.9 * s, 6), '#6B4A33', x, 0.82 * s, z, 0, 0, 0, 1, 1, 1, wood);
+    for (let q = 0; q < 7; q++) { const a = q * 2.4 + r() * 0.5, rr = q === 6 ? 0 : 0.17 * s, hh = (q === 6 ? 1.3 : 0.8 + (q % 3) * 0.2) * s;
+      Pw(artSph(0.21 * s, 10, 7), GREENS[q % 4], x + Math.cos(a) * rr, hh, z + Math.sin(a) * rr, 0, 0, 0, 1, 0.78, 1); }
+    blob(x, z, 0.75 * s, 0.75 * s); };
+  const potPlant = (x, z, yy = 0, pot = '#C9A46A', fl = null) => {   // small pot, leaves within 0.15
+    x = k.plantX(x, 0.15); if (!free(x, 0.15, z, 0.15)) return;
+    Pw(artCyl(0.08, 0.06, 0.14, 10), pot, x, yy + 0.07, z);
+    for (let q = 0; q < 4; q++) { const a = q * 1.6 + 0.4; Pw(artSph(0.07, 8, 6), GREENS[q % 4], x + Math.cos(a) * 0.06, yy + 0.2 + (q % 2) * 0.05, z + Math.sin(a) * 0.06, 0, 0, 0, 1, 0.8, 1); }
+    if (fl) for (let q = 0; q < 3; q++) Pw(artSph(0.032, 6, 4), fl, x - 0.05 + q * 0.05, yy + 0.29 - (q % 2) * 0.03, z + 0.05);
+    if (!yy) blob(x, z, 0.3, 0.3); };
+  const picture = (x, yy, w, h, cols) => wallP(x, w / 2 + 0.03, () => {
+    Pw(artBox(w + 0.05, h + 0.05, 0.03), '#3B3027', x, yy, -D + 0.02, 0, 0, 0, 1, 1, 1, wood); Pw(artBox(w - 0.02, h - 0.02, 0.01), '#EFEAE0', x, yy, -D + 0.036);
+    const cw = (w - 0.14) / cols.length;
+    cols.forEach((c, q) => Pw(artBox(cw * 0.9, h * (0.35 + (q % 2) * 0.15), 0.01), c, x - (w - 0.14) / 2 + (q + 0.5) * cw, yy - h * 0.08, -D + 0.042)); });
+  const clock = (x, yy) => wallP(x, 0.25, () => {
+    Pw(artCyl(0.22, 0.22, 0.05, 20), '#F4F1EA', x, yy, -D + 0.035, PI / 2); Pw(artTor(0.22, 0.025, 6, 20), '#2E3236', x, yy, -D + 0.06, 0, 0, 0, 1, 1, 1, shiny);
+    for (let q = 0; q < 12; q++) { const a = q / 12 * PI * 2; Pw(artBox(0.012, q % 3 ? 0.025 : 0.045, 0.01), '#2B2B3A', x + Math.sin(a) * 0.175, yy + Math.cos(a) * 0.175, -D + 0.064, 0, 0, -a); }
+    Pw(artBox(0.022, 0.11, 0.01), '#2B2B3A', x + Math.sin(-0.96) * 0.055, yy + Math.cos(-0.96) * 0.055, -D + 0.068, 0, 0, 0.96);
+    Pw(artBox(0.016, 0.16, 0.01), '#2B2B3A', x + Math.sin(1.05) * 0.08, yy + Math.cos(1.05) * 0.08, -D + 0.071, 0, 0, -1.05); });
+  const bench = (x, z, len, ry = 0, seat = '#9B6E47', back = true) => {
+    const hw = ry ? Math.max(len / 2, 0.25) : len / 2; if (!free(x, hw, z, ry ? hw : 0.25)) return; const g = G(x, z, ry);
+    for (let q = 0; q < 3; q++) g(artBox(len, 0.03, 0.11), seat, 0, 0.44, -0.12 + q * 0.12, back ? wood : fab);
+    if (back) for (let q = 0; q < 2; q++) g(artBox(len, 0.08, 0.025), seat, 0, 0.62 + q * 0.13, -0.2, wood);
+    for (const s of [-1, 1]) { g(artBox(0.05, 0.43, 0.36), '#3B4148', s * (len / 2 - 0.1), 0.215, 0, shiny); if (back) g(artBox(0.04, 0.42, 0.04), '#3B4148', s * (len / 2 - 0.1), 0.63, -0.2, shiny); }
+    blob(x, z, len + 0.3, 0.7, ry); };
+  const books = (x0, x1, yy, z, hMax, dz = 0.22) => { for (let x = x0; x < x1 - 0.04;) { const w = 0.03 + r() * 0.045, h = hMax * (0.72 + r() * 0.28); if (x + w > x1) break;
+    Pw(artBox(w - 0.004, h, dz), artPick(r, BOOKS), x + w / 2, yy + h / 2, z); x += w; } };
+  const bookcase = (x, w, h = 2.3, rows = 5) => { const z = -D + 0.2; if (!free(x, w / 2, z, 0.2)) return;
+    Pw(artBox(w, h, 0.02), '#5A3825', x, h / 2, z - 0.17, 0, 0, 0, 1, 1, 1, wood);
+    for (const s of [-1, 1]) Pw(artBox(0.035, h, 0.36), '#7A5638', x + s * (w / 2 - 0.018), h / 2, z, 0, 0, 0, 1, 1, 1, wood);
+    Pw(artBox(w, 0.05, 0.38), '#6B4530', x, h - 0.025, z, 0, 0, 0, 1, 1, 1, wood); Pw(artBox(w - 0.07, 0.08, 0.34), '#6B4530', x, 0.04, z, 0, 0, 0, 1, 1, 1, wood);
+    const step = (h - 0.13) / rows;
+    for (let q = 0; q < rows; q++) { const yy = 0.08 + q * step; if (q) Pw(artBox(w - 0.07, 0.025, 0.34), '#7A5638', x, yy, z, 0, 0, 0, 1, 1, 1, wood);
+      books(x - w / 2 + 0.04, x + w / 2 - 0.04, yy + 0.013, z + 0.02, step - 0.06); }
+    blob(x, z + 0.1, w + 0.2, 0.6); };
+  const ladder = (x, xa, xb) => {                              // brass rail along the shelf tops, a rolling ladder hooked on it at x
+    Pw(artCyl(0.015, 0.015, xb - xa, 6), ART_BRASS, (xa + xb) / 2, 2.18, -D + 0.44, 0, 0, PI / 2, 1, 1, 1, shiny);
+    if (!free(x, 0.25, -D + 0.6, 0.2)) return;
+    const h = 2.2, dz = 0.32, ang = Math.atan2(dz, h), len = Math.hypot(h, dz);
+    for (const s of [-1, 1]) Pw(artBox(0.04, len, 0.05), '#7A5638', x + s * 0.21, h / 2, -D + 0.44 + dz / 2, -ang, 0, 0, 1, 1, 1, wood);
+    for (let q = 1; q < 8; q++) { const t = q / 8; Pw(artBox(0.42, 0.03, 0.06), '#7A5638', x, h * t, -D + 0.44 + dz * (1 - t), 0, 0, 0, 1, 1, 1, wood); }
+    for (const s of [-1, 1]) Pw(artCyl(0.03, 0.03, 0.03, 10), '#2B2B30', x + s * 0.21, 0.03, -D + 0.44 + dz, 0, 0, PI / 2); };
+  const bankLamp = (x, z, yy) => {                             // green banker's lamp with a light pool on the desk
+    Pw(artBox(0.16, 0.02, 0.1), ART_BRASS, x, yy + 0.01, z, 0, 0, 0, 1, 1, 1, shiny); Pw(artCyl(0.008, 0.008, 0.26, 6), ART_BRASS, x, yy + 0.14, z, 0, 0, 0, 1, 1, 1, shiny);
+    Pw(artBox(0.26, 0.06, 0.12), '#1F6B3A', x, yy + 0.29, z + 0.02); Pw(artBox(0.22, 0.01, 0.08), '#FFF1C8', x, yy + 0.255, z + 0.02, 0, 0, 0, 1, 1, 1, glow);
+    B.add(artPln(0.6, 0.45), artPoolM(), artXf(x, y + yy + 0.004, z + 0.08, -PI / 2), '#4A3C20'); };
+  const floorLamp = (x, z, col = '#E8DCC0') => { if (!free(x, 0.2, z, 0.2)) return;
+    Pw(artCyl(0.15, 0.17, 0.03, 12), '#2E3236', x, 0.015, z, 0, 0, 0, 1, 1, 1, shiny); Pw(artCyl(0.012, 0.012, 1.45, 6), '#2E3236', x, 0.74, z, 0, 0, 0, 1, 1, 1, shiny);
+    Pw(artCyl(0.13, 0.19, 0.26, 14, true), col, x, 1.5, z); Pw(artSph(0.06, 8, 6), '#FFF1C8', x, 1.42, z, 0, 0, 0, 1, 1, 1, glow); blob(x, z, 0.45, 0.45); };
+  const sideTable = (x, z, lamp = true) => { if (!free(x, 0.24, z, 0.24)) return;
+    Pw(artCyl(0.24, 0.24, 0.03, 16), '#7A5638', x, 0.55, z, 0, 0, 0, 1, 1, 1, wood); Pw(artCyl(0.025, 0.025, 0.54, 6), '#5A3825', x, 0.27, z, 0, 0, 0, 1, 1, 1, wood);
+    Pw(artCyl(0.16, 0.18, 0.02, 12), '#5A3825', x, 0.01, z, 0, 0, 0, 1, 1, 1, wood);
+    if (lamp) { Pw(artCyl(0.06, 0.08, 0.2, 10), '#C9B79A', x, 0.665, z); Pw(artCyl(0.11, 0.15, 0.17, 14, true), '#F2E8D4', x, 0.86, z); Pw(artSph(0.045, 8, 6), '#FFF1C8', x, 0.82, z, 0, 0, 0, 1, 1, 1, glow); }
+    blob(x, z, 0.6, 0.6); };
+  const globe = (x, z) => { if (!free(x, 0.3, z, 0.3)) return;
+    for (let q = 0; q < 3; q++) { const a = q / 3 * PI * 2 + 0.5; Pw(artCyl(0.018, 0.018, 0.62, 5), '#6B4A33', x + Math.cos(a) * 0.12, 0.3, z + Math.sin(a) * 0.12, -Math.sin(a) * 0.3, 0, Math.cos(a) * 0.3, 1, 1, 1, wood); }
+    Pw(artCyl(0.04, 0.05, 0.08, 8), ART_BRASS, x, 0.6, z, 0, 0, 0, 1, 1, 1, shiny); Pw(artSph(0.22, 14, 10), '#4C7FA8', x, 0.86, z);
+    for (const [dx, dy, dz, s] of [[0.08, 0.08, 0.17, 0.09], [-0.12, -0.02, 0.15, 0.07], [0.15, -0.1, 0.08, 0.06]]) Pw(artSph(s, 8, 6), '#7A9A5A', x + dx, 0.86 + dy, z + dz, 0, 0, 0, 1, 0.8, 0.55);
+    Pw(artTor(0.25, 0.012, 4, 18, PI), ART_BRASS, x, 0.86, z, 0, PI / 2, 0, 1, 1, 1, shiny); blob(x, z, 0.6, 0.6); };
+  const pendant = (x, z, drop = 0.85, col = '#2E3236') => {
+    Pw(artCyl(0.006, 0.006, drop, 4), '#2E3236', x, CH - drop / 2, z); Pw(artCone(0.16, 0.2, 14, true), col, x, CH - drop - 0.08, z, 0, 0, 0, 1, 1, 1, shiny);
+    Pw(artSph(0.055, 8, 6), '#FFF1C8', x, CH - drop - 0.15, z, 0, 0, 0, 1, 1, 1, glow); B.add(artPln(1.4, 1.2), artPoolM(), artXf(x, y + 0.016, z, -PI / 2), '#3A2C1C'); };
+  const bin = (x, z) => { if (!free(x, 0.15, z, 0.15)) return; Pw(artCyl(0.14, 0.12, 0.42, 12), '#5A6068', x, 0.21, z, 0, 0, 0, 1, 1, 1, shiny); Pw(artCyl(0.15, 0.15, 0.03, 12), '#3B4148', x, 0.43, z, 0, 0, 0, 1, 1, 1, shiny); blob(x, z, 0.4, 0.4); };
+  const desk = (x, z, w, front, d = 0.6) => { if (!free(x, w / 2 + 0.04, z, d / 2)) return;    // reception / security desk: wood front, stone top
+    Pw(artBox(w, 0.95, d), front, x, 0.475, z, 0, 0, 0, 1, 1, 1, wood); Pw(artBox(w + 0.08, 0.05, d + 0.1), '#D9D2C5', x, 0.975, z + 0.02, 0, 0, 0, 1, 1, 1, conc);
+    Pw(artBox(w + 0.02, 0.07, 0.02), accent, x, 0.75, z + d / 2 + 0.01); Pw(artBox(w, 0.06, 0.02), '#2E2A26', x, 0.03, z + d / 2 + 0.005);
+    blob(x, z, w + 0.35, d + 0.4); };
+  const officeChair = (x, z) => { if (!free(x, 0.28, z, 0.24)) return;
+    Pw(artBox(0.46, 0.07, 0.44), '#2E3236', x, 0.48, z, 0, 0, 0, 1, 1, 1, fab); Pw(artBox(0.44, 0.5, 0.06), '#2E3236', x, 0.8, z - 0.2, 0, 0, 0, 1, 1, 1, fab);
+    Pw(artCyl(0.03, 0.03, 0.36, 8), '#8E949A', x, 0.27, z, 0, 0, 0, 1, 1, 1, shiny);
+    for (let q = 0; q < 5; q++) { const a = q / 5 * PI * 2; Pw(artBox(0.26, 0.025, 0.035), '#2E3236', x + Math.cos(a) * 0.13, 0.06, z + Math.sin(a) * 0.13, 0, -a, 0, 1, 1, 1, shiny); }
+    blob(x, z, 0.6, 0.6); };
+  const monitor = (x, z, yy) => { Pw(artBox(0.5, 0.32, 0.03), '#2B2B30', x, yy + 0.3, z); Pw(artBox(0.05, 0.14, 0.03), '#2B2B30', x, yy + 0.07, z - 0.02); Pw(artBox(0.2, 0.012, 0.14), '#2B2B30', x, yy + 0.006, z - 0.02); };
+  const cooler = (x, z) => { if (!free(x, 0.17, z, 0.17)) return;
+    Pw(artBox(0.3, 0.95, 0.3), '#E8E6E0', x, 0.475, z); Pw(artBox(0.22, 0.12, 0.02), '#5A6068', x, 0.8, z + 0.155);
+    for (const s of [-1, 1]) Pw(artBox(0.03, 0.04, 0.04), s < 0 ? '#2F6FE0' : '#C8322A', x + s * 0.06, 0.82, z + 0.17);
+    Pw(artCyl(0.13, 0.13, 0.36, 14), '#A9D2EE', x, 1.16, z); Pw(artCyl(0.05, 0.12, 0.06, 14), '#A9D2EE', x, 0.98, z);
+    Pw(artCyl(0.035, 0.035, 0.22, 8), '#F4F1EA', x - 0.19, 0.78, z, 0, 0, 0, 1, 1, 1, shiny); blob(x, z, 0.5, 0.5); };
+  const ropes = (x0, x1, z) => { for (const x of [x0, x1]) { Pw(artCyl(0.15, 0.17, 0.03, 14), ART_BRASS, x, 0.015, z, 0, 0, 0, 1, 1, 1, shiny); Pw(artCyl(0.025, 0.025, 0.92, 8), ART_BRASS, x, 0.47, z, 0, 0, 0, 1, 1, 1, shiny); Pw(artSph(0.045, 8, 6), ART_BRASS, x, 0.95, z, 0, 0, 0, 1, 1, 1, shiny); blob(x, z, 0.4, 0.4); }
+    Pw(artTor((x1 - x0) / 2, 0.022, 6, 16, PI), '#8C2A2A', (x0 + x1) / 2, 0.88, z, 0, 0, PI, 1, 0.25, 1, fab); };
+  const mailboxes = (x, w, y0 = 0.9, h = 0.8) => wallP(x, w / 2, () => { const cols = Math.max(2, Math.round(w / 0.17)), rows = Math.max(2, Math.round(h / 0.19)), cw = (w - 0.04) / cols, rh = (h - 0.04) / rows;
+    Pw(artBox(w, h, 0.22), '#8E949A', x, y0 + h / 2, -D + 0.11, 0, 0, 0, 1, 1, 1, shiny);
+    for (let c = 0; c < cols; c++) for (let q = 0; q < rows; q++) { const cx = x - w / 2 + 0.02 + (c + 0.5) * cw, cy = y0 + 0.02 + (q + 0.5) * rh;
+      Pw(artBox(cw - 0.015, rh - 0.015, 0.01), '#B7BCC1', cx, cy, -D + 0.225, 0, 0, 0, 1, 1, 1, shiny); Pw(artBox(cw * 0.5, 0.008, 0.006), '#2E3236', cx, cy + rh * 0.25, -D + 0.232);
+      Pw(artBox(0.02, 0.02, 0.01), ART_BRASS, cx + cw * 0.3, cy - rh * 0.15, -D + 0.233, 0, 0, 0, 1, 1, 1, shiny); } });
+  const directory = (x, yy) => wallP(x, 0.36, () => {          // building directory: one coloured row per floor, top floor first
+    const fl = (artThemes || FLOOR_THEMES), n = Math.min(8, fl.length), h = 0.2 + n * 0.085;
+    Pw(artBox(0.66, h, 0.03), '#2B2B30', x, yy, -D + 0.02); Pw(artBox(0.6, 0.06, 0.01), accent, x, yy + h / 2 - 0.07, -D + 0.04, 0, 0, 0, 1, 1, 1, glow);
+    for (let q = 0; q < n; q++) { const ry = yy + h / 2 - 0.16 - q * 0.085, f = fl.length - 1 - q;
+      Pw(artBox(0.06, 0.06, 0.01), artTheme(f).color, x - 0.24, ry, -D + 0.04, 0, 0, 0, 1, 1, 1, glow); Pw(artBox(0.3 + (q % 3) * 0.06, 0.018, 0.006), '#C9CED2', x - 0.02, ry, -D + 0.038, 0, 0, 0, 1, 1, 1, glow); } });
+  const cctv = (x, yy) => wallP(x, 0.4, () => { Pw(artBox(0.76, 0.52, 0.06), '#2B2B30', x, yy, -D + 0.03);
+    ['#7F98A8', '#90A890', '#A8A088', '#8890A8'].forEach((c, q) => Pw(artPln(0.32, 0.2), c, x - 0.17 + (q % 2) * 0.34, yy + 0.115 - Math.floor(q / 2) * 0.23, -D + 0.062, 0, 0, 0, 1, 1, 1, glow)); });
+  const counter = (x, w, z = -3.82, d = 0.62, front = '#7A4E32') => { if (!free(x, w / 2, z, d / 2)) return;
+    Pw(artBox(w, 0.96, d), front, x, 0.48, z, 0, 0, 0, 1, 1, 1, wood); Pw(artBox(w + 0.06, 0.05, d + 0.08), '#E9E2D4', x, 0.985, z + 0.02, 0, 0, 0, 1, 1, 1, conc);
+    Pw(artBox(w, 0.08, 0.02), '#2E2A26', x, 0.04, z + d / 2 + 0.005);
+    for (let q = 1; q < Math.floor(w / 0.3); q++) Pw(artBox(0.012, 0.78, 0.012), '#5A3825', x - w / 2 + q * 0.3, 0.52, z + d / 2 + 0.006, 0, 0, 0, 1, 1, 1, wood);
+    blob(x, z, w + 0.3, d + 0.35); };
+  const espresso = (x, z, yy = 1.01) => { Pw(artBox(0.5, 0.38, 0.36), ART_CHROME, x, yy + 0.19, z, 0, 0, 0, 1, 1, 1, shiny); Pw(artBox(0.52, 0.05, 0.38), '#2B2B30', x, yy + 0.405, z);
+    for (const s of [-1, 1]) { Pw(artCyl(0.035, 0.03, 0.06, 10), '#2B2B30', x + s * 0.12, yy + 0.2, z + 0.2, 0, 0, 0, 1, 1, 1, shiny); Pw(artBox(0.03, 0.025, 0.14), '#2B2B30', x + s * 0.12, yy + 0.18, z + 0.28);
+      Pw(artCyl(0.035, 0.03, 0.06, 10), '#F4F1EA', x + s * 0.12, yy + 0.045, z + 0.2); }
+    for (let q = 0; q < 3; q++) Pw(artCyl(0.035, 0.03, 0.06, 10), '#F4F1EA', x - 0.12 + q * 0.12, yy + 0.46, z - 0.05);
+    Pw(artBox(0.4, 0.015, 0.12), '#5A6068', x, yy + 0.008, z + 0.24, 0, 0, 0, 1, 1, 1, shiny); Pw(artSph(0.022, 6, 4), '#E8413A', x + 0.2, yy + 0.32, z + 0.185, 0, 0, 0, 1, 1, 1, glow); };
+  const cakeDome = (x, z, yy = 1.01) => { Pw(artCyl(0.025, 0.04, 0.14, 8), ART_BRASS, x, yy + 0.07, z, 0, 0, 0, 1, 1, 1, shiny); Pw(artCyl(0.2, 0.2, 0.02, 18), ART_BRASS, x, yy + 0.15, z, 0, 0, 0, 1, 1, 1, shiny);
+    Pw(artCyl(0.15, 0.15, 0.13, 18), '#E8C4A0', x, yy + 0.225, z); Pw(artCyl(0.155, 0.155, 0.03, 18), '#F4F1EA', x, yy + 0.3, z); Pw(artSph(0.03, 8, 6), '#C8322A', x, yy + 0.33, z);
+    for (let q = 0; q < 6; q++) Pw(artSph(0.018, 6, 4), '#C8322A', x + Math.cos(q) * 0.11, yy + 0.32, z + Math.sin(q) * 0.11);
+    Pw(artSph(0.2, 16, 8, 0, PI * 2, 0, PI / 2), '#DDEEF4', x, yy + 0.16, z, 0, 0, 0, 1, 1.15, 1, glass); };
+  const pastryCase = (x, z, yy = 1.01) => { Pw(artBox(0.62, 0.03, 0.42), '#3B3027', x, yy + 0.015, z, 0, 0, 0, 1, 1, 1, wood);
+    for (let q = 0; q < 3; q++) { const cx = x - 0.19 + q * 0.19; Pw(artCyl(0.075, 0.075, 0.07, 12), ['#7A4A2A', '#E8C4A0', '#E890B4'][q], cx, yy + 0.07, z); Pw(artCyl(0.077, 0.077, 0.015, 12), '#F4F1EA', cx, yy + 0.112, z); }
+    for (let q = 0; q < 3; q++) Pw(artRB(0.11, 0.05, 0.07, 0.02), '#D9A066', x - 0.2 + q * 0.2, yy + 0.225, z + 0.05);
+    Pw(artBox(0.6, 0.01, 0.38), '#DDEEF4', x, yy + 0.19, z, 0, 0, 0, 1, 1, 1, glass); Pw(artBox(0.62, 0.34, 0.42), '#DDEEF4', x, yy + 0.2, z, 0, 0, 0, 1, 1, 1, glass); };
+  const menuBoard = (x, yy, w = 0.6, h = 0.8) => wallP(x, w / 2 + 0.04, () => {
+    Pw(artBox(w + 0.06, h + 0.06, 0.03), '#8A5A3C', x, yy, -D + 0.02, 0, 0, 0, 1, 1, 1, wood); Pw(artBox(w, h, 0.01), '#2F3B35', x, yy, -D + 0.038);
+    Pw(artBox(w * 0.6, 0.05, 0.006), accent, x, yy + h / 2 - 0.09, -D + 0.045);
+    const n = Math.max(2, Math.floor((h - 0.2) / 0.11));
+    for (let q = 0; q < n; q++) { const ly = yy + h / 2 - 0.2 - q * 0.11; Pw(artBox(w * (0.45 + (q % 2) * 0.12), 0.022, 0.006), '#EDEAE3', x - w * 0.12, ly, -D + 0.045); Pw(artBox(0.07, 0.022, 0.006), '#F2CF4A', x + w / 2 - 0.1, ly, -D + 0.045); } });
+  const cupShelf = (x, w, yy) => { Pw(artBox(w, 0.03, 0.22), '#8A5A3C', x, yy, -D + 0.11, 0, 0, 0, 1, 1, 1, wood);
+    for (const s of [-1, 1]) Pw(artBox(0.02, 0.12, 0.18), '#2E3236', x + s * (w / 2 - 0.1), yy - 0.07, -D + 0.09, 0, 0, 0, 1, 1, 1, shiny);
+    const n = Math.floor((w - 0.1) / 0.13);
+    for (let q = 0; q < n; q++) { const cx = x - (n - 1) * 0.065 + q * 0.13;
+      if (q % 4 === 3) { Pw(artCyl(0.045, 0.045, 0.16, 10), '#C9B79A', cx, yy + 0.095, -D + 0.12); Pw(artCyl(0.047, 0.047, 0.025, 10), '#5A3825', cx, yy + 0.185, -D + 0.12); }
+      else Pw(artCyl(0.045, 0.036, 0.08, 10), q % 2 ? '#F4F1EA' : '#E8E2D6', cx, yy + 0.055, -D + 0.12); } };
+  const awning = (x, w, yy = 2.2) => { const n = Math.max(4, Math.round(w / 0.25)), sw = w / n;
+    for (let q = 0; q < n; q++) { const cx = x - w / 2 + (q + 0.5) * sw, c = q % 2 ? '#F4F1EA' : accent;
+      Pw(artBox(sw, 0.03, 0.42), c, cx, yy, -D + 0.22, 0.35, 0, 0, 1, 1, 1, fab); Pw(artBox(sw, 0.08, 0.01), c, cx, yy - 0.11, -D + 0.42, 0, 0, 0, 1, 1, 1, fab); } };
+  // playroom
+  const playMat = (x, z, nx, nz, t = 0.5) => { for (let a = 0; a < nx; a++) for (let b = 0; b < nz; b++)
+    Pw(artBox(t - 0.01, 0.02, t - 0.01), ART_TOYS[(a * 3 + b * 5) % 8], x - (nx - 1) * t / 2 + a * t, 0.01, z - (nz - 1) * t / 2 + b * t, 0, 0, 0, 1, 1, 1, fab); };
+  const ballPit = (x, z, w, d) => { if (!free(x, w / 2, z, d / 2)) return;
+    for (const s of [-1, 1]) { Pw(artRB(w, 0.45, 0.12, 0.1), '#5B8FD6', x, 0.225, z + s * (d / 2 - 0.06), 0, 0, 0, 1, 1, 1, fab); Pw(artRB(0.12, 0.45, d - 0.24, 0.1), '#5B8FD6', x + s * (w / 2 - 0.06), 0.225, z, 0, 0, 0, 1, 1, 1, fab); }
+    for (let q = 0; q < 46; q++) Pw(artSph(0.075, 8, 6), artPick(r, ART_TOYS), x + (r() - 0.5) * (w - 0.34), 0.08 + r() * 0.3, z + (r() - 0.5) * (d - 0.34));
+    blob(x, z, w + 0.3, d + 0.3); };
+  const slide = (x, z) => {                                    // platform at x (ladder on its -x side), chute down towards +x
+    if (!free(x + 0.7, 1.0, z, 0.3)) return;
+    for (const [a, b] of LEGS) Pw(artCyl(0.03, 0.03, 1.2, 6), '#E8635A', x + a * 0.22, 0.6, z + b * 0.22);
+    Pw(artBox(0.5, 0.06, 0.5), '#5B8FD6', x, 1.15, z);
+    for (let q = 1; q < 5; q++) Pw(artCyl(0.018, 0.018, 0.44, 5), '#F4F4F4', x - 0.22, q * 0.23, z, PI / 2);
+    for (const s of [-1, 1]) Pw(artBox(0.5, 0.05, 0.03), '#E8635A', x, 1.42, z + s * 0.24);
+    const L = 1.7, a = 0.62, cx = x + 0.25 + Math.cos(a) * L / 2, cy = 1.18 - Math.sin(a) * L / 2;
+    Pw(artBox(L, 0.04, 0.46), '#F2CF4A', cx, cy, z, 0, 0, -a); for (const s of [-1, 1]) Pw(artBox(L, 0.12, 0.035), '#F2A541', cx, cy + 0.05, z + s * 0.23, 0, 0, -a);
+    Pw(artBox(0.25, 0.04, 0.46), '#F2CF4A', x + 0.25 + Math.cos(a) * L + 0.1, 0.17, z);
+    blob(x + 0.7, z, 2.2, 0.8); };
+  const toyShelf = (x, w, h = 0.9) => { const z = -D + 0.22; if (!free(x, w / 2, z, 0.2)) return;
+    const cols = Math.max(2, Math.round(w / 0.4)), rows = Math.max(1, Math.round(h / 0.42)), cw = w / cols, rh = h / rows;
+    Pw(artBox(w, h, 0.02), '#D8CDB8', x, h / 2, z - 0.18, 0, 0, 0, 1, 1, 1, wood);
+    for (let c = 0; c <= cols; c++) Pw(artBox(0.025, h, 0.38), '#E8DCC0', x - w / 2 + c * cw, h / 2, z, 0, 0, 0, 1, 1, 1, wood);
+    for (let q = 0; q <= rows; q++) Pw(artBox(w, 0.025, 0.38), '#E8DCC0', x, Math.min(h - 0.0125, Math.max(0.0125, q * rh)), z, 0, 0, 0, 1, 1, 1, wood);
+    for (let c = 0; c < cols; c++) for (let q = 0; q < rows; q++) Pw(artBox(cw - 0.07, rh * 0.62, 0.3), ART_TOYS[(c + q * 3) % 8], x - w / 2 + (c + 0.5) * cw, q * rh + 0.025 + rh * 0.31, z + 0.03, 0, 0, 0, 1, 1, 1, fab);
+    Pw(artSph(0.09, 10, 8), '#E8635A', x - w * 0.3, h + 0.09, z); Pw(artBox(0.2, 0.12, 0.12), '#5B8FD6', x, h + 0.06, z); Pw(artCyl(0.06, 0.06, 0.2, 10), '#F2CF4A', x + w * 0.3, h + 0.1, z);
+    blob(x, z + 0.1, w + 0.2, 0.6); };
+  const blocks = (x, z) => { if (!free(x, 0.3, z, 0.3)) return; const bc = ['#E8635A', '#F2CF4A', '#5B8FD6', '#7DB35A'];
+    Pw(artBox(0.26, 0.26, 0.26), bc[0], x - 0.15, 0.13, z, 0, 0.2); Pw(artBox(0.26, 0.26, 0.26), bc[1], x + 0.14, 0.13, z - 0.03, 0, -0.1);
+    Pw(artBox(0.26, 0.26, 0.26), bc[2], x, 0.39, z - 0.01, 0, 0.5); Pw(artBox(0.24, 0.24, 0.24), bc[3], x + 0.02, 0.64, z, 0, 0.9);
+    Pw(artCone(0.15, 0.22, 4), '#E8635A', x + 0.02, 0.87, z, 0, 0.9 + PI / 4); blob(x, z, 0.7, 0.6); };
+  const horse = (x, z) => { if (!free(x, 0.5, z, 0.2)) return;     // rocking horse, side on, head to +x
+    for (const s of [-1, 1]) Pw(artTor(0.45, 0.03, 6, 18, PI * 0.6), '#8A5A3C', x, 0.45, z + s * 0.12, 0, 0, PI * 1.2, 1, 1, 1, wood);
+    for (const [a, b] of LEGS) Pw(artCyl(0.025, 0.025, 0.5, 5), '#C8A27A', x + a * 0.17, 0.29, z + b * 0.12);
+    Pw(artCap(0.13, 0.36, 3, 10), '#C8A27A', x, 0.65, z, 0, 0, PI / 2); Pw(artBox(0.14, 0.34, 0.16), '#C8A27A', x + 0.27, 0.86, z, 0, 0, -0.45);
+    Pw(artBox(0.24, 0.13, 0.14), '#C8A27A', x + 0.38, 1.0, z, 0, 0, -0.2); Pw(artBox(0.06, 0.3, 0.04), '#5A3825', x + 0.2, 0.92, z, 0, 0, -0.45);
+    for (const s of [-1, 1]) Pw(artSph(0.018, 6, 4), '#2B2B3A', x + 0.4, 1.04, z + s * 0.07);
+    Pw(artBox(0.22, 0.03, 0.3), '#C8322A', x - 0.02, 0.79, z); Pw(artCyl(0.012, 0.012, 0.26, 5), '#5A3825', x + 0.25, 1.0, z, PI / 2);
+    Pw(artBox(0.05, 0.22, 0.04), '#5A3825', x - 0.24, 0.62, z, 0, 0, 0.5); blob(x, z, 1.1, 0.5); };
+  const easel = (x, z) => { if (!free(x, 0.32, z, 0.3)) return; const t = -0.12, c = Math.cos(t), s = Math.sin(t), by = 1.0, bz = z;
+    for (const sd of [-1, 1]) Pw(artBox(0.035, 1.3, 0.035), '#A87148', x + sd * 0.24, 0.65, z, t, 0, sd * 0.06, 1, 1, 1, wood);
+    Pw(artBox(0.035, 1.25, 0.035), '#A87148', x, 0.6, z - 0.24, 0.25, 0, 0, 1, 1, 1, wood);
+    Pw(artBox(0.6, 0.03, 0.08), '#A87148', x, 0.66, z + 0.06, 0, 0, 0, 1, 1, 1, wood);
+    const on = (dx, dy, geo, col, rz = 0, sz = 1) => Pw(geo, col, x + dx, by + dy * c - 0.014 * s, bz + dy * s + 0.014 * c, t, 0, rz, 1, 1, sz);
+    on(0, 0, artBox(0.56, 0.62, 0.015), '#F4F1EA');
+    on(0.15, 0.17, artSph(0.06, 10, 6), '#F2CF4A', 0, 0.2); on(-0.08, -0.1, artBox(0.18, 0.14, 0.006), '#E8635A'); on(-0.08, 0.02, artBox(0.15, 0.1, 0.006), '#5B8FD6', PI / 4);
+    on(0, -0.25, artBox(0.5, 0.05, 0.006), '#7DB35A'); blob(x, z, 0.7, 0.6); };
+  const bunting = (u0, u1, yy) => { const x0 = X(u0), x1 = X(u1), n = Math.max(2, Math.round((x1 - x0) / 0.32)), z = -D + 0.07, pts = [];
+    for (let q = 0; q <= n; q++) { const f = q / n; pts.push([x0 + (x1 - x0) * f, yy - Math.sin(f * PI) * 0.1]); }
+    pts.forEach(([px, py], q) => { Pw(artTri(), ART_TOYS[q % 8], px, py, z + 0.004, 0, 0, 0, 0.17, 0.2, 1);
+      if (q < n) { const [qx, qy] = pts[q + 1]; Pw(artBox(Math.hypot(qx - px, qy - py), 0.008, 0.008), '#6B5B4E', (px + qx) / 2, (py + qy) / 2, z, 0, 0, Math.atan2(qy - py, qx - px)); } }); };
+  const drawings = (x, yy) => wallP(x, 0.33, () => { for (let q = 0; q < 3; q++) { const px = x - 0.22 + q * 0.22, py = yy + (q % 2) * 0.06;
+    Pw(artBox(0.2, 0.27, 0.005), '#F4F1EA', px, py, -D + 0.01, 0, 0, (q - 1) * 0.06); Pw(artSph(0.035, 8, 6), '#F2CF4A', px + 0.05, py + 0.08, -D + 0.016, 0, 0, 0, 1, 1, 0.2);
+    Pw(artBox(0.1, 0.07, 0.004), ART_TOYS[(q * 3) % 8], px - 0.02, py - 0.05, -D + 0.016); Pw(artTri(), ART_TOYS[(q * 3 + 4) % 8], px - 0.02, py - 0.015, -D + 0.017, 0, 0, PI, 0.13, 0.06, 1);
+    Pw(artSph(0.012, 6, 4), '#C8322A', px, py + 0.125, -D + 0.02); } });
+  const frieze = (x, w, yy) => wallP(x, w / 2, () => { const n = Math.floor(w / 0.2); for (let q = 0; q < n; q++) { const px = x - (n - 1) * 0.1 + q * 0.2;
+    Pw(artBox(0.17, 0.17, 0.012), ART_TOYS[q % 8], px, yy, -D + 0.008); Pw(artBox(0.035, 0.1, 0.006), '#F4F1EA', px - 0.025, yy, -D + 0.016); Pw(artBox(0.05, 0.03, 0.006), '#F4F1EA', px + 0.01, yy + (q % 2 ? 0.035 : -0.035), -D + 0.016); } });
+  const tent = (x, z) => { if (!free(x, 0.62, z, 0.62)) return; const sl = Math.atan2(0.6, 1.35);   // teepee with a dark doorway following the slope
+    Pw(artCone(0.6, 1.35, 8, true), artMixHex(accent, '#FFFFFF', 0.35), x, 0.675, z, 0, 0, 0, 1, 1, 1, fab); Pw(artCyl(0.43, 0.48, 0.12, 8, true), '#F4F1EA', x, 0.35, z, 0, 0, 0, 1, 1, 1, fab);
+    Pw(artTri(), '#3B3027', x, 0.02, z + 0.6, -sl, 0, PI, 0.45, 0.75, 1);
+    for (const s of [-1, 1]) Pw(artCyl(0.015, 0.015, 0.5, 5), '#8A5A3C', x + s * 0.06, 1.42, z, 0, 0, s * 0.35, 1, 1, 1, wood);
+    blob(x, z, 1.4, 1.4); };
+  const beanBag = (x, z, col) => { if (!free(x, 0.42, z, 0.42)) return; Pw(artSph(0.42, 14, 8), col, x, 0.25, z, 0, 0, 0, 1, 0.62, 1, fab);
+    Pw(artSph(0.3, 12, 6), artMixHex(col, '#000000', 0.12), x - 0.05, 0.42, z - 0.13, 0, 0, 0, 1, 0.6, 1, fab); blob(x, z, 1.0, 1.0); };
+  const teddy = (x, z) => { if (!free(x, 0.2, z, 0.2)) return;
+    Pw(artSph(0.17, 12, 8), '#C8915A', x, 0.18, z); Pw(artSph(0.13, 12, 8), '#C8915A', x, 0.44, z);
+    for (const s of [-1, 1]) { Pw(artSph(0.05, 8, 6), '#C8915A', x + s * 0.1, 0.55, z); Pw(artSph(0.06, 8, 6), '#C8915A', x + s * 0.16, 0.24, z + 0.04); Pw(artSph(0.065, 8, 6), '#C8915A', x + s * 0.09, 0.06, z + 0.1); Pw(artSph(0.014, 6, 4), '#2B2B3A', x + s * 0.045, 0.48, z + 0.115); }
+    Pw(artSph(0.05, 8, 6), '#F2D2B0', x, 0.42, z + 0.12); Pw(artSph(0.016, 6, 4), '#2B2B3A', x, 0.44, z + 0.165); Pw(artSph(0.08, 8, 6), '#F2D2B0', x, 0.18, z + 0.14, 0, 0, 0, 1, 1, 0.5); blob(x, z, 0.45, 0.45); };
+  const toyTrain = (x, z) => { if (!free(x, 0.55, z, 0.12)) return; const cols = ['#E8635A', '#5B8FD6', '#F2CF4A'];
+    Pw(artBox(1.1, 0.01, 0.16), '#A87148', x, 0.005, z, 0, 0, 0, 1, 1, 1, wood);
+    for (let q = 0; q < 3; q++) { const cx = x - 0.25 + q * 0.27; Pw(artBox(0.22, 0.12, 0.14), cols[q], cx, 0.1, z);
+      for (const s of [-1, 1]) for (const t of [-1, 1]) Pw(artCyl(0.035, 0.035, 0.02, 10), '#2B2B3A', cx + s * 0.07, 0.04, z + t * 0.075, PI / 2); }
+    Pw(artBox(0.12, 0.1, 0.14), '#E8635A', x - 0.32, 0.21, z); Pw(artCyl(0.035, 0.035, 0.1, 8), '#2B2B3A', x - 0.2, 0.21, z); blob(x, z, 1.2, 0.4); };
+  const coats = (x, yy) => wallP(x, 0.36, () => { Pw(artBox(0.7, 0.07, 0.025), '#A87148', x, yy, -D + 0.015, 0, 0, 0, 1, 1, 1, wood);
+    for (let q = 0; q < 3; q++) { const cx = x - 0.22 + q * 0.22; Pw(artCyl(0.012, 0.012, 0.06, 5), ART_BRASS, cx, yy, -D + 0.05, PI / 2, 0, 0, 1, 1, 1, shiny);
+      Pw(artBox(0.17, 0.4, 0.07), ART_TOYS[(q * 3 + 1) % 8], cx, yy - 0.22, -D + 0.07, 0, 0, 0, 1, 1, 1, fab);
+      Pw(artBox(0.08, 0.12, 0.16), ['#E8635A', '#5B8FD6', '#F2CF4A'][q], cx, 0.06, -D + 0.14); } });
+  // pool
+  const pool = (pu, pz, pw, pd, ropes, kidPool) => {           // raised tiled pool, see-through water box with its top at the swimmers' chins
+    const px = X(pu), WT = 0.5, rw = pw + 0.3;
+    Pw(artBox(rw, WT + 0.06, 0.16), '#E4E8E6', px, (WT + 0.06) / 2, pz - pd / 2 - 0.08, 0, 0, 0, 1, 1, 1, conc);
+    for (const s of [-1, 1]) Pw(artBox(0.16, WT + 0.06, pd), '#E4E8E6', px + s * (pw / 2 + 0.07), (WT + 0.06) / 2, pz, 0, 0, 0, 1, 1, 1, conc);
+    Pw(artBox(rw + 0.02, 0.025, 0.18), '#19C2D6', px, WT + 0.072, pz - pd / 2 - 0.08);
+    Pw(artBox(rw, 0.07, 0.16), '#F4F4F4', px, 0.035, pz + pd / 2 + 0.08, 0, 0, 0, 1, 1, 1, conc);
+    for (let q = 0; q < 12; q++) Pw(artBox(rw / 12 - 0.01, 0.06, 0.18), q % 2 ? '#CFE3E6' : '#F4F4F4', px - rw / 2 + (q + 0.5) * rw / 12, WT + 0.03, pz + pd / 2 + 0.08);
+    for (let q = 0; q < 4; q++) Pw(artBox(0.07, 0.045, 0.01), '#2F4A6B', px - pw / 2 + 0.3 + q * (pw - 0.6) / 3, WT - 0.1, pz - pd / 2 + 0.006);
+    Pw(artBox(pw, 0.01, pd), '#9FD3DA', px, 0.006, pz);
     const waterBox = new THREE.Mesh(artBox(pw, WT, pd), artMatC('waterbox', () => new THREE.MeshStandardMaterial({ color: '#3FA7C9', roughness: 0.1, metalness: 0.1,
       transparent: true, opacity: 0.55, emissive: '#1C6F8A', emissiveIntensity: 0.25, depthWrite: false })));
-    waterBox.position.set(X(pu), y + WT / 2, pz); waterBox.renderOrder = 2; fg.add(waterBox);
-    const water = new THREE.Mesh(artPln(pw, pd), artMatC('water', () => new THREE.MeshStandardMaterial({ map: artRippleTex(), roughness: 0.15, metalness: 0.1, emissive: '#1C8FA8', emissiveIntensity: 0.25,
-      transparent: true, opacity: 0.7, depthWrite: false })));
-    water.rotation.x = -Math.PI / 2; water.position.set(X(pu), y + WT + 0.002, pz); water.renderOrder = 3; fg.add(water);
-    for (const dz of [-0.2, 0.2]) P(artTor(0.16, 0.025, 5, 12, Math.PI), ART_CHROME, pu - pw / 2 - 0.05, 0.3, pz + pd / 2 - 0.3 + dz, 0, Math.PI / 2, 0, 1, 1, 1, shiny);
-    const duck = sub(pu + 0.5, 0.52, pz - 0.1);
-    { const db = new ArtBatch(); db.add(artSph(0.16, 12, 8), k.clay, artXf(0, 0.06, 0, 0, 0, 0, 1.2, 0.8, 1), '#FFD93D'); db.add(artSph(0.1, 12, 8), k.clay, artXf(0.12, 0.2, 0), '#FFD93D');
-      db.add(artRB(0.1, 0.04, 0.08, 0.02, 1), k.clay, artXf(0.23, 0.19, 0), '#FF8A1F'); db.add(artSph(0.018, 6, 4), k.clay, artXf(0.17, 0.24, 0.07), '#2B2B3A'); db.add(artSph(0.018, 6, 4), k.clay, artXf(0.17, 0.24, -0.07), '#2B2B3A');
-      flushTo(db, duck); duck.rotation.y = -0.9; }
-    P(artTor(0.24, 0.07, 8, 20), '#E53935', 2.95, 1.6, -D + 0.1);
-    for (let q = 0; q < 4; q++) P(artTor(0.24, 0.075, 8, 4, Math.PI / 6), '#FFFFFF', 2.95, 1.6, -D + 0.1, 0, 0, q * Math.PI / 2 + Math.PI / 6);
-    P(artSph(0.32, 16, 10), '#B68CFF', 6.05, 0.32, -4.1);
-    for (const dz of [0, 0.3]) { P(artCyl(0.025, 0.025, 0.45, 6), '#8C96A8', 6.0, 0.1, -2.25 + dz, 0, 0, Math.PI / 2, 1, 1, 1, shiny); for (const du of [-0.18, 0.18]) P(artCyl(0.09, 0.09, 0.07, 12), '#3B4A6B', 6.0 + du, 0.1, -2.25 + dz, 0, 0, Math.PI / 2); }
-    P(artRB(1.1, 0.03, 0.55, 0.01, 1), '#FF9ECF', 2.95, 0.015, -3.2); for (let s = 0; s < 3; s++) P(artBox(1.1, 0.035, 0.08), '#FFFFFF', 2.95, 0.02, -3.35 + s * 0.15);
-    anims.push((t) => { const o = artRippleTex().offset; o.x = (t * 0.03) % 1; o.y = Math.sin(t * 0.4) * 0.05; duck.position.y = y + 0.52 + Math.sin(t * 2.2) * 0.02; duck.rotation.z = Math.sin(t * 1.7) * 0.08; });
+    waterBox.position.set(px, y + WT / 2, pz); waterBox.renderOrder = 2; fg.add(waterBox);
+    const water = new THREE.Mesh(artPln(pw, pd), waterM());
+    water.rotation.x = -PI / 2; water.position.set(px, y + WT + 0.002, pz); water.renderOrder = 3; fg.add(water);
+    const lx = px - pw / 2 - 0.07;                                // ladder over the -x rim: two hand rails and rungs inside
+    for (const dz of [-0.2, 0.2]) Pw(artTor(0.16, 0.022, 5, 12, PI), ART_CHROME, lx, WT + 0.06, pz + pd / 2 - 0.35 + dz, 0, 0, 0, 1, 1, 1, shiny);
+    for (const yy of [0.18, 0.36]) Pw(artCyl(0.012, 0.012, 0.4, 5), ART_CHROME, lx + 0.15, yy, pz + pd / 2 - 0.35, PI / 2, 0, 0, 1, 1, 1, shiny);
+    for (const rz of ropes) for (let xx = px - pw / 2 + 0.06, q = 0; xx < px + pw / 2 - 0.03; xx += 0.11, q++) Pw(artSph(0.032, 6, 4), q % 3 ? '#F4F4F4' : '#19C2D6', xx, WT + 0.006, rz);
+    if (kidPool) {                                                // floating ring and beach ball
+      Pw(artTor(0.18, 0.06, 8, 18), '#E53935', px + pw * 0.25, WT + 0.02, pz + 0.25, PI / 2);
+      for (let q = 0; q < 4; q++) Pw(artTor(0.18, 0.065, 8, 4, PI / 6), '#F4F4F4', px + pw * 0.25, WT + 0.02, pz + 0.25, PI / 2, 0, q * PI / 2 + PI / 6);
+      Pw(artSph(0.13, 12, 8), '#F2CF4A', px - pw * 0.3, WT + 0.07, pz - 0.35); Pw(artSph(0.132, 12, 8, 0, PI / 2), '#C8322A', px - pw * 0.3, WT + 0.07, pz - 0.35); Pw(artSph(0.132, 12, 8, PI, PI / 2), '#2F6FE0', px - pw * 0.3, WT + 0.07, pz - 0.35);
+    } else {
+      const duck = sub(px + 0.5, 0.52, pz - 0.1);
+      { const db = new ArtBatch(); db.add(artSph(0.16, 12, 8), clay, artXf(0, 0.06, 0, 0, 0, 0, 1.2, 0.8, 1), '#FFD93D'); db.add(artSph(0.1, 12, 8), clay, artXf(0.12, 0.2, 0), '#FFD93D');
+        db.add(artRB(0.1, 0.04, 0.08, 0.02, 1), clay, artXf(0.23, 0.19, 0), '#FF8A1F'); db.add(artSph(0.018, 6, 4), clay, artXf(0.17, 0.24, 0.07), '#2B2B3A'); db.add(artSph(0.018, 6, 4), clay, artXf(0.17, 0.24, -0.07), '#2B2B3A');
+        flushTo(db, duck); duck.rotation.y = -0.9; }
+      anims.push((t) => { duck.position.y = y + 0.52 + Math.sin(t * 2.2) * 0.02; duck.rotation.z = Math.sin(t * 1.7) * 0.08; });
+    }
+    anims.push((t) => { const o = artRippleTex().offset; o.x = (t * 0.03) % 1; o.y = Math.sin(t * 0.4) * 0.05; }); };
+  const lounger = (x, z, col) => { if (!free(x, 0.85, z, 0.32)) return;          // along x, back rest raised at -x
+    Pw(artBox(1.1, 0.05, 0.58), '#E8E6E0', x + 0.2, 0.3, z); Pw(artBox(1.05, 0.04, 0.5), col, x + 0.2, 0.345, z, 0, 0, 0, 1, 1, 1, fab);
+    Pw(artBox(0.62, 0.05, 0.58), '#E8E6E0', x - 0.55, 0.5, z, 0, 0, -0.62); Pw(artBox(0.58, 0.04, 0.5), col, x - 0.53, 0.54, z, 0, 0, -0.62, 1, 1, 1, fab);
+    for (const [a, b] of [[-0.3, -1], [-0.3, 1], [0.7, -1], [0.7, 1]]) Pw(artBox(0.04, 0.28, 0.04), '#C9CED2', x + a, 0.14, z + b * 0.26, 0, 0, 0, 1, 1, 1, shiny);
+    blob(x, z, 1.9, 0.8); };
+  const guardChair = (x, z) => { if (!free(x, 0.34, z, 0.34)) return;          // tall lifeguard chair facing the pool
+    for (const [a, b] of LEGS) Pw(artBox(0.05, 1.3, 0.05), '#F4F4F4', x + a * 0.25, 0.65, z + b * 0.25, 0, 0, 0, 1, 1, 1, wood);
+    for (let q = 1; q < 5; q++) Pw(artBox(0.5, 0.035, 0.04), '#F4F4F4', x, q * 0.26, z + 0.25, 0, 0, 0, 1, 1, 1, wood);
+    Pw(artBox(0.6, 0.05, 0.56), '#F4F4F4', x, 1.3, z, 0, 0, 0, 1, 1, 1, wood); Pw(artBox(0.55, 0.04, 0.45), '#C8322A', x, 1.345, z, 0, 0, 0, 1, 1, 1, fab);
+    Pw(artBox(0.6, 0.45, 0.04), '#F4F4F4', x, 1.55, z - 0.26, 0, 0, 0, 1, 1, 1, wood); for (const s of [-1, 1]) Pw(artBox(0.04, 0.04, 0.5), '#F4F4F4', x + s * 0.28, 1.5, z, 0, 0, 0, 1, 1, 1, wood);
+    blob(x, z, 0.9, 0.9); };
+  const towelRack = (x, z, cols) => { if (!free(x, 0.4, z, 0.16)) return;
+    for (const s of [-1, 1]) { Pw(artCyl(0.015, 0.015, 1.1, 6), ART_CHROME, x + s * 0.36, 0.55, z, 0, 0, 0, 1, 1, 1, shiny); Pw(artBox(0.04, 0.02, 0.3), ART_CHROME, x + s * 0.36, 0.01, z, 0, 0, 0, 1, 1, 1, shiny); }
+    Pw(artCyl(0.013, 0.013, 0.74, 6), ART_CHROME, x, 1.08, z, 0, 0, PI / 2, 1, 1, 1, shiny);
+    cols.forEach((c, q) => Pw(artBox(0.2, 0.55, 0.05), c, x - 0.24 + q * 0.24, 0.82, z, 0, 0, 0, 1, 1, 1, fab)); blob(x, z, 0.95, 0.5); };
+  const lifeRing = (x, yy) => wallP(x, 0.3, () => { Pw(artBox(0.04, 0.08, 0.06), '#5A6068', x, yy + 0.3, -D + 0.03);
+    Pw(artTor(0.22, 0.065, 8, 20), '#E53935', x, yy, -D + 0.09); for (let q = 0; q < 4; q++) Pw(artTor(0.22, 0.07, 8, 4, PI / 6), '#F4F4F4', x, yy, -D + 0.09, 0, 0, q * PI / 2 + PI / 6); });
+  const noRun = (x, yy) => wallP(x, 0.2, () => { const z0 = -D + 0.02, k2 = (dx, dy, w, h, rz) => Pw(artBox(w, h, 0.01), '#2B2B3A', x + dx, yy + dy, z0 + 0.013, 0, 0, rz);
+    Pw(artBox(0.38, 0.38, 0.02), '#F4F4F4', x, yy, z0); Pw(artTor(0.14, 0.02, 6, 24), '#D32F2F', x, yy, z0 + 0.015);
+    Pw(artSph(0.025, 8, 6), '#2B2B3A', x + 0.03, yy + 0.08, z0 + 0.012); k2(0.01, 0.015, 0.03, 0.1, -0.35);
+    k2(-0.03, -0.07, 0.024, 0.09, -0.7); k2(0.03, -0.07, 0.024, 0.09, 0.5); k2(-0.025, 0.03, 0.022, 0.08, 1.1); k2(0.045, 0.02, 0.022, 0.08, -1.0);
+    Pw(artBox(0.3, 0.026, 0.012), '#D32F2F', x, yy, z0 + 0.02, 0, 0, -PI / 4); });
+  const shower = (x, z = -D + 0.06, stand = false) => {
+    if (stand) Pw(artCyl(0.12, 0.12, 0.02, 12), ART_CHROME, x, 0.01, z, 0, 0, 0, 1, 1, 1, shiny);
+    Pw(artCyl(0.016, 0.016, 2.05, 6), ART_CHROME, x, 1.025, z, 0, 0, 0, 1, 1, 1, shiny); Pw(artCyl(0.014, 0.014, 0.28, 6), ART_CHROME, x, 2.05, z + 0.14, PI / 2, 0, 0, 1, 1, 1, shiny);
+    Pw(artCyl(0.08, 0.05, 0.04, 12), ART_CHROME, x, 2.02, z + 0.28, 0, 0, 0, 1, 1, 1, shiny); Pw(artBox(0.1, 0.06, 0.05), ART_CHROME, x, 1.05, z + 0.03, 0, 0, 0, 1, 1, 1, shiny);
+    Pw(artCyl(0.11, 0.11, 0.004, 14), '#8E949A', x, 0.003, z + 0.3, 0, 0, 0, 1, 1, 1, shiny); };
+  const kickboards = (x, z) => { for (let q = 0; q < 4; q++) Pw(artBox(0.36, 0.05, 0.26), ['#E8635A', '#5FB8A6', '#F2A541', '#9B7BC8'][q], x, 0.025 + q * 0.05, z, 0, q * 0.25); blob(x, z, 0.55, 0.45); };
+  const lockers = (x, w) => { const z = -D + 0.23, n = Math.max(2, Math.round(w / 0.43)), cw = w / n; if (!free(x, w / 2, z, 0.23)) return;
+    Pw(artBox(w, 1.85, 0.45), '#6F8796', x, 0.925, z); Pw(artBox(w, 0.1, 0.02), '#3B4148', x, 0.05, z + 0.226);
+    for (let c = 0; c < n; c++) for (let q = 0; q < 2; q++) { const cx = x - w / 2 + (c + 0.5) * cw, cy = 0.54 + q * 0.87;
+      Pw(artBox(cw - 0.03, 0.84, 0.012), '#8FA6B4', cx, cy, z + 0.231);
+      for (let v = 0; v < 3; v++) Pw(artBox(cw * 0.5, 0.012, 0.006), '#3B4148', cx, cy + 0.3 - v * 0.03, z + 0.24);
+      Pw(artBox(0.02, 0.08, 0.02), ART_CHROME, cx + cw / 2 - 0.06, cy, z + 0.245, 0, 0, 0, 1, 1, 1, shiny); }
+    blob(x, z + 0.1, w + 0.2, 0.7); };
+  // library
+  const kickStool = (x, z) => { if (!free(x, 0.2, z, 0.2)) return; Pw(artCyl(0.17, 0.2, 0.36, 14), '#5A6068', x, 0.18, z, 0, 0, 0, 1, 1, 1, shiny); Pw(artCyl(0.17, 0.17, 0.02, 14), '#2B2B30', x, 0.37, z); blob(x, z, 0.5, 0.5); };
+  const bookCart = (x, z) => { if (!free(x, 0.37, z, 0.2)) return;
+    for (const yy of [0.18, 0.55]) { Pw(artBox(0.7, 0.03, 0.34), '#7A5638', x, yy, z, 0, 0, 0, 1, 1, 1, wood); books(x - 0.32, x + 0.32, yy + 0.015, z, 0.24, 0.18); }
+    for (const [a, b] of LEGS) { Pw(artBox(0.03, 0.62, 0.03), '#5A3825', x + a * 0.33, 0.36, z + b * 0.15, 0, 0, 0, 1, 1, 1, wood); Pw(artCyl(0.035, 0.035, 0.025, 10), '#2B2B30', x + a * 0.33, 0.035, z + b * 0.15, PI / 2); }
+    blob(x, z, 0.9, 0.55); };
+  // garden
+  const bed = (x, z, w, d = 0.6, h = 0.5) => { if (!free(x, w / 2, z, d / 2)) return;
+    for (let q = 0; q < 3; q++) for (const s of [-1, 1]) Pw(artBox(w, h / 3 - 0.01, 0.05), '#8A6A4C', x, (q + 0.5) * h / 3, z + s * (d / 2 - 0.025), 0, 0, 0, 1, 1, 1, wood);
+    for (const s of [-1, 1]) Pw(artBox(0.05, h, d), '#7A5A44', x + s * (w / 2 - 0.025), h / 2, z, 0, 0, 0, 1, 1, 1, wood);
+    Pw(artBox(w - 0.1, 0.04, d - 0.1), '#4A3426', x, h - 0.06, z); blob(x, z, w + 0.3, d + 0.3); };
+  const tomato = (x, z, yy) => { x = k.plantX(x, 0.2); Pw(artCyl(0.01, 0.01, 0.7, 4), '#A87148', x + 0.05, yy + 0.35, z, 0, 0, 0, 1, 1, 1, wood);
+    for (let q = 0; q < 4; q++) Pw(artSph(0.13, 8, 6), GREENS[q % 4], x + (q % 2 ? 0.06 : -0.06), yy + 0.15 + q * 0.13, z + (q % 2 ? -0.03 : 0.04), 0, 0, 0, 1, 0.8, 1);
+    for (let q = 0; q < 4; q++) Pw(artSph(0.04, 8, 6), '#D84A3A', x - 0.08 + q * 0.055, yy + 0.2 + (q % 2) * 0.17, z + 0.11); };
+  const flowerRow = (x0, x1, z, yy) => { for (let x = x0, q = 0; x <= x1 + 1e-6; x += 0.2, q++) { const px = k.plantX(x, 0.08); if (px !== x) continue; const dz = (q % 2) * 0.14 - 0.07;
+    Pw(artCyl(0.012, 0.012, 0.35, 4), '#3E8E3A', x, yy + 0.17, z + dz); Pw(artSph(0.06, 8, 6), GREENS[q % 4], x + 0.03, yy + 0.12, z + dz, 0, 0, 0, 1, 0.6, 1);
+    Pw(artSph(0.07, 8, 6), ART_TOYS[(q * 3) % 8], x, yy + 0.37, z + dz, 0, 0, 0, 1, 1.2, 1); } };
+  const tree = (x, z) => { const rad = 0.55; x = k.plantX(x, rad); if (!free(x, rad, z, rad)) return;        // small tree in a concrete planter
+    Pw(artBox(0.7, 0.55, 0.7), '#8E8A84', x, 0.275, z, 0, 0, 0, 1, 1, 1, conc); Pw(artBox(0.62, 0.03, 0.62), '#4A3426', x, 0.54, z);
+    Pw(artCyl(0.045, 0.07, 1.1, 8), '#6B4A33', x, 1.08, z, 0, 0, 0, 1, 1, 1, wood); Pw(artCyl(0.025, 0.035, 0.5, 6), '#6B4A33', x + 0.12, 1.45, z, 0, 0, -0.6, 1, 1, 1, wood);
+    for (let q = 0; q < 7; q++) { const a = q * 2.1, rr = q === 6 ? 0 : 0.24; Pw(artSph(0.3, 10, 7), GREENS[q % 4], x + Math.cos(a) * rr, q === 6 ? 1.95 : 1.55 + (q % 2) * 0.18, z + Math.sin(a) * rr, 0, 0, 0, 1, 0.8, 1); }
+    blob(x, z, 1.0, 1.0); };
+  const greenhouse = (x, z, w = 1.0, d = 0.55, h = 1.55) => { if (!free(x, w / 2, z, d / 2)) return;     // lean-to mini greenhouse with seed trays
+    for (const [a, b] of LEGS) Pw(artBox(0.03, h, 0.03), '#E8E6E0', x + a * (w / 2 - 0.015), h / 2, z + b * (d / 2 - 0.015), 0, 0, 0, 1, 1, 1, shiny);
+    for (const yy of [0.5, 1.0]) { Pw(artBox(w - 0.04, 0.02, d - 0.04), '#C9CED2', x, yy, z, 0, 0, 0, 1, 1, 1, shiny);
+      for (let q = 0; q < 2; q++) { const tx = x - w / 4 + q * w / 2; Pw(artBox(w / 2 - 0.08, 0.05, d - 0.12), '#2E3236', tx, yy + 0.035, z);
+        for (let s = 0; s < 6; s++) { const sx = tx - w / 4 + 0.08 + (s % 3) * (w / 2 - 0.16) / 2; if (k.plantX(sx, 0.03) === sx) Pw(artSph(0.035, 6, 4), GREENS[s % 4], sx, yy + 0.08, z - 0.1 + Math.floor(s / 3) * 0.2, 0, 0, 0, 1, 0.7, 1); } } }
+    Pw(artBox(w, 0.03, d), '#E8E6E0', x, h, z, 0, 0, 0, 1, 1, 1, shiny);
+    Pw(artBox(w - 0.04, h - 0.04, 0.005), '#CFE3DA', x, h / 2, z + d / 2, 0, 0, 0, 1, 1, 1, glass);
+    for (const s of [-1, 1]) Pw(artBox(0.005, h - 0.04, d - 0.04), '#CFE3DA', x + s * w / 2, h / 2, z, 0, 0, 0, 1, 1, 1, glass);
+    Pw(artBox(0.02, h - 0.04, 0.02), '#E8E6E0', x, h / 2, z + d / 2, 0, 0, 0, 1, 1, 1, shiny); blob(x, z, w + 0.3, d + 0.3); };
+  const hoseReel = (x, z) => { if (!free(x, 0.3, z, 0.3)) return;
+    for (const s of [-1, 1]) Pw(artBox(0.04, 0.6, 0.04), '#3E6B3A', x + s * 0.22, 0.3, z, 0, 0, s * 0.12, 1, 1, 1, shiny);
+    Pw(artCyl(0.04, 0.04, 0.44, 8), '#3E6B3A', x, 0.45, z, 0, 0, PI / 2, 1, 1, 1, shiny);
+    for (let q = 0; q < 5; q++) Pw(artTor(0.13 + (q % 2) * 0.012, 0.022, 6, 16), '#4C9A3E', x - 0.12 + q * 0.06, 0.45, z, 0, PI / 2, 0);
+    for (const s of [-1, 1]) Pw(artCyl(0.2, 0.2, 0.02, 16), '#3E6B3A', x + s * 0.17, 0.45, z, 0, 0, PI / 2, 1, 1, 1, shiny);
+    Pw(artBox(0.5, 0.03, 0.3), '#3E6B3A', x, 0.015, z, 0, 0, 0, 1, 1, 1, shiny); Pw(artTor(0.22, 0.02, 4, 16, PI), '#4C9A3E', x - 0.1, 0.02, z + 0.28, -PI / 2);
+    blob(x, z, 0.7, 0.6); };
+  const can = (x, z, col = '#8E949A') => { if (!free(x, 0.25, z, 0.2)) return;
+    Pw(artCyl(0.13, 0.15, 0.26, 12), col, x, 0.13, z, 0, 0, 0, 1, 1, 1, shiny); Pw(artCyl(0.018, 0.028, 0.34, 6), col, x + 0.2, 0.24, z, 0, 0, -0.9, 1, 1, 1, shiny);
+    Pw(artTor(0.09, 0.017, 4, 10, PI), col, x, 0.28, z, 0, 0, 0, 1, 1, 1, shiny); Pw(artCyl(0.045, 0.025, 0.04, 8), col, x + 0.34, 0.36, z, 0, 0, -0.9, 1, 1, 1, shiny); blob(x, z, 0.45, 0.4); };
+  const barrow = (x, z) => { if (!free(x, 0.5, z, 0.3)) return;        // wheel at +x, handles to -x
+    Pw(artBox(0.6, 0.25, 0.45), '#3E6B3A', x + 0.05, 0.42, z, 0, 0, -0.06, 1, 1, 1, shiny); Pw(artBox(0.54, 0.03, 0.39), '#4A3426', x + 0.05, 0.53, z, 0, 0, -0.06);
+    Pw(artCyl(0.14, 0.14, 0.06, 14), '#2B2B30', x + 0.42, 0.14, z, PI / 2); Pw(artCyl(0.03, 0.03, 0.08, 6), '#8E949A', x + 0.42, 0.14, z, PI / 2, 0, 0, 1, 1, 1, shiny);
+    for (const s of [-1, 1]) { Pw(artBox(0.95, 0.03, 0.03), '#8A6A4C', x - 0.05, 0.36, z + s * 0.2, 0, 0, -0.15, 1, 1, 1, wood); Pw(artBox(0.03, 0.3, 0.03), '#2E3236', x - 0.18, 0.15, z + s * 0.18, 0, 0, 0, 1, 1, 1, shiny); }
+    blob(x, z, 1.0, 0.6); };
+  const fountain = (x, z) => { if (!free(x, 0.46, z, 0.46)) return;
+    Pw(artCyl(0.45, 0.48, 0.3, 18), '#B9AF9F', x, 0.15, z, 0, 0, 0, 1, 1, 1, conc); B.add(artCyl(0.39, 0.39, 0.01, 18), waterM(), artXf(x, y + 0.27, z), '#ffffff');
+    Pw(artCyl(0.06, 0.08, 0.5, 10), '#B9AF9F', x, 0.5, z, 0, 0, 0, 1, 1, 1, conc); Pw(artCyl(0.2, 0.08, 0.1, 14), '#B9AF9F', x, 0.78, z, 0, 0, 0, 1, 1, 1, conc);
+    Pw(artCyl(0.17, 0.17, 0.01, 14), '#6FB3C4', x, 0.83, z, 0, 0, 0, 1, 1, 1, shiny); Pw(artCyl(0.012, 0.03, 0.22, 6), '#CFE8EE', x, 0.94, z, 0, 0, 0, 1, 1, 1, glass);
+    blob(x, z, 1.2, 1.2); };
+  const pottingBench = (x, z, w = 1.2) => { if (!free(x, w / 2, z, 0.25)) return; table(x, z, w, 0.5, '#9B6E47', 0.85, '#6B4A33');
+    Pw(artBox(w - 0.1, 0.025, 0.42), '#9B6E47', x, 0.25, z, 0, 0, 0, 1, 1, 1, wood);
+    Pw(artRB(0.32, 0.22, 0.26, 0.04), '#C9B79A', x - w * 0.25, 0.375, z, 0, 0, 0, 1, 1, 1, fab); Pw(artRB(0.28, 0.18, 0.24, 0.04), '#A88C6A', x + 0.05, 0.355, z, 0, 0.3, 0, 1, 1, 1, fab);
+    potPlant(x - 0.35, z, 0.85, '#B5673F', '#E890B4'); potPlant(x, z, 0.85, '#B5673F'); potPlant(x + 0.35, z, 0.85, '#B5673F', '#F2CF4A'); };
+  const flowers = [];
+  const sunflower = (x, z, h = 1.6) => { x = k.plantX(x, 0.36); if (!free(x, 0.36, z, 0.36)) return;
+    const g = sub(x, 0, z), fb = new ArtBatch();
+    fb.add(artCyl(0.035, 0.045, h, 6), clay, artXf(0, h / 2, 0), '#3E8E3A');
+    fb.add(artSph(0.16, 8, 6), clay, artXf(0.12, h * 0.45, 0, 0, 0, -0.6, 1, 0.3, 0.6), '#58A848'); fb.add(artSph(0.16, 8, 6), clay, artXf(-0.12, h * 0.6, 0, 0, 0, 0.6, 1, 0.3, 0.6), '#58A848');
+    for (let q = 0; q < 12; q++) { const a = q / 12 * PI * 2; fb.add(artSph(0.1, 8, 6), clay, artXf(Math.cos(a) * 0.2, h + Math.sin(a) * 0.2, 0.03, 0, 0, a, 1.3, 0.55, 0.3), '#FFC928'); }
+    fb.add(artCyl(0.13, 0.13, 0.08, 14), clay, artXf(0, h, 0.06, PI / 2), '#7A4E2D');
+    flushTo(fb, g); flowers.push(g);
+    Pw(artCyl(0.2, 0.16, 0.3, 12), '#B5673F', x, 0.15, z); blob(x, z, 0.6, 0.6); };
+  const basket = (x, z) => { x = k.plantX(x, 0.26); const by = 1.95;     // hanging basket with trailing leaves
+    Pw(artCyl(0.005, 0.005, CH - by - 0.08, 3), '#5A6068', x, (CH + by + 0.08) / 2, z);
+    for (let q = 0; q < 3; q++) { const a = q / 3 * PI * 2; Pw(artCyl(0.003, 0.003, 0.24, 3), '#5A6068', x + Math.cos(a) * 0.07, by + 0.18, z + Math.sin(a) * 0.07, -Math.sin(a) * 0.5, 0, Math.cos(a) * 0.5); }
+    Pw(artSph(0.17, 12, 8, 0, PI * 2, PI / 2, PI / 2), '#8A6A4C', x, by + 0.08, z, 0, 0, 0, 1, 1, 1, wood);
+    for (let q = 0; q < 6; q++) { const a = q * 1.05; Pw(artSph(0.09, 8, 6), GREENS[q % 4], x + Math.cos(a) * 0.15, by + 0.06 - (q % 2) * 0.12, z + Math.sin(a) * 0.15, 0, 0, 0, 1, 1.3, 1); }
+    for (let q = 0; q < 5; q++) Pw(artSph(0.035, 6, 4), '#E890B4', x + Math.cos(q * 1.3) * 0.12, by + 0.15, z + Math.sin(q * 1.3) * 0.12); };
+  // observatory
+  const telescope = (x, z, rz = -0.95, rx = 0) => { if (!free(x, 0.45, z, 0.45)) return;   // tube direction = (0,1,0) turned by rx, rz
+    for (let q = 0; q < 3; q++) { const a = q / 3 * PI * 2 + 0.3; Pw(artCyl(0.022, 0.022, 1.0, 5), '#8C96A8', x + Math.cos(a) * 0.2, 0.48, z + Math.sin(a) * 0.2, -Math.sin(a) * 0.32, 0, Math.cos(a) * 0.32, 1, 1, 1, shiny); }
+    Pw(artSph(0.06, 8, 6), '#5A6068', x, 0.98, z, 0, 0, 0, 1, 1, 1, shiny);
+    const dx = -Math.sin(rz), dy = Math.cos(rz) * Math.cos(rx), dz = Math.cos(rz) * Math.sin(rx), cx = x + dx * 0.15, cy = 1.06 + dy * 0.15, cz = z + dz * 0.15;
+    Pw(artCyl(0.09, 0.12, 1.1, 14), '#E3E8EE', cx, cy, cz, rx, 0, rz, 1, 1, 1, shiny); Pw(artCyl(0.13, 0.13, 0.1, 14), accent, cx + dx * 0.4, cy + dy * 0.4, cz + dz * 0.4, rx, 0, rz);
+    Pw(artCyl(0.11, 0.11, 0.02, 14), '#2B2B3A', cx + dx * 0.56, cy + dy * 0.56, cz + dz * 0.56, rx, 0, rz);
+    Pw(artCyl(0.025, 0.025, 0.12, 8), '#2B2B30', cx - dx * 0.58, cy - dy * 0.58, cz - dz * 0.58, rx, 0, rz, 1, 1, 1, shiny);
+    Pw(artCyl(0.03, 0.03, 0.4, 8), '#2B2B30', cx + 0.09 * dy, cy - 0.09 * dx + 0.06, cz, rx, 0, rz, 1, 1, 1, shiny); blob(x, z, 0.9, 0.9); };
+  const starChart = (x, yy, w, h) => wallP(x, w / 2 + 0.03, () => { const z0 = -D + 0.02, pts = [];
+    Pw(artBox(w + 0.05, h + 0.05, 0.03), '#2B2B30', x, yy, z0, 0, 0, 0, 1, 1, 1, wood); Pw(artBox(w - 0.02, h - 0.02, 0.01), '#1E2A4A', x, yy, z0 + 0.016);
+    for (let q = 0; q < 9; q++) pts.push([x - w / 2 + 0.08 + r() * (w - 0.16), yy - h / 2 + 0.08 + r() * (h - 0.16)]);
+    pts.forEach(([px, py], q) => Pw(artSph(q % 3 ? 0.012 : 0.02, 6, 4), '#FFF1B8', px, py, z0 + 0.024, 0, 0, 0, 1, 1, 1, glow));
+    for (let q = 0; q < 5; q++) { const [ax, ay] = pts[q], [bx, by] = pts[q + 1]; Pw(artBox(Math.hypot(bx - ax, by - ay), 0.005, 0.004), '#8FA6D8', (ax + bx) / 2, (ay + by) / 2, z0 + 0.022, 0, 0, Math.atan2(by - ay, bx - ax), 1, 1, 1, glow); }
+    Pw(artTor(Math.min(w, h) * 0.42, 0.004, 3, 32), '#5A6A98', x, yy, z0 + 0.022, 0, 0, 0, 1, 1, 1, glow); });
+  const planetsPoster = (x, yy) => wallP(x, 0.23, () => { Pw(artBox(0.42, 0.62, 0.02), '#2B2B30', x, yy, -D + 0.02, 0, 0, 0, 1, 1, 1, wood); Pw(artBox(0.38, 0.58, 0.01), '#1E2A4A', x, yy, -D + 0.032);
+    Pw(artSph(0.07, 10, 6), '#FFD27A', x, yy + 0.2, -D + 0.04, 0, 0, 0, 1, 1, 0.3, glow);
+    ['#B9AF9F', '#E8C468', '#4C7FA8', '#C8573A', '#E8A55A'].forEach((c, q) => Pw(artSph(0.02 + (q % 3) * 0.01, 8, 6), c, x + (q % 2 ? 0.05 : -0.05), yy + 0.08 - q * 0.08, -D + 0.04, 0, 0, 0, 1, 1, 0.4, glow)); });
+  const moon = (x, yy) => wallP(x, 0.32, () => { Pw(artSph(0.3, 16, 10), '#FFF1B8', x, yy, -D + 0.05, 0, 0, 0, 1, 1, 0.3, glow);
+    for (const [dx, dy, rr] of [[-0.08, 0.08, 0.07], [0.1, -0.05, 0.05], [-0.02, -0.12, 0.04]]) Pw(artSph(rr, 8, 6), '#E8D890', x + dx, yy + dy, -D + 0.13, 0, 0, 0, 1, 1, 0.3, glow); });
+  const consoleDesk = (x, z) => { if (!free(x, 0.45, z, 0.3)) return; const t = 0.4;
+    Pw(artBox(0.85, 0.8, 0.5), '#2E3440', x, 0.4, z); Pw(artBox(0.85, 0.04, 0.42), '#3A4256', x, 0.84, z + 0.02, t);
+    ['#FF5A4A', '#4BFF86', '#FFC93C', '#4FA3E8', '#FF5A4A', '#FFC93C'].forEach((c, q) => { const bx = -0.3 + (q % 3) * 0.12 + (q > 2 ? 0.36 : 0), bz = q > 2 ? 0.05 : -0.06;
+      Pw(artBox(0.06, 0.02, 0.05), c, x + bx, 0.865 - bz * Math.sin(t), z + 0.02 + bz * Math.cos(t), t, 0, 0, 1, 1, 1, glow); });
+    Pw(artBox(0.5, 0.32, 0.03), '#1E2226', x, 1.08, z - 0.18); Pw(artPln(0.44, 0.26), '#3A6EA8', x, 1.08, z - 0.164, 0, 0, 0, 1, 1, 1, glow); blob(x, z, 1.1, 0.75); };
+  const projector = (x, z) => { if (!free(x, 0.35, z, 0.35)) return;      // planetarium star ball
+    Pw(artCyl(0.3, 0.34, 0.08, 14), '#2B2B30', x, 0.04, z, 0, 0, 0, 1, 1, 1, shiny); Pw(artCyl(0.08, 0.12, 0.9, 10), '#3A4256', x, 0.5, z, 0, 0, 0, 1, 1, 1, shiny);
+    Pw(artSph(0.28, 16, 10), '#2B2B30', x, 1.2, z, 0, 0, 0, 1, 1, 1, shiny); Pw(artTor(0.29, 0.02, 4, 24), accent, x, 1.2, z, PI / 2, 0, 0, 1, 1, 1, shiny);
+    for (let q = 0; q < 22; q++) { const a = r() * PI * 2, b = 0.25 + r() * 1.9; Pw(artSph(0.02, 6, 4), '#FFF1B8', x + 0.28 * Math.sin(b) * Math.cos(a), 1.2 + 0.28 * Math.cos(b), z + 0.28 * Math.sin(b) * Math.sin(a), 0, 0, 0, 1, 1, 1, glow); }
+    blob(x, z, 0.9, 0.9); };
+  const rocket = (x, z) => { if (!free(x, 0.3, z, 0.3)) return;
+    Pw(artCyl(0.25, 0.28, 0.08, 12), '#3A4256', x, 0.04, z, 0, 0, 0, 1, 1, 1, shiny); Pw(artCyl(0.02, 0.02, 0.3, 6), '#8C96A8', x, 0.23, z, 0, 0, 0, 1, 1, 1, shiny);
+    Pw(artCyl(0.08, 0.11, 0.12, 12), '#5A6068', x, 0.34, z, 0, 0, 0, 1, 1, 1, shiny); Pw(artCyl(0.11, 0.11, 0.62, 14), '#E8E6E0', x, 0.71, z); Pw(artCone(0.11, 0.3, 14), '#C8322A', x, 1.17, z);
+    for (let q = 0; q < 3; q++) { const a = q / 3 * PI * 2 + 0.4; Pw(artBox(0.02, 0.2, 0.14), '#C8322A', x + Math.cos(a) * 0.15, 0.5, z + Math.sin(a) * 0.15, 0, PI / 2 - a, 0); }
+    Pw(artCyl(0.045, 0.045, 0.02, 12), '#4FA3E8', x, 0.86, z + 0.105, PI / 2, 0, 0, 1, 1, 1, glow); blob(x, z, 0.65, 0.65); };
+  const mobile = (x, z) => { const mob = sub(x, CH, z), mb = new ArtBatch();      // planets mobile hanging from the ceiling, turning slowly
+    mb.add(artCyl(0.006, 0.006, 0.12, 4), clay, artXf(0, -0.06, 0), '#C9D2F0');
+    mb.add(artBox(1.2, 0.02, 0.02), clay, artXf(0, -0.12, 0), '#C9D2F0'); mb.add(artBox(0.02, 0.02, 1.0), clay, artXf(0, -0.12, 0), '#C9D2F0');
+    for (const [px, pz, l, rr, col] of [[-0.6, 0, 0.5, 0.16, '#E8A55A'], [0.6, 0, 0.75, 0.12, '#4C7FA8'], [0, 0.5, 0.6, 0.08, '#C8573A'], [0, -0.5, 0.85, 0.1, '#7FB8A8']]) {
+      mb.add(artBox(0.006, l, 0.006), clay, artXf(px, -0.12 - l / 2, pz), '#C9D2F0'); mb.add(artSph(rr, 12, 8), clay, artXf(px, -0.12 - l - rr, pz), col);
+      if (rr === 0.16) mb.add(artTor(rr * 1.6, 0.015, 4, 20), clay, artXf(px, -0.12 - l - rr, pz, 1.2), '#E8D0A0'); }
+    mb.add(artSph(0.11, 12, 8), glow, artXf(0, -0.35, 0), '#FFD27A');
+    flushTo(mb, mob); anims.push((t) => { mob.rotation.y = t * 0.25; }); };
+  const ceilingStars = (n) => { for (let q = 0; q < n; q++) B.add(artSph(0.012 + (q % 3) * 0.007, 6, 4), glow, artXf(k.rx0 + 0.2 + r() * (k.W - 0.4), y + CH - 0.012, -0.5 - r() * (D - 0.9)), r() < 0.25 ? '#FFE9A8' : '#FFFFFF'); };
+  const stepLights = (x0, x1, z) => { for (let x = x0; x <= x1 + 1e-6; x += 0.3) Pw(artBox(0.08, 0.015, 0.03), '#FF5FAE', x, 0.03, z, 0, 0, 0, 1, 1, 1, glow); };
+  const twinkle = () => {                                      // twinkling stars on the back wall, clear of windows and charts
+    const spots = [];
+    for (let tries = 0; spots.length < 12 && tries < 200; tries++) { const x = k.rx0 + 0.2 + r() * (k.W - 0.4); if (k.wallBusy.some(([a, b]) => x > a - 0.06 && x < b + 0.06)) continue; spots.push([x, y + 0.9 + r() * 1.5, r() * 6]); }
+    if (!spots.length) return;
+    const stars = new THREE.InstancedMesh(artStar(), artMatC('twinkle', () => new THREE.MeshBasicMaterial({ color: '#FFF1A0', toneMapped: false })), spots.length); fg.add(stars);
+    const m = new THREE.Matrix4(), pv = new THREE.Vector3(), sv = new THREE.Vector3(), qq = new THREE.Quaternion(), zAx = new THREE.Vector3(0, 0, 1);
+    anims.push((t) => { spots.forEach(([sx, sy, ph], q) => { const s = 0.05 + 0.04 * (0.5 + 0.5 * Math.sin(t * 2.2 + ph)); pv.set(sx, sy, -D + 0.04); sv.set(s, s, s); qq.setFromAxisAngle(zAx, ph); m.compose(pv, qq, sv); stars.setMatrixAt(q, m); });
+      stars.instanceMatrix.needsUpdate = true; }); };
+
+  /* ======== art: room layouts ======== */
+  if (id === 'lobby') {
+    if (!R) {                                                  // entrance side: waiting corner, water cooler, back door, reception
+      rug(X(2.0), -3.25, 2.6, 1.5, '#8C5A4A', '#C9B79A');
+      sofa(X(2.45), -4.0, 0, 1.5, '#5B7A99'); coffeeTable(X(2.45), -3.1, 0.75, 0.5);
+      armchair(X(0.75), -3.1, PI / 2, '#A88C6A'); armchair(X(3.25), -3.1, -PI / 2, '#A88C6A');
+      plant(X(1.28), -4.0, 0.9); cooler(X(3.5), -4.25);
+      Pw(artBox(1.2, 0.012, 0.7), '#4A4038', X(4.4), 0.006, -4.1, 0, 0, 0, 1, 1, 1, fab);                   // mat inside the back door
+      desk(X(5.9), -3.75, 1.2, '#8A6A4C'); officeChair(X(6.25), -4.27); monitor(X(5.6), -3.86, 1.0); potPlant(X(5.4), -3.72, 1.0, '#E8E2D6');
+      Pw(artCyl(0.08, 0.08, 0.015, 12), ART_BRASS, X(6.25), 1.008, -3.6, 0, 0, 0, 1, 1, 1, shiny); Pw(artSph(0.06, 12, 6, 0, PI * 2, 0, PI / 2), ART_BRASS, X(6.25), 1.015, -3.6, 0, 0, 0, 1, 1, 1, shiny);
+      ropes(X(5.35), X(6.3), -2.95); clock(X(5.9), 2.15); picture(X(0.35), 1.6, 0.36, 0.5, ['#6F8A5E', '#C9A46A']);
+    } else {                                                   // lift side: security desk + CCTV, armchairs by the glass, mailboxes, directory, bench
+      desk(X(0.75), -3.75, 1.1, '#4A4F57'); cctv(X(0.7), 1.7); officeChair(X(1.05), -4.27); monitor(X(0.5), -3.86, 1.0);
+      plant(X(1.85), -4.0, 1.0);
+      rug(X(3.3), -3.5, 2.4, 1.4, '#6E4A3E', '#B9AF9F');
+      armchair(X(2.75), -3.5, 0.35, '#5B7A99'); armchair(X(3.85), -3.5, -0.35, '#5B7A99'); sideTable(X(3.3), -4.15);
+      bench(X(5.6), -3.35, 1.4); plant(X(4.85), -4.15, 0.7);
+      mailboxes(X(5.75), 0.9); directory(X(6.6), 1.55); bin(X(6.75), -3.95);
+    }
+  } else if (id === 'cafe') {
+    if (!R) {                                                  // counter with espresso machine, cakes and awning; four bistro tables
+      counter(X(5.25), 2.1); espresso(X(5.9), -3.86); pastryCase(X(5.2), -3.74); cakeDome(X(4.68), -3.8); potPlant(X(4.33), -3.75, 1.01, '#E8E2D6');
+      cupShelf(X(5.4), 1.4, 1.58); cupShelf(X(5.4), 1.4, 1.88); awning(X(5.25), 2.1); menuBoard(X(3.95), 1.75);
+      pendant(X(4.8), -3.7, 0.8); pendant(X(5.75), -3.7, 0.8);
+      for (const [u, z] of [[0.95, -3.55], [3.15, -3.45], [0.95, -2.35], [3.45, -2.3]]) {
+        roundTable(X(u), z); chair(X(u) - 0.52, z, PI / 2, '#4A3A2C'); chair(X(u) + 0.52, z, -PI / 2, '#4A3A2C'); cup(X(u) + 0.12, z - 0.05, 0.7575); }
+      plant(X(1.95), -4.1, 0.75); picture(X(1.95), 1.75, 0.3, 0.4, ['#B5655A', '#E8C468']); bin(X(6.35), -3.15);
+    } else {                                                   // window bar with stools, red banquette with tables, coffee sideboard
+      Pw(artBox(1.3, 0.04, 0.4), '#A87148', X(1.6), 1.03, -D + 0.22, 0, 0, 0, 1, 1, 1, wood); for (const s of [-1, 1]) Pw(artBox(0.04, 1.01, 0.36), '#3B3027', X(1.6) + s * 0.6, 0.505, -D + 0.22, 0, 0, 0, 1, 1, 1, wood);
+      for (const u of [1.15, 1.6, 2.05]) stool(X(u), -3.85);
+      cup(X(1.3), -D + 0.24, 1.05); cup(X(1.9), -D + 0.24, 1.05);
+      plant(X(2.6), -4.15, 0.6);
+      sofa(X(3.75), -4.08, 0, 1.6, '#7A2E2E');
+      for (const u of [3.35, 4.15]) { table(X(u), -3.48, 0.6, 0.6, '#E9E2D4', 0.74, '#2E3236'); chair(X(u), -3.02, PI, '#4A3A2C'); cup(X(u) + 0.1, -3.45, 0.74); pendant(X(u), -3.5, 0.85); }
+      roundTable(X(6.0), -3.3); chair(X(5.48), -3.3, PI / 2, '#4A3A2C'); chair(X(6.52), -3.3, -PI / 2, '#4A3A2C');
+      roundTable(X(1.6), -2.45); chair(X(1.08), -2.45, PI / 2, '#4A3A2C'); chair(X(2.12), -2.45, -PI / 2, '#4A3A2C'); cup(X(1.7), -2.5, 0.7575);
+      Pw(artBox(0.95, 0.9, 0.45), '#7A4E32', X(6.45), 0.45, -D + 0.25, 0, 0, 0, 1, 1, 1, wood); Pw(artBox(0.99, 0.04, 0.49), '#E9E2D4', X(6.45), 0.92, -D + 0.25, 0, 0, 0, 1, 1, 1, conc);
+      espresso(X(6.68), -D + 0.27, 0.94); cakeDome(X(6.2), -D + 0.27, 0.94); cupShelf(X(6.45), 0.9, 1.6);
+      menuBoard(X(3.75), 1.95, 0.9, 0.55); picture(X(0.45), 1.6, 0.36, 0.5, ['#B5655A', '#E8C468']);
+    }
+  } else if (id === 'play') {
+    if (!R) {                                                  // ball pit, slide, rocking horse, blocks on the mat, easel
+      playMat(X(3.1), -2.9, 4, 3); ballPit(X(1.0), -3.55, 1.4, 1.1); slide(X(3.95), -3.8); toyShelf(X(6.05), 0.9);
+      blocks(X(3.15), -2.35); horse(X(5.4), -2.6); easel(X(0.55), -2.4);
+      bunting(0.2, 6.4, 2.42); drawings(X(2.05), 1.45); frieze(X(5.7), 1.4, 1.75);
+    } else {                                                   // kids' table, cubby shelves, teepee and bean bag on the mat, toy train
+      table(X(1.5), -3.3, 1.0, 0.6, '#F2E8D4', 0.52, '#7DB35A');
+      [[1.25, -3.78, 0], [1.75, -3.78, 0], [1.25, -2.82, PI], [1.75, -2.82, PI]].forEach(([u, z, ry], q) => chair(X(u), z, ry, ART_TOYS[(q * 3 + 2) % 8], 0.62));
+      Pw(artBox(0.3, 0.004, 0.22), '#F4F1EA', X(1.35), 0.522, -3.3, 0, 0.2); for (let q = 0; q < 4; q++) Pw(artCyl(0.008, 0.008, 0.1, 5), ART_TOYS[q * 2], X(1.7) + q * 0.03, 0.53, -3.3, PI / 2, 0, 0.3);
+      toyShelf(X(3.8), 1.6, 1.1); playMat(X(5.5), -3.1, 4, 3);
+      tent(X(6.1), -3.5); beanBag(X(4.95), -2.5, '#E890B4'); blocks(X(5.75), -2.5);
+      teddy(X(0.55), -2.35); toyTrain(X(2.6), -2.3);
+      bunting(0.2, 6.8, 2.42); drawings(X(0.65), 1.5); coats(X(6.6), 1.4);
+    }
+  } else if (id === 'pool') {
+    if (!R) {                                                  // lane pool with lifeguard chair, loungers, towels, shower
+      pool(4.3, -3.3, 2.8, 1.6, [-2.85, -3.75], false);
+      guardChair(X(6.2), -3.6); lounger(X(1.0), -4.0, '#5B8FD6'); lounger(X(1.0), -3.25, '#E8C468');
+      towelRack(X(2.3), -4.2, ['#E890B4', '#F4F4F4', '#5FB8A6']);
+      lifeRing(X(6.0), 1.6); noRun(X(2.9), 1.75); shower(X(6.45));
+      plant(X(1.35), -2.3, 0.6); kickboards(X(0.5), -2.3);
+    } else {                                                   // paddling pool, lockers with bench, shower, lounger
+      pool(1.85, -3.35, 2.3, 1.5, [], true);
+      lockers(X(6.25), 1.3); bench(X(6.2), -3.55, 1.2, 0, '#5FB8A6', false);
+      Pw(artRB(0.34, 0.08, 0.26, 0.03), '#E890B4', X(5.85), 0.5, -3.55, 0, 0, 0, 1, 1, 1, fab); Pw(artRB(0.34, 0.06, 0.26, 0.03), '#F2CF4A', X(5.85), 0.57, -3.55, 0, 0.2, 0, 1, 1, 1, fab);
+      lounger(X(5.3), -2.45, '#E890B4'); shower(X(3.7), -4.25, true); towelRack(X(4.75), -3.45, ['#5B8FD6', '#F4F4F4', '#F2A541']);
+      plant(X(4.8), -4.15, 0.65); noRun(X(3.3), 1.8); lifeRing(X(0.55), 1.6);
+    }
+  } else if (id === 'library') {
+    if (!R) {                                                  // three tall bookcases with a rolling ladder, reading table, armchair, globe
+      for (const u of [3.75, 4.8, 5.85]) bookcase(X(u), 1.0);
+      ladder(X(4.8), X(3.25), X(6.35));
+      rug(X(1.9), -3.4, 3.0, 1.8, '#6E4A3E', '#8C5A4A');
+      table(X(1.3), -3.45, 1.2, 0.7, '#7A5638'); chair(X(1.0), -3.95, 0, '#5A3825'); chair(X(1.6), -3.95, 0, '#5A3825'); chair(X(0.45), -3.45, PI / 2, '#5A3825');
+      bankLamp(X(0.95), -3.6, 0.74); bankLamp(X(1.65), -3.6, 0.74); openBook(X(1.3), -3.3, 0.74, 0.2);
+      armchair(X(2.95), -3.45, -0.6, '#2F4A6B'); floorLamp(X(2.4), -3.95);
+      globe(X(5.9), -2.55); kickStool(X(5.25), -3.7); bookCart(X(4.3), -2.45);
+      picture(X(1.7), 1.75, 0.3, 0.4, ['#8C3B2E', '#C9A46A']);
+    } else {                                                   // bookcases between the windows, long reading table, armchair corner with globe
+      for (const u of [2.4, 3.45, 4.5]) bookcase(X(u), 1.0);
+      ladder(X(3.45), X(1.9), X(5.0));
+      rug(X(1.3), -3.3, 2.4, 1.5, '#5A3F5E', '#8C5A4A');
+      armchair(X(0.75), -3.3, 0.5, '#6B7F3A'); armchair(X(1.75), -3.3, -0.5, '#6B7F3A'); sideTable(X(1.25), -3.95, false); floorLamp(X(0.3), -3.95);
+      openBook(X(1.25), -3.95, 0.565, -0.3); globe(X(2.6), -2.45);
+      table(X(5.55), -3.2, 1.4, 0.75, '#7A5638'); bankLamp(X(5.2), -3.3, 0.74); bankLamp(X(5.9), -3.3, 0.74); openBook(X(5.55), -3.1, 0.74);
+      for (const [u, z, ry] of [[5.2, -3.7, 0], [5.9, -3.7, 0], [5.2, -2.65, PI], [5.9, -2.65, PI]]) chair(X(u), z, ry, '#5A3825');
+    }
+  } else if (id === 'garden') {
+    for (let x = k.rx0 + 0.6; x < k.rx1 - 0.3; x += 1.1) B.add(artBox(0.03, 0.03, D - 1.4), clay, artXf(x, y + 2.55, -D / 2 - 0.6, 0.12), '#F4F2EC');   // glazing bars overhead
+    if (!R) {                                                  // tomato bed, tree, mini greenhouse, hose reel, bench, pots, sunflower
+      bed(X(1.8), -4.05, 1.6); for (const u of [1.3, 1.8, 2.3]) tomato(X(u), -4.05, 0.5);
+      tree(X(3.4), -3.45); greenhouse(X(5.3), -4.15); hoseReel(X(6.2), -3.2);
+      bench(X(4.5), -2.6, 1.2); can(X(5.75), -2.35);
+      for (const [u, fl] of [[1.15, '#E890B4'], [1.5, '#F2CF4A'], [2.95, '#9B7BC8'], [3.3, '#E8635A']]) potPlant(X(u), -2.3, 0, '#B5673F', fl);
+      sunflower(X(1.25), -3.35); basket(X(2.2), -3.2);
+      const bx = X(3.0), bfly = sub(bx, 1.8, -3.0), wb = new ArtBatch();
+      wb.add(artSph(0.1, 8, 6), clay, artXf(-0.08, 0, 0, 0, 0, 0.4, 1, 0.8, 0.15), '#FF9ECF'); wb.add(artSph(0.1, 8, 6), clay, artXf(0.08, 0, 0, 0, 0, -0.4, 1, 0.8, 0.15), '#FF9ECF');
+      wb.add(artCap(0.02, 0.1, 2, 6), clay, artXf(0, 0, 0), '#2B2B3A'); flushTo(wb, bfly);
+      anims.push((t) => { bfly.position.set(bx + Math.sin(t * 0.5) * 1.2, y + 1.8 + Math.sin(t * 1.3) * 0.3, -3.0 + Math.cos(t * 0.5) * 0.4); bfly.scale.x = 0.3 + 0.7 * Math.abs(Math.sin(t * 14)); bfly.rotation.y = Math.cos(t * 0.5) > 0 ? 0.3 : -0.3; });
+    } else {                                                   // potting bench, tree, flower bed, fountain, wheelbarrow, bench
+      pottingBench(X(1.7), -4.15); tree(X(3.0), -3.7);
+      bed(X(5.35), -4.1, 1.5); flowerRow(X(4.7), X(6.0), -4.1, 0.5);
+      fountain(X(5.6), -2.45); bench(X(1.85), -3.0, 1.1); sunflower(X(4.75), -2.3);
+      potPlant(X(1.05), -2.2, 0, '#B5673F', '#E890B4'); potPlant(X(1.35), -2.2, 0, '#B5673F', '#F2CF4A');
+      barrow(X(2.55), -2.2); can(X(6.45), -3.3, '#3E6B3A'); basket(X(1.7), -3.45);
+    }
+  } else if (id === 'stars') {
+    if (!R) {                                                  // big telescope, two benches with step lights, star charts, moon, mobile, console
+      roundRug(X(4.5), -3.3, 1.05, ['#3B4A8B', '#FF5FAE', '#3B4A8B']);
+      telescope(X(4.5), -3.7);
+      for (const z of [-3.75, -2.85]) { bench(X(1.0), z, 1.3, 0, '#3B4A6B', false); stepLights(X(0.5), X(1.5), z + 0.22); }
+      starChart(X(2.45), 1.6, 0.8, 0.6); starChart(X(3.6), 1.7, 0.7, 0.5); moon(X(4.6), 2.1);
+      mobile(X(2.6), -3.55); consoleDesk(X(6.0), -3.0); beanBag(X(3.2), -2.3, '#B68CFF');
+    } else {                                                   // star-ball projector, telescope at the window, benches, big chart, rocket model
+      roundRug(X(2.5), -3.4, 0.9, ['#3B4A8B', '#FF5FAE', '#3B4A8B']);
+      projector(X(2.5), -3.4); telescope(X(6.0), -3.75, 0, -0.9);
+      for (const u of [1.5, 5.5]) { bench(X(u), -2.4, 1.3, 0, '#3B4A6B', false); stepLights(X(u) - 0.5, X(u) + 0.5, -2.18); }
+      starChart(X(3.45), 1.65, 1.2, 0.8); planetsPoster(X(0.35), 1.5);
+      mobile(X(5.4), -2.95); rocket(X(0.6), -3.7);
+    }
+    ceilingStars(40); twinkle();
   } else if (id === 'music') {
     P(artRB(2.7, 0.14, 1.85, 0.05), '#7A4E32', 5.0, 0.07, -3.55); P(artBox(2.6, 0.02, 0.02), '#FFC93C', 5.0, 0.14, -2.62);
     P(artRB(1.3, 1.1, 0.5, 0.06), '#2B2B3A', 3.2, 0.55, -4.15); P(artRB(1.36, 0.06, 0.56, 0.03), '#3A3A4A', 3.2, 1.13, -4.15);
@@ -2307,51 +2799,8 @@ function artThemeProps(id, k) {
     anims.push((t) => { for (let q = 0; q < 4; q++) { const ph = ((t * 0.35 + q / 4) % 1); const s = Math.sin(ph * Math.PI) * 1.6;
       pv.set(X(3.0 + q * 0.18 + Math.sin(t * 2 + q) * 0.15), y + 1.3 + ph * 1.2, -3.85); sv.set(s, s, s); q4.setFromAxisAngle(sv.clone().set(0, 0, 1), Math.sin(t * 3 + q) * 0.3); m.compose(pv, q4, sv); notes.setMatrixAt(q, m); }
       notes.instanceMatrix.needsUpdate = true; });
-  } else if (id === 'garden') {
-    for (const [u, w] of [[3.75, 1.3], [5.45, 1.3]]) { P(artRB(w, 0.5, 0.55, 0.05), '#B97A4C', u, 0.25, -4.1); P(artBox(w - 0.1, 0.04, 0.45), '#6B4A33', u, 0.5, -4.1); }
-    for (let q = 0; q < 3; q++) { const u = 3.35 + q * 0.4; P(artCyl(0.015, 0.015, 0.5, 4), '#3E8E3A', u, 0.75, -4.1); P(artSph(0.2, 10, 7), q % 2 ? '#58A848' : '#4C9A3E', u, 0.92, -4.1); for (let s = 0; s < 3; s++) P(artSph(0.055, 8, 6), '#E53935', u - 0.1 + s * 0.1, 0.8 + (s % 2) * 0.15, -3.93); }
-    for (let q = 0; q < 6; q++) { const u = 4.9 + q * 0.22; P(artCyl(0.012, 0.012, 0.35, 4), '#3E8E3A', u, 0.68, -4.05 + (q % 2) * 0.12); P(artSph(0.07, 8, 6), ART_TOYS[(q * 3) % 8], u, 0.88, -4.05 + (q % 2) * 0.12, 0, 0, 0, 1, 1.2, 1); }
-    for (let q = 0; q < 3; q++) { const u = 5.0 + q * 0.5; P(artCyl(0.13, 0.1, 0.22, 10), '#D98A5E', u, 0.11, -2.2); P(artCyl(0.012, 0.012, 0.3, 4), '#3E8E3A', u, 0.36, -2.2); P(artSph(0.1, 10, 6), ['#FF5FAE', '#FFC928', '#B68CFF'][q], u, 0.54, -2.2, 0, 0, 0, 1, 0.8, 1); }
-    P(artCyl(0.14, 0.16, 0.26, 12), '#6FA8FF', 3.3, 0.13, -2.25); P(artCyl(0.02, 0.03, 0.34, 6), '#6FA8FF', 3.52, 0.25, -2.25, 0, 0, -0.9); P(artTor(0.1, 0.02, 4, 10, Math.PI), '#6FA8FF', 3.3, 0.3, -2.25);
-    for (let q = 0; q < 5; q++) P(artBox(0.03, 0.03, D - 1.4), '#FFFFFF', 1.9 + q * 1.1, 2.55, -D / 2 - 0.6, 0.12);
-    const flowers = [];
-    for (const [u, z, h] of [[4.6, -4.2, 1.75], [6.12, -4.1, 1.55]]) {
-      const g = sub(u, 0, z), fb = new ArtBatch();
-      fb.add(artCyl(0.035, 0.045, h, 6), k.clay, artXf(0, h / 2, 0), '#3E8E3A');
-      fb.add(artSph(0.16, 8, 6), k.clay, artXf(0.12, h * 0.45, 0, 0, 0, -0.6, 1, 0.3, 0.6), '#58A848'); fb.add(artSph(0.16, 8, 6), k.clay, artXf(-0.12, h * 0.6, 0, 0, 0, 0.6, 1, 0.3, 0.6), '#58A848');
-      for (let q = 0; q < 12; q++) { const a = q / 12 * Math.PI * 2; fb.add(artSph(0.1, 8, 6), k.clay, artXf(Math.cos(a) * 0.22, h + Math.sin(a) * 0.22, 0.03, 0, 0, a, 1.3, 0.55, 0.3), '#FFC928'); }
-      fb.add(artCyl(0.14, 0.14, 0.08, 14), k.clay, artXf(0, h, 0.06, Math.PI / 2), '#7A4E2D');
-      flushTo(fb, g); flowers.push(g);
-      P(artCyl(0.2, 0.16, 0.3, 12), '#D98A5E', u, 0.15, z);
-    }
-    const bfly = sub(4.0, 1.8, -3.0), wing = new ArtBatch();
-    wing.add(artSph(0.1, 8, 6), k.clay, artXf(-0.08, 0, 0, 0, 0, 0.4, 1, 0.8, 0.15), '#FF9ECF'); wing.add(artSph(0.1, 8, 6), k.clay, artXf(0.08, 0, 0, 0, 0, -0.4, 1, 0.8, 0.15), '#FF9ECF');
-    wing.add(artCap(0.02, 0.1, 2, 6), k.clay, artXf(0, 0, 0), '#2B2B3A'); flushTo(wing, bfly, false);
-    anims.push((t) => { flowers.forEach((g, q) => { g.rotation.z = Math.sin(t * 1.3 + q * 2) * 0.05; });
-      bfly.position.set(X(4.0 + Math.sin(t * 0.5) * 1.2), y + 1.8 + Math.sin(t * 1.3) * 0.3, -3.0 + Math.cos(t * 0.5) * 0.4); bfly.scale.x = 0.3 + 0.7 * Math.abs(Math.sin(t * 14)); bfly.rotation.y = Math.cos(t * 0.5) > 0 ? 0.3 : -0.3; });
-  } else if (id === 'stars') {
-    P(artCyl(1.05, 1.05, 0.02, 24), '#3B4A8B', 4.5, 0.012, -3.2); P(artCyl(0.85, 0.85, 0.025, 24), '#FF5FAE', 4.5, 0.014, -3.2, 0, 0, 0, 1, 1, 1); P(artCyl(0.8, 0.8, 0.03, 24), '#3B4A8B', 4.5, 0.016, -3.2);
-    const tu = 3.3, tz = -3.8;
-    for (let q = 0; q < 3; q++) { const a = q / 3 * Math.PI * 2; P(artCyl(0.025, 0.025, 1.0, 5), '#8C96A8', tu + Math.cos(a) * 0.2, 0.48, tz + Math.sin(a) * 0.2, Math.sin(a) * 0.35, 0, -Math.cos(a) * 0.35, 1, 1, 1, shiny); }
-    P(artCyl(0.11, 0.15, 1.1, 14), '#E3E8EE', tu + 0.15, 1.25, tz, 0, 0, -0.95, 1, 1, 1, shiny); P(artCyl(0.16, 0.16, 0.1, 14), accent, tu + 0.15, 1.25, tz, 0, 0, -0.95);
-    P(artCyl(0.17, 0.17, 0.05, 14), '#2B2B3A', tu + 0.6, 1.55, tz, 0, 0, -0.95);
-    P(artSph(0.3, 16, 10), '#FFF1B8', 4.6, 2.12, -D + 0.05, 0, 0, 0, 1, 1, 0.3, glow); P(artSph(0.08, 8, 6), '#E8D890', 4.55, 2.2, -D + 0.13, 0, 0, 0, 1, 1, 0.3);
-    P(artSph(0.42, 14, 8), '#FF9ECF', 6.0, 0.25, -2.55, 0, 0, 0, 1, 0.62, 1); P(artSph(0.38, 14, 8), '#B68CFF', 2.9, 0.23, -2.4, 0, 0, 0, 1, 0.6, 1);
-    const mob = sub(5.1, 2.7, -3.2), mb = new ArtBatch();
-    mb.add(artBox(1.2, 0.02, 0.02), k.clay, artXf(0, -0.02, 0), '#C9D2F0'); mb.add(artBox(0.02, 0.02, 1.0), k.clay, artXf(0, -0.02, 0), '#C9D2F0');
-    for (const [x, z, l, rr, col] of [[-0.6, 0, 0.5, 0.16, '#FFB347'], [0.6, 0, 0.75, 0.12, '#4FA3E8'], [0, 0.5, 0.6, 0.08, '#E8413A'], [0, -0.5, 0.85, 0.1, '#7FD1B9']]) {
-      mb.add(artBox(0.006, l, 0.006), k.clay, artXf(x, -l / 2, z), '#C9D2F0'); mb.add(artSph(rr, 12, 8), k.clay, artXf(x, -l - rr, z), col);
-      if (col === '#FFB347') mb.add(artTor(rr * 1.6, 0.015, 4, 20), k.clay, artXf(x, -l - rr, z, 1.2), '#FFE0A0');
-    }
-    flushTo(mb, mob, false);
-    const starMat = artMatC('twinkle', () => new THREE.MeshBasicMaterial({ color: '#FFF1A0', toneMapped: false }));
-    const stars = new THREE.InstancedMesh(artStar(), starMat, 12); fg.add(stars);
-    const spots = []; for (let q = 0; q < 12; q++) { let u; do { u = 1.6 + r() * 4.7; } while (Math.abs(u - 3.75) < 0.6 || Math.abs(u - 5.45) < 0.6 || Math.abs(u - 2.2) < 0.5); spots.push([X(u), y + 0.9 + r() * 1.6, r() * 6]); }
-    const m = new THREE.Matrix4(), pv = new THREE.Vector3(), sv = new THREE.Vector3(), qq = new THREE.Quaternion();
-    anims.push((t) => { mob.rotation.y = t * 0.25;
-      spots.forEach(([sx, sy, ph], q) => { const s = 0.05 + 0.04 * (0.5 + 0.5 * Math.sin(t * 2.2 + ph)); pv.set(sx, sy, -D + 0.04); sv.set(s, s, s); qq.setFromAxisAngle(pv.clone().set(0, 0, 1), ph); m.compose(pv, qq, sv); stars.setMatrixAt(q, m); });
-      stars.instanceMatrix.needsUpdate = true; });
   }
+  if (flowers.length) anims.push((t) => { flowers.forEach((g, q) => { g.rotation.z = Math.sin(t * 1.3 + q * 2) * 0.05; }); });
   return anims;
 }
 /* ======== art: lift car ======== */
@@ -2504,6 +2953,7 @@ function buildPerson(kind, seed, opts) {
   else if (kind === 'courier') { look = 'courier'; top = '#E04A3C'; hat = 'cap'; }
   else if (kind === 'dogwalker') look = 'walker';
   if (opts && opts.look) look = opts.look;
+  const bare = !!(opts && opts.bare);                            // room staff and diners: nothing in their hands
   if (look === 'worker') { hat = 'hard'; top = '#FF8A1F'; pants = '#3B4A6B'; }
   if (look === 'chef') { hat = 'toque'; top = '#F7F7F7'; pants = '#3A3A48'; }
   if (look === 'doctor') { top = '#F7F7F7'; }
@@ -2550,13 +3000,13 @@ function buildPerson(kind, seed, opts) {
     ap(artCap(armR, Math.max(0.01, arm - armR * 2), 2, 6), sleeve, 0, -arm / 2 + armR * 0.5, 0);
     ap(artSph(armR * 1.35, 6, 4), skin, 0, -arm + armR * 0.3, 0);
     const hy = -arm + armR * 0.3;
-    if (sd > 0) {
+    if (sd > 0 && !bare) {
       if (look === 'suit') { ap(artRB(0.3, 0.22, 0.09, 0.03, 1), '#7A5A44', 0.02, hy - 0.15, 0); ap(artTor(0.05, 0.012, 3, 8, Math.PI), '#5A3825', 0.02, hy - 0.04, 0); }
       if (look === 'worker') { ap(artRB(0.32, 0.17, 0.15, 0.03, 1), '#E53935', 0.02, hy - 0.13, 0); ap(artBox(0.2, 0.03, 0.03), '#2B2B3A', 0.02, hy - 0.03, 0); }
       if (look === 'chef') { ap(artCyl(0.17, 0.15, 0.025, 10), '#FFFFFF', 0.03, hy - 0.06, 0.06); ap(artCyl(0.11, 0.11, 0.11, 10), '#FF9ECF', 0.03, hy + 0.01, 0.06); ap(artCyl(0.115, 0.115, 0.03, 10), '#FFFFFF', 0.03, hy + 0.07, 0.06); ap(artSph(0.03, 6, 4), '#E53935', 0.03, hy + 0.1, 0.06); }
       if (look === 'balloon') { const bc = artPick(r, ['#FF5FAE', '#FFC928', '#6FA8FF', '#35C24A']); ap(artCyl(0.005, 0.005, 0.85, 6), '#6B5B4E', 0.12, hy + 0.42, 0, 0, 0, -0.28); ap(artSph(0.16, 8, 7), bc, 0.24, hy + 0.98, 0, 0, 0, 0, 1, 1.15, 1); ap(artCone(0.03, 0.05, 6), bc, 0.24, hy + 0.79, 0, Math.PI); }
       if (look === 'grandma' || look === 'grandpa') { const ch = shY + hy; ap(artCyl(0.018, 0.018, ch, 6), '#8A5A3C', 0.02, hy - ch / 2, 0.05); ap(artTor(0.06, 0.018, 3, 8, Math.PI), '#8A5A3C', -0.04, hy, 0.05); }
-    } else if (look === 'dress') { ap(artRB(0.2, 0.15, 0.08, 0.03, 1), '#FF5FAE', -0.02, hy - 0.12, 0); ap(artTor(0.07, 0.01, 3, 8, Math.PI), '#C0397A', -0.02, hy - 0.04, 0); }
+    } else if (look === 'dress' && !bare) { ap(artRB(0.2, 0.15, 0.08, 0.03, 1), '#FF5FAE', -0.02, hy - 0.12, 0); ap(artTor(0.07, 0.01, 3, 8, Math.PI), '#C0397A', -0.02, hy - 0.04, 0); }
     mk(ab, g); return g;
   });
   // head: sphere + hair/hat + nose/ears (headMat, tinted red when angry) and a face overlay
@@ -2610,6 +3060,53 @@ function buildPerson(kind, seed, opts) {
   let stage = 0, red = -1, blinkOn = false, disposed = false, alpha = 1, anim = 'idle', bubbleK = 1, dest = null;
   let bubbleSnap = true, bubbleT = 0, bubbleLvl = 0, bubbleS = 0, bubbleX = 0, bubbleY = 0;
   const blinkPeriod = 2.8 + r() * 2.4, blinkOff = r() * 5, sm = new THREE.Matrix4(), sv = new THREE.Vector3(), sq = new THREE.Quaternion(), pv = new THREE.Vector3();
+  // idle (waiting people): a gesture every few seconds, picked per person (seeded) from the mood's list; angry keeps stomping
+  const busyR = kind === 'dogwalker' || ['suit', 'worker', 'chef', 'balloon', 'grandma', 'grandpa', 'courier'].includes(look), busyL = look === 'courier' || look === 'dress';
+  const freeSide = !busyR ? 1 : !busyL ? -1 : 0;                 // the hand that waves or holds the phone (1 = arms[1])
+  const IDLE = [
+    ['look', 'hum', 'look'].concat(freeSide ? ['wave'] : [], freeSide && kind !== 'kid' ? ['phone'] : [], !busyR && !busyL ? ['book'] : [], kind === 'kid' ? ['hop', 'hop'] : []),
+    ['tap', 'watch', 'shift', 'stretch', 'look'],
+    ['cross', 'sigh', 'tapfast', 'hips'],
+  ];
+  const idleLen = 3.2 + r() * 2.4, idleKey = (seed | 0) * 7919 + 977;
+  let idleT0 = 0, idleLastT = 0, idleStage = -1, idleProps = null, shMoved = false;
+  const idleIdx = (st, q) => Math.floor(artHash01(idleKey + q * 7349 + st * 131) * IDLE[st].length) % IDLE[st].length;
+  const idlePick = (st, seg) => { let i = idleIdx(st, seg); if (seg > 0 && i === idleIdx(st, seg - 1)) i = (i + 1) % IDLE[st].length; return IDLE[st][i]; };
+  const makeIdleProps = () => {                                  // phone in the free hand, a little book in both: made on first use
+    const hy = -arm + armR * 0.3, bc = ART_TOYS[Math.abs(seed | 0) % ART_TOYS.length];
+    const ph = artPropMesh(freeSide < 0 ? arms[0] : arms[1], owned, [[artBox(0.075, 0.13, 0.014), '#2B2B3A', 0, hy - 0.05, armR + 0.012], [artBox(0.062, 0.11, 0.004), '#8FD3FF', 0, hy - 0.05, armR + 0.021]], bodyMat);
+    const bk = artPropMesh(arms[1], owned, [[artBox(0.26, 0.18, 0.02), bc, -0.1, hy - 0.04, armR + 0.015], [artBox(0.24, 0.16, 0.012), '#FBFAF6', -0.1, hy - 0.04, armR + 0.03]], bodyMat);
+    ph.visible = bk.visible = false; return [ph, bk];
+  };
+  const idleGesture = (t) => {
+    const lR = legs[1], [aL, aR] = arms, sn = Math.sin;
+    if (stage !== idleStage || t < idleLastT) { idleStage = stage; idleT0 = t; }
+    idleLastT = t;
+    const L0x = stage === 2 ? -1.25 : 0, L0z = stage === 2 ? 0.95 : 0.1;          // rest: arms down (crossed when grumpy)
+    let Lx = L0x, Lz = L0z, Rx = L0x, Rz = -L0z, hx = 0, hy = 0, hz = 0, px = 0, py = 0, rz = 0, tap = 0, sh = 0, prop = 0;
+    const tl = t - idleT0, seg = Math.floor(tl / idleLen), u = tl - seg * idleLen, sA = freeSide || 1;
+    const e = artEase(u / 0.45) * artEase((idleLen - u) / 0.45), g = idlePick(stage, seg);
+    if (g === 'look') { hy = 0.55 * sn(u * 1.1); hx = -0.06; }                                                  // happy
+    else if (g === 'wave') { if (sA > 0) { Rx = -0.2; Rz = 2.5 + 0.35 * sn(u * 9); } else { Lx = -0.2; Lz = -2.5 - 0.35 * sn(u * 9); } hy = 0.25 * sA; hz = -0.08 * sA; }
+    else if (g === 'hum') { rz = 0.06 * sn(u * 3.2); hz = 0.1 * sn(u * 3.2 + 0.6); hx = -0.08; Lx = 0.12 * sn(u * 3.2); Rx = -Lx; py = 0.012 * Math.abs(sn(u * 3.2)); }
+    else if (g === 'phone') { if (sA > 0) { Rx = -1.35 + 0.04 * sn(u * 11); Rz = -0.4; } else { Lx = -1.35 + 0.04 * sn(u * 11); Lz = 0.4; } hx = 0.38; hy = 0.12 * sA; prop = 1; }
+    else if (g === 'book') { Lx = Rx = -1.2; Lz = 0.42; Rz = -0.42; hx = 0.35; hy = 0.06 * sn(u * 0.9); prop = 2; }
+    else if (g === 'hop') { py = Math.abs(sn(u * 5.5)) * 0.1; Lz = -0.45; Rz = 0.45; hx = -0.1; }
+    else if (g === 'tap') { tap = -Math.max(0, sn(u * 7)) * 0.22; hy = 0.15 * sn(u * 0.8); }                   // ok
+    else if (g === 'watch') { Lx = -1.45; Lz = 0.55; hx = 0.3; hy = -0.3; }
+    else if (g === 'shift') { px = 0.035 * sn(u * 1.3); rz = -0.04 * sn(u * 1.3); hy = 0.12 * sn(u * 0.7); }
+    else if (g === 'stretch') { Lx = Rx = 0; Lz = -2.75 + 0.1 * sn(u * 1.6); Rz = 2.75 - 0.1 * sn(u * 1.6); hx = -0.25; py = 0.02; }
+    else if (g === 'cross') { hy = 0.45 * sn(u * 0.6); hx = -0.12; }                                           // grumpy
+    else if (g === 'sigh') { const q = (u % 2.4) / 2.4; sh = q < 0.45 ? artEase(q / 0.45) : 1 - artEase((q - 0.45) / 0.3); hx = 0.22 * (1 - sh); }
+    else if (g === 'tapfast') { tap = -Math.max(0, sn(u * 12)) * 0.26; hy = 0.1 * sn(u * 1.1); }
+    else if (g === 'hips') { Lx = Rx = 0.3; Lz = -0.55; Rz = 0.55; hy = 0.3 * sn(u * 0.8); hx = -0.05; }
+    aL.rotation.set(L0x + (Lx - L0x) * e, 0, L0z + (Lz - L0z) * e); aR.rotation.set(L0x + (Rx - L0x) * e, 0, -L0z + (Rz + L0z) * e);
+    headG.rotation.set(hx * e, hy * e, hz * e); rig.position.set(px * e, py * e, 0); rig.rotation.z = rz * e; lR.rotation.x = tap * e;
+    rig.scale.y = 1 + sn(t * 2.4) * 0.012;
+    if (sh) { const dd = sh * e * 0.045; aL.position.y = aR.position.y = shY + dd; headG.position.y = headY + dd * 0.6; shMoved = true; }
+    if (prop && !idleProps && e > 0.02) idleProps = makeIdleProps();
+    if (idleProps) { idleProps[0].visible = prop === 1 && e > 0.3; idleProps[1].visible = prop === 2 && e > 0.3; }
+  };
   const setFace = () => { const t = artFaceTex(stage, blinkOn); if (faceMat.map !== t) { faceMat.map = t; } };
   const h = { group, height,
     setMood(st, m01) {
@@ -2620,6 +3117,9 @@ function buildPerson(kind, seed, opts) {
     },
     setAnim(name, t) {
       anim = name;
+      if (name !== 'idle') idleStage = -1;
+      if (shMoved) { arms[0].position.y = arms[1].position.y = shY; headG.position.y = headY; shMoved = false; }
+      if (idleProps) idleProps[0].visible = idleProps[1].visible = false;
       rig.position.set(0, 0, 0); rig.rotation.set(0, 0, 0); rig.scale.set(1, 1, 1); headG.rotation.set(0, 0, 0);
       const [lL, lR] = legs, [aL, aR] = arms;
       lL.rotation.set(0, 0, 0); lR.rotation.set(0, 0, 0);
@@ -2643,13 +3143,11 @@ function buildPerson(kind, seed, opts) {
       } else if (name === 'shake') {
         headG.rotation.y = Math.sin(t * 16) * 0.5 * Math.max(0, 1 - t * 0.8);
         aL.rotation.set(0, 0, 0.25); aR.rotation.set(0, 0, -0.25);
-      } else {                                                  // idle, by mood
+      } else if (stage >= 3) {                                  // idle, angry: arms crossed, shaking, stamping (and steam)
         rig.scale.y = 1 + Math.sin(t * 2.4) * 0.012;
-        if (stage === 1) lR.rotation.x = -Math.max(0, Math.sin(t * 7)) * 0.22;
-        if (stage >= 2) { aL.rotation.set(-1.25, 0, 0.95); aR.rotation.set(-1.25, 0, -0.95); }
-        if (stage >= 3) { rig.position.x = Math.sin(t * 41) * 0.03; lR.rotation.x = -Math.max(0, Math.sin(t * 11)) * 0.3; }
-        if (stage === 0) rig.position.y = Math.max(0, Math.sin(t * 3.2)) * 0.02;
-      }
+        aL.rotation.set(-1.25, 0, 0.95); aR.rotation.set(-1.25, 0, -0.95);
+        rig.position.x = Math.sin(t * 41) * 0.03; lR.rotation.x = -Math.max(0, Math.sin(t * 11)) * 0.3;
+      } else idleGesture(t);                                    // idle: a gesture every few seconds, by mood
       if (look === 'courier' && name !== 'cheer') { aL.rotation.set(-1.15, 0, 0.28); aR.rotation.set(-1.15, 0, -0.28); }
       if (dog && name !== 'cheer') aR.rotation.set(-0.4, 0, -0.1);
       if (bubble.visible) {                                     // neighbours (queue gap 0.75, car gap 0.5) alternate heights
@@ -2699,7 +3197,8 @@ function buildPerson(kind, seed, opts) {
   } };
   artLive.add(live);
   h.setAnim('idle', 0);
-  h._p = { rig, legs, arms, headG, face, steam, bubble, blob, torso, headMesh, bodyMat, hip };
+  h._p = { rig, legs, arms, headG, face, steam, bubble, blob, torso, headMesh, bodyMat, hip, owned, shY, headY, arm, armR, legR, tor, shoes,
+    legCol: dress && look === 'grandma' ? '#E0C8B0' : pants };
   group.userData.artPerson = true;   // for artOccupant (not game API)
   return h;
 }
@@ -2750,6 +3249,341 @@ function artOccupant(parent, kind, seed, opts, pose, x, y, z, ry) {
   if (artOccList) artOccList.push(h);
   tick.h = h;                                                  // rooms that move or fade their occupants (toilets) use the handle
   return tick;
+}
+/* ======== art: staff & diners ======== */
+// Busy room staff and seated guests. A worker loops a script of steps (walk, push the cart, vacuum, wipe, serve...);
+// every pose is a pure function of the clock, so there is no per-frame state and no per-frame allocation. Workers keep
+// legs, the upper body (torso + head merged, it bends at the hips), face and arms as separate meshes; diners keep body
+// (torso + bent legs), head, face and arms. Props are one small mesh each, shown only while used. Nothing casts shadows.
+function artPropMat() { return artMatC('occProp', () => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, envMapIntensity: 0.5 })); }
+function artFlameMat() { return artMatC('occFlame', () => new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.9, depthWrite: false, toneMapped: false, blending: THREE.AdditiveBlending })); }
+function artEase(x) { return x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x); }
+function artHash01(a) { a |= 0; a = Math.imul(a ^ (a >>> 16), 0x45d9f3b); a = Math.imul(a ^ (a >>> 16), 0x45d9f3b); return ((a ^ (a >>> 16)) >>> 0) / 4294967296; }
+function artAngLerp(a, b, k) { let d = (b - a) % (Math.PI * 2); if (d > Math.PI) d -= Math.PI * 2; else if (d < -Math.PI) d += Math.PI * 2; return a + d * k; }
+function artYaw(fx, fz, tx, tz) { return Math.atan2(tx - fx, tz - fz); }          // rotation.y that looks from f to t
+// one prop mesh from parts [geo, hex, x, y, z, rx, ry, rz, sx, sy, sz] (vertex colours), added to parent
+function artPropMesh(parent, owned, parts, mat) {
+  const b = new ArtBatch(), m = mat || artPropMat();
+  for (const [geo, hex, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0, sx = 1, sy = sx, sz = sx] of parts) b.add(geo, m, artXf(x, y, z, rx, ry, rz, sx, sy, sz), hex);
+  const mesh = b.flush(parent, owned, false, false)[0]; mesh.castShadow = false; return mesh;
+}
+// merge small parts into an existing vertex-coloured mesh (a fork into an arm): no extra draw call
+function artMergeInto(mesh, parts, owned) {
+  const b = new ArtBatch();
+  for (const [geo, hex, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0] of parts) b.add(geo, mesh.material, artXf(x, y, z, rx, ry, rz), hex);
+  const list = b.parts.get(mesh.material), g = mergeGeometries([mesh.geometry, ...list], false);
+  list.forEach((q) => q.dispose()); mesh.geometry = g; owned.push(g);
+}
+// worker figure: torso + head merge into one upper-body mesh that pivots at the hips; legs and arms stay separate
+function artStaffRig(h) {
+  const p = h._p, { rig, arms, headG, torso, headMesh, hip } = p;
+  rig.position.set(0, 0, 0); rig.rotation.set(0, 0, 0); rig.scale.set(1, 1, 1); headG.rotation.set(0, 0, 0); headG.updateMatrix();
+  const tg = torso.geometry.clone(), hg = headMesh.geometry.clone().applyMatrix4(headG.matrix), g = mergeGeometries([tg, hg], false);
+  tg.dispose(); hg.dispose(); g.translate(0, -hip, 0); p.owned.push(g);
+  torso.parent.remove(torso); headMesh.parent.remove(headMesh);
+  const upper = new THREE.Group(); upper.position.y = hip; rig.add(upper); upper.add(new THREE.Mesh(g, p.bodyMat));
+  for (const a of arms) { a.position.y -= hip; upper.add(a); }
+  headG.position.y -= hip; upper.add(headG);
+  if (p.steam.parent) p.steam.parent.remove(p.steam);
+  h.group.traverse((o) => { o.castShadow = false; });
+  return { p, h, rig, upper, legs: p.legs, arms, headG, x: 0, z: 0, alpha: 1, T: 1, tick: null };
+}
+// diner figure: new sitting legs (thigh forward, shin down; a kid's feet dangle) merged with the torso; hips at seatY
+function artDinerRig(h, seatY) {
+  const p = h._p, { rig, legs, torso, hip, legR, tor } = p;
+  rig.position.set(0, 0, 0); rig.rotation.set(0, 0, 0); rig.scale.set(1, 1, 1);
+  const thigh = hip * 0.62, shin = Math.min(seatY - 0.06, hip * 0.85), b = new ArtBatch();
+  for (const sd of [-1, 1]) {
+    const x = sd * tor * 0.45;
+    b.add(artCap(legR, thigh, 2, 8), p.bodyMat, artXf(x, hip, thigh / 2, Math.PI / 2), p.legCol);
+    b.add(artCap(legR, shin, 2, 8), p.bodyMat, artXf(x, hip - shin / 2, thigh), p.legCol);
+    b.add(artRB(legR * 2.3, 0.11, legR * 3.2, 0.04, 1), p.bodyMat, artXf(x, hip - shin - 0.02, thigh + legR * 0.5), p.shoes);
+  }
+  const list = b.parts.get(p.bodyMat), tg = torso.geometry.clone(), g = mergeGeometries([tg, ...list], false);
+  tg.dispose(); list.forEach((q) => q.dispose()); p.owned.push(g);
+  torso.parent.remove(torso); for (const l of legs) rig.remove(l);
+  rig.add(new THREE.Mesh(g, p.bodyMat)); rig.position.y = seatY - hip;
+  for (const o of [p.steam, p.blob]) if (o.parent) o.parent.remove(o);
+  h.group.traverse((o) => { o.castShadow = false; });
+  return seatY - hip;
+}
+// script: steps { a, x, z (world; omitted = stay), d (s; walks: from v), ry, v, f, stride, fade: 'out'|'gone'|'in', jump }
+// computed: t0, x0, z0, r0 (facing at start), r1 (facing), move. Runs twice so the loop's first step starts facing right.
+function artScript(steps, x0, z0) {
+  const pass = (r0) => {
+    let t = 0, x = x0, z = z0, r = r0;
+    for (const s of steps) {
+      if (s.jump) { x = s.x; z = s.z; }
+      if (s.x == null) s.x = x;
+      if (s.z == null) s.z = z;
+      const dist = Math.hypot(s.x - x, s.z - z);
+      s.t0 = t; s.x0 = x; s.z0 = z; s.r0 = r; s.move = dist > 0.01;
+      if (s.d == null) s.d = s.move ? Math.max(0.5, dist / (s.v || 0.9)) : 0.5;
+      s.r1 = s.ry != null ? s.ry : s.move ? Math.atan2(s.x - x, s.z - z) : r;
+      t += s.d; x = s.x; z = s.z; r = s.r1;
+    }
+    return { t, r };
+  };
+  return pass(pass(0).r).t;
+}
+function artScriptAt(steps, tt) { let s = steps[0]; for (let i = 1; i < steps.length && steps[i].t0 <= tt; i++) s = steps[i]; return s; }
+// a scripted worker; pose(W, step, u (s into the step), e (0..1 ease in/out of a standing step), tt (loop time))
+function artWorker(parent, kind, seed, opts, y, steps, x0, z0, pose) {
+  const h = buildPerson(kind, seed, Object.assign({ bare: true }, opts)), W = artStaffRig(h), g = h.group;
+  const T = artScript(steps, x0, z0), ph = artHash01(seed * 131 + 17) * T, [lL, lR] = W.legs, [aL, aR] = W.arms;
+  g.position.set(x0, y, z0); parent.add(g); W.T = T;
+  const tick = (t) => {
+    const tt = (((t + ph) % T) + T) % T, s = artScriptAt(steps, tt), u = tt - s.t0, k = Math.min(1, u / s.d);
+    const e = s.move ? 1 : artEase(u / 0.4) * artEase((s.d - u) / 0.4);
+    W.x = s.x0 + (s.x - s.x0) * k; W.z = s.z0 + (s.z - s.z0) * k;
+    g.position.set(W.x, y, W.z); g.rotation.y = artAngLerp(s.r0, s.r1, artEase(u / (s.move ? 0.3 : 0.45)));
+    lL.rotation.set(0, 0, 0); lR.rotation.set(0, 0, 0); aL.rotation.set(0, 0, 0.1); aR.rotation.set(0, 0, -0.1);
+    W.upper.rotation.set(0, 0, 0); W.headG.rotation.set(0, 0, 0); W.rig.position.y = 0;
+    if (s.move) {
+      const f = s.f || 7.5, w = Math.sin(u * f), a = s.stride || 0.42;
+      lL.rotation.x = w * a; lR.rotation.x = -w * a; aL.rotation.x = -w * a * 0.8; aR.rotation.x = w * a * 0.8; W.rig.position.y = Math.abs(Math.cos(u * f)) * 0.03;
+    }
+    pose(W, s, u, e, tt);
+    const al = s.fade === 'out' ? 1 - artEase(u / 0.5) : s.fade === 'in' ? artEase(u / 0.5) : s.fade === 'gone' ? 0 : 1;
+    if (al !== W.alpha && (Math.abs(al - W.alpha) > 0.02 || al === 0 || al === 1)) { W.alpha = al; h.setOpacity(al); }
+  };
+  if (artOccList) artOccList.push(h);
+  tick.h = h; W.tick = tick;
+  return W;
+}
+function artCartParts() {                                       // the hotel housekeeping cart (as R2 drew it), centred, y from the floor
+  const P = [];
+  for (const yy of [0.12, 0.55, 0.98]) P.push([artBox(1.0, 0.03, 0.48), '#6A6E74', 0, yy, 0]);
+  for (const x of [-0.5, 0.5]) for (const z of [-0.23, 0.23]) P.push([artBox(0.03, 1.15, 0.03), '#B7BCC1', x, 0.6, z]);
+  for (let k = 0; k < 3; k++) P.push([artBox(0.28, 0.07, 0.35), '#FBFAF6', -0.3 + k * 0.3, 0.6, 0], [artBox(0.28, 0.07, 0.35), '#F2EEE6', -0.3 + k * 0.3, 0.67, 0], [artBox(0.28, 0.06, 0.35), '#E8E0F0', -0.3 + k * 0.3, 1.03, 0]);
+  P.push([artBox(0.32, 0.36, 0.2), '#EDEDEA', 0.25, 0.32, 0.05], [artCyl(0.05, 0.05, 0.25, 8), '#3A6EA8', -0.3, 0.27, 0.05], [artCyl(0.05, 0.05, 0.22, 8), '#C84A3A', -0.15, 0.25, 0.05]);
+  P.push([artBox(0.06, 0.65, 0.5), '#7A6A8E', 0.56, 0.72, 0, 0, 0, 0.05]);
+  for (const x of [-0.45, 0.45]) for (const z of [-0.2, 0.2]) P.push([artCyl(0.05, 0.05, 0.03, 10), '#222222', x, 0.05, z, 0, 0, Math.PI / 2]);
+  return P;
+}
+/* -------- housekeeper: pushes her cart, takes towels, vacuums, wipes, makes beds, knocks and goes next door -------- */
+function artHousekeeper(parent, seed, y, S, x0, z0, cartZ, beds) {
+  let vac = null, cloth = null, cartM = null, placeVac = null;
+  const duvets = [];
+  const pose = (W, s, u, e) => {
+    const [aL, aR] = W.arms, up = W.upper, a = s.a, sn = Math.sin;
+    vac.visible = a === 'vac'; cloth.visible = a === 'wipe';
+    if (cartM) cartM.position.x = s.cart ? W.x + s.cart * 0.85 : s.cartX;
+    if (a === 'push') { aL.rotation.set(-1.2, 0, 0.12); aR.rotation.set(-1.2, 0, -0.12); up.rotation.x = 0.1; }
+    else if (a === 'towels') { const w = sn(u * 2.6); up.rotation.x = 0.3 * e; aL.rotation.set((-0.95 + 0.18 * w) * e, 0, 0.1 + 0.1 * e); aR.rotation.set((-0.95 - 0.18 * w) * e, 0, -0.1 - 0.1 * e); }
+    else if (a === 'bed') {
+      const w = sn(u * 3.2); up.rotation.x = 0.55 * e;
+      aL.rotation.set((-0.35 + 0.22 * w) * e, 0, 0.1 + (0.25 + 0.3 * sn(u * 3.2 + 1.2)) * e); aR.rotation.set((-0.35 - 0.22 * w) * e, 0, -0.1 - (0.25 + 0.3 * sn(u * 3.2 + 2.4)) * e);
+    }
+    else if (a === 'vac') { const rx = -0.55 - 0.2 * sn(u * 3); aR.rotation.set(rx, 0, -0.12); aL.rotation.set(-0.3, 0, 0.15); placeVac(rx, -0.12); }
+    else if (a === 'wipe') { const w = u * 7; up.rotation.x = s.bend * e; aR.rotation.set((s.reach + 0.1 * sn(w)) * e, 0, -0.1 + (-0.2 + 0.22 * Math.cos(w)) * e); aL.rotation.set(s.reach * 0.6 * e, 0, 0.1 + 0.15 * e); }
+    else if (a === 'knock') aR.rotation.set(u < 1.2 ? (-1.45 + 0.16 * Math.abs(sn(u * 9))) * e : 0, 0, -0.1);
+    for (const dv of duvets) {                                  // the duvet bunches to the foot, then is pulled up and smoothed
+      let m = 0;
+      if (s === dv.step) { const q = u / s.d; m = q < 0.3 ? artEase(q / 0.3) : 1 - artEase((q - 0.3) / 0.55); }
+      dv.m.scale.set(1, 1 + 2.4 * m, 1 - 0.55 * m); dv.m.rotation.z = 0.05 * m * sn(u * 5);
+    }
+  };
+  const W = artWorker(parent, 'adult', seed, { look: 'dress', top: '#5B7A99' }, y, S, x0, z0, pose), p = W.p, aR = W.arms[1];
+  const hy = -p.arm + p.armR * 0.3, Lw = 0.85, ax = aR.position.x, ay = aR.position.y, L = p.arm;
+  vac = new THREE.Group(); vac.visible = false; W.upper.add(vac);                // stick vacuum: wand from the hand to the floor
+  artPropMesh(vac, p.owned, [[artCyl(0.014, 0.014, Lw, 6), '#C9CCD0', 0, -Lw / 2, 0], [artBox(0.045, 0.1, 0.045), '#2B2B3A', 0, 0.02, 0],
+    [artCap(0.05, 0.14, 2, 8), '#C84A3A', 0, -Lw + 0.26, 0.05], [artCyl(0.035, 0.035, 0.3, 10), '#2B2B3A', 0, -Lw, 0.03, 0, 0, Math.PI / 2]]);
+  placeVac = (rx, rz) => {                                      // hand position (upper-body space), wand angled down to the floor
+    const c = Math.cos(rz), hx = ax + L * Math.sin(rz), hh = ay - L * c * Math.cos(rx), hz = -L * c * Math.sin(rx);
+    const dy = hh + p.hip - 0.04, dz = Math.sqrt(Math.max(0.01, Lw * Lw - dy * dy));
+    vac.position.set(hx, hh, hz); vac.rotation.set(-Math.atan2(dz, dy), 0, 0);
+  };
+  cloth = artPropMesh(aR, p.owned, [[artBox(0.13, 0.025, 0.11), '#F2C230', 0, hy - 0.03, 0.03]]); cloth.visible = false;
+  if (cartZ != null) { cartM = artPropMesh(parent, p.owned, artCartParts()); cartM.position.set(S[0].cartX, y, cartZ); }
+  for (const b of beds) {                                       // a duvet over the bed's own, pivot at the foot edge
+    const m = artPropMesh(parent, p.owned, [[artBox(1.64, 0.05, 1.47), '#F7F5F0', 0, 0, -0.735], [artBox(1.68, 0.06, 0.42), b.acc, 0, 0.012, -0.395]]);
+    m.position.set(b.x, y + 0.62, b.z); duvets.push({ m, step: b.step });
+  }
+  return W.tick;
+}
+// hotel corridor (right wing): cart along the corridor, towels, vacuum, knock and go into a room, wipe the console
+function artHotelMaidR(ctx, parent, sd) {
+  const W = ctx.x1 - ctx.x0, X = (u) => ctx.x0 + u, PI = Math.PI;
+  const rw = Math.min(3.4, W * 0.5), c0 = rw + 0.1, cu = R2_fit(ctx, (c0 + W) / 2 - 0.55, 1.1, W);   // as R2_hotel
+  if (cu == null) return [];
+  const cc = cu + 0.55, cz = -2.25, amp = Math.max(0, Math.min(0.4, cc - 0.85 - (c0 + 0.3), W - 0.3 - (cc + 0.85)));
+  const d = R2_doorClear(ctx), tu = R2_fit(ctx, W - 1.3, 1.0, W);
+  const du = [c0 + 0.7, W - 0.7].find((q) => !(d && q + 0.5 > d[0] && q - 0.5 < d[1]) && !(tu != null && tu > c0 && Math.abs(q - tu - 0.5) < 0.9));
+  const L0 = cc - amp - 0.85, va = c0 + 0.9, vb = Math.max(va + 0.5, W - 0.95), vz = -2.95, slow = { v: 0.3, f: 4.5, stride: 0.3 }, vs = { v: 0.32, f: 4, stride: 0.25 };
+  const S = [
+    Object.assign({ a: 'push', x: X(cc + amp - 0.85), z: cz, cart: 1 }, slow),
+    { a: 'towels', d: 2.4, ry: PI / 2 },
+    { a: 'walk', x: X(va), z: vz },
+    Object.assign({ a: 'vac', x: X(vb) }, vs), Object.assign({ a: 'vac', x: X(va) }, vs),
+  ];
+  if (du != null) S.push({ a: 'walk', x: X(du), z: ctx.backZ + 0.6 }, { a: 'knock', d: 1.6, ry: PI }, { a: 'stand', d: 0.6, fade: 'out' },
+    { a: 'stand', d: 2.6, fade: 'gone' }, { a: 'stand', d: 0.7, fade: 'in', ry: 0 });
+  S.push({ a: 'walk', x: X(c0 + 0.6), z: -1.95 }, { a: 'wipe', d: 3.4, ry: 0, bend: 0.12, reach: -0.75 },
+    { a: 'walk', x: X(cc + amp + 0.85), z: -1.85 }, { a: 'walk', z: cz },
+    Object.assign({ a: 'push', x: X(cc - amp + 0.85), cart: -1 }, slow),
+    { a: 'walk', z: -2.8 }, { a: 'walk', x: X(L0) }, { a: 'walk', z: cz });
+  let cx = X(cc - amp); for (const s of S) { s.cartX = cx; if (s.cart) cx = s.x + s.cart * 0.85; }
+  return [artHousekeeper(parent, 31 + sd * 17, ctx.y, S, X(L0), cz, cz, [])];
+}
+// hotel bedrooms (left wing): make the bed, wipe the bedside table, vacuum, then through to the next room (fade)
+function artHotelMaidL(ctx, parent, sd, v) {
+  const W = ctx.x1 - ctx.x0, X = (u) => ctx.x0 + u, PI = Math.PI, d = R2_doorClear(ctx);
+  let s = W / 2; if (d && s > d[0] - 0.1 && s < d[1] + 0.1) s = d[0] - 0.1 > W - d[1] ? d[0] - 0.1 : d[1] + 0.1;   // as R2_hotel
+  const rooms = [[0.1, s - 0.1, s - 0.45], [s + 0.1, W - 0.1, s + 0.45]].map(([a, b, ex]) => {
+    const w = b - a, mid = (a + b) / 2; let bc = null;
+    if (w > 2.6) { const bu = R2_fit(ctx, mid - 1.3 + (w > 3.6 ? 0.4 : 0), 2.6, W); if (bu != null && bu >= a - 0.01 && bu + 2.6 <= b + 0.01) bc = bu + 1.3; }
+    return { a, b, ex, bc };
+  }).filter((r, k) => r.bc != null && (k === 0 || !v));         // hotel2 has a guest in the second room
+  if (!rooms.length) return [];
+  const acc = v ? (ctx.accent || '#7B4A2A') : '#9A55E6', S = [], beds = [], fz = -2.15, vs = { v: 0.32, f: 4, stride: 0.25 };
+  for (const r of rooms) {
+    const spR = r.b - (r.bc + 0.8), spL = (r.bc - 0.8) - r.a, sg = spR >= spL ? 1 : -1, sp = Math.max(spR, spL);
+    S.push({ a: 'stand', x: X(r.ex), z: fz, jump: true, d: 0.7, fade: 'in' });
+    if (sp >= 0.4) {
+      const side = r.bc + sg * 1.02, tbl = r.bc + sg * Math.min(1.15, 0.8 + sp - 0.22), bed = { a: 'bed', d: 5.5, ry: -sg * PI / 2 };
+      S.push({ a: 'walk', x: X(side), z: fz }, { a: 'walk', z: -3.05 }, bed,
+        { a: 'walk', x: X(tbl), z: -3.62 }, { a: 'wipe', d: 3.4, ry: PI, bend: 0.6, reach: 0 }, { a: 'walk', x: X(side), z: fz });
+      beds.push({ x: X(r.bc), z: ctx.backZ + 2.095, acc, step: bed });
+    }
+    const va = r.a + 1.45, vb = r.b - 0.95, ve = Math.max(r.a + 2.2, va + 0.3);   // the nozzle stays clear of the suitcases
+    if (vb - va > 0.6) { S.push({ a: 'walk', x: X(va), z: fz }, Object.assign({ a: 'vac', x: X(vb) }, vs)); if (ve < vb - 0.2) S.push(Object.assign({ a: 'vac', x: X(ve) }, vs)); }
+    S.push({ a: 'walk', x: X(r.ex), z: fz }, { a: 'stand', d: 0.6, fade: 'out', ry: r.ex > r.bc ? PI / 2 : -PI / 2 }, { a: 'stand', d: rooms.length > 1 ? 1.2 : 3.0, fade: 'gone' });
+  }
+  return [artHousekeeper(parent, 36 + sd * 17, ctx.y, S, X(rooms[0].ex), fz, null, beds)];
+}
+/* -------- restaurant: diners, the waiter, the chef -------- */
+function artDiner(parent, kind, seed, opts, x, y, z, ry) {
+  const h = buildPerson(kind, seed, Object.assign({ bare: true }, opts)), p = h._p, [aL, aR] = p.arms, hg = p.headG;
+  hg.rotation.set(0, 0, 0);
+  const off = artDinerRig(h, 0.55), hy = -p.arm + p.armR * 0.3, mesh = (a) => a.children.find((o) => o.isMesh);
+  artMergeInto(mesh(aR), [[artBox(0.012, 0.15, 0.01), '#C9CCD0', 0, hy - 0.08, 0.02], [artBox(0.032, 0.045, 0.006), '#C9CCD0', 0, hy - 0.17, 0.02]], p.owned);   // fork
+  artMergeInto(mesh(aL), [[artCyl(0.034, 0.027, 0.1, 8), '#E3EEF2', 0, hy - 0.01, 0.07, Math.PI / 2]], p.owned);                                                // glass
+  h.group.position.set(x, y, z); h.group.rotation.y = ry; parent.add(h.group);
+  const rest = -Math.acos(Math.max(-1, Math.min(1, (p.shY + off - 0.8) / p.arm)));    // hands resting at table height
+  const len = 3.0 + artHash01(seed * 7 + 3) * 1.8, ph = artHash01(seed * 13 + 5) * 30, sk = seed * 131;
+  const acts = ['eat', 'eat', 'chat', 'eat', 'drink', 'chat', 'chat', 'raise', 'eat', 'drink', 'chat', 'eat'];
+  const tick = (t) => {
+    t += ph;
+    const sn = Math.sin, seg = Math.floor(t / len), u = t - seg * len, e = artEase(u / 0.5) * artEase((len - u) / 0.5);
+    const act = acts[Math.floor(artHash01(sk + seg * 977) * acts.length) % acts.length];
+    let lx = rest, lz = 0.18, rx = rest, rz = -0.18, hx = 0.06, hyw = 0;
+    if (act === 'eat') { const q = (u % 1.7) / 1.7, b = artEase((q - 0.2) / 0.22) * (1 - artEase((q - 0.6) / 0.22)); rx = rest + (-2.25 - rest) * b; rz = -0.18 - 0.2 * b; hx = 0.2 - 0.25 * b; }
+    else if (act === 'drink') { const b = artEase((u - 0.5) / 0.6) * (1 - artEase((u - len + 1.1) / 0.6)); lx = rest + (-2.2 - rest) * b; lz = 0.18 + 0.2 * b; hx = 0.06 - 0.3 * b; }
+    else if (act === 'chat') { const g = Math.max(0, sn(u * 2.3)); hyw = 0.4 * sn(u * 0.9 + seed); hx = -0.04 + 0.06 * sn(u * 5); rx = rest - 0.35 * g; rz = -0.18 + 0.4 * g; }
+    else if (act === 'raise') { rx = -0.25; rz = 2.7 + 0.2 * sn(u * 8); hyw = 0.35; hx = -0.1; }
+    aL.rotation.set(rest + (lx - rest) * e, 0, 0.18 + (lz - 0.18) * e); aR.rotation.set(rest + (rx - rest) * e, 0, -0.18 + (rz + 0.18) * e);
+    hg.rotation.set(0.06 + (hx - 0.06) * e, hyw * e, 0);
+  };
+  if (artOccList) artOccList.push(h);
+  tick.h = h; tick(0);
+  return tick;
+}
+function artWaiter(parent, seed, y, S, x0, z0, tables) {
+  let trayG = null, plates = null, pad = null;
+  const foods = [], cX = 0.25, cZ = 2.55;                        // carry: tray held up on the raised hand
+  const arm = (a, x0, z0, x1, z1, q) => a.rotation.set(x0 + (x1 - x0) * q, 0, z0 + (z1 - z0) * q);
+  const pose = (W, s, u, e, tt) => {
+    const [aL, aR] = W.arms, up = W.upper, a = s.a; let tray = 0, note = false;   // tray: 0 none, 1 empty, 2 with plates
+    if (s.move && s.tray) { aR.rotation.set(cX, 0, cZ); tray = 2; }
+    else if (a === 'pick') {                                    // reach over the bar, lift the tray up
+      const q1 = artEase(u / 0.8), q2 = artEase((u - 0.9) / 0.7); up.rotation.x = 0.18 * q1 * (1 - q2); arm(aL, 0, 0.1, -1.2, 0.1, q1 * (1 - q2));
+      if (u < 0.9) arm(aR, 0, -0.1, -1.2, -0.1, q1); else { arm(aR, -1.2, -0.1, cX, cZ, q2); tray = 2; }
+    } else if (a === 'serve') {                                 // lower the tray, set the plates down, hand back
+      const q1 = artEase(u / 0.7), q2 = artEase((u - 1.3) / 0.6); up.rotation.x = 0.15 * q1 * (1 - q2);
+      if (u < 1.3) arm(aR, cX, cZ, -1.05, -0.15, q1); else arm(aR, -1.05, -0.15, 0, -0.1, q2);
+      tray = u < 1.0 ? 2 : u < 1.5 ? 1 : 0;
+    } else if (a === 'order') {                                 // notepad up, pencil writing, looking down and up
+      note = e > 0.3; aL.rotation.set(-1.25 * e, 0, 0.1 + 0.35 * e); aR.rotation.set((-1.15 + 0.05 * Math.sin(u * 16)) * e, 0, -0.1 - (0.3 + 0.06 * Math.sin(u * 7)) * e);
+      W.headG.rotation.x = (Math.sin(u * 1.7) > -0.3 ? 0.32 : 0.02) * e;
+    } else if (a === 'clear') {                                 // stack the plates, up onto the tray
+      const q1 = artEase(u / 0.6), q2 = artEase((u - 1.0) / 0.7); up.rotation.x = 0.22 * q1 * (1 - q2); arm(aL, 0, 0.1, -1.1, 0.1, q1 * (1 - q2));
+      if (u < 1.0) arm(aR, 0, -0.1, -1.1, -0.15, q1); else arm(aR, -1.1, -0.15, cX, cZ, q2);
+      tray = u > 0.9 ? 2 : 0;
+    } else if (a === 'drop') {                                  // back at the bar: tray down
+      const q1 = artEase(u / 0.6), q2 = artEase((u - 0.9) / 0.6); up.rotation.x = 0.15 * q1 * (1 - q2);
+      if (u < 0.9) arm(aR, cX, cZ, -1.2, -0.1, q1); else arm(aR, -1.2, -0.1, 0, -0.1, q2);
+      tray = u < 0.9 ? 2 : 0;
+    }
+    trayG.visible = tray > 0; plates.visible = tray === 2; pad.visible = note;
+    if (tray) trayG.quaternion.copy(up.quaternion).multiply(aR.quaternion).invert();   // keep the tray level
+    for (const f of foods) f.m.visible = (((tt - f.s) % W.T) + W.T) % W.T < f.len;
+  };
+  const W = artWorker(parent, 'adult', seed, { look: 'suit', top: '#2E3236' }, y, S, x0, z0, pose), p = W.p, [aL, aR] = W.arms, hy = -p.arm + p.armR * 0.3;
+  trayG = new THREE.Group(); trayG.position.set(0, hy, 0); trayG.visible = false; aR.add(trayG);
+  artPropMesh(trayG, p.owned, [[artCyl(0.21, 0.2, 0.02, 16), '#C9CCD0', 0, 0.05, 0.03]]);
+  plates = artPropMesh(trayG, p.owned, [[artCyl(0.085, 0.07, 0.015, 12), '#FBFBF8', -0.08, 0.068, 0], [artCyl(0.085, 0.07, 0.015, 12), '#FBFBF8', 0.09, 0.068, 0.06],
+    [artSph(0.045, 8, 6), '#F2C230', -0.08, 0.082, 0, 0, 0, 0, 1, 0.5, 1], [artSph(0.04, 8, 6), '#C84A3A', 0.09, 0.082, 0.06, 0, 0, 0, 1, 0.55, 1], [artSph(0.016, 6, 4), '#6F8A5E', -0.06, 0.098, 0.02]]);
+  pad = artPropMesh(aL, p.owned, [[artBox(0.1, 0.14, 0.012), '#FBFBF2', 0, hy - 0.05, p.armR + 0.01], [artBox(0.1, 0.025, 0.016), '#C84A3A', 0, hy + 0.01, p.armR + 0.012]]);
+  pad.visible = false;
+  tables.forEach(([tx, tz], j) => {                             // food on a table from the serve until the clear
+    const sv = S.find((q) => q.a === 'serve' && q.table === j), cl = S.find((q) => q.a === 'clear' && q.table === j);
+    if (!sv || !cl) return;
+    const parts = [];
+    for (const sd of [-1, 1]) parts.push([artSph(0.055, 8, 6), '#F2C230', sd * 0.24, 0, 0, 0, 0, 0, 1, 0.45, 1], [artSph(0.025, 6, 4), '#D23A2E', sd * 0.24 + 0.01, 0.018, 0.01], [artSph(0.018, 6, 4), '#6F8A5E', sd * 0.24 - 0.025, 0.012, -0.015]);
+    const m = artPropMesh(parent, p.owned, parts); m.position.set(tx, y + 0.785, tz); m.visible = false;
+    const s0 = sv.t0 + 1.0, c0 = cl.t0 + 0.9; foods.push({ m, s: s0, len: (((c0 - s0) % W.T) + W.T) % W.T });
+  });
+  return W.tick;
+}
+// dining room (restaurant left wing): guests on the chairs, the waiter between the bar (his pass) and the tables
+function artDiningRoom(ctx, parent, sd) {
+  const W = ctx.x1 - ctx.x0, X = (u) => ctx.x0 + u, y = ctx.y, PI = Math.PI, out = [];
+  const bw = Math.min(2.3, W * 0.36), bu = R2_fit(ctx, W - bw - 0.1, bw, W) ?? 0.1, ns = Math.floor(bw / 0.6), stools = [];   // as R2_restaurant
+  for (let k = 0; k < ns; k++) stools.push(bu + 0.3 + k * (bw - 0.6) / Math.max(1, ns - 1));
+  const tables = R2_restTables(ctx, bu);                        // the tables and chairs R2_restaurant draws
+  if (!tables.length) return out;
+  const chairs = []; for (const t of tables) chairs.push(...t.chairs);
+  const n = Math.min(5, Math.max(Math.min(chairs.length, 3), chairs.length - 1));   // one chair stays free when there are 4+
+  const who = [['adult', { look: 'dress', top: '#B5655A' }], ['kid', null], ['grandma', null], ['adult', { look: 'suit', top: '#3E4B5E' }], ['adult', { look: 'casual', top: '#6F8A5E' }]];
+  for (let i = 0; i < n; i++) { const c = chairs[i]; out.push(artDiner(parent, who[i][0], 401 + i * 7 + sd * 17, who[i][1], X(c.u - 0.04 * Math.sin(c.ry)), y, c.z - 0.04 * Math.cos(c.ry), c.ry)); }
+  const px = ns >= 2 ? (stools[0] + stools[1]) / 2 : Math.min(W - 0.4, bu + bw / 2 + 0.35), pz = ns >= 2 ? -1.95 : -1.8;
+  const F = tables.map((t) => ({ x: X(t.u + 0.28), z: t.z + 0.64, ry: artYaw(t.u + 0.28, t.z + 0.64, t.u, t.z) })), nT = F.length, S = [];
+  for (let r = 0; r < nT; r++) {                                // serve one table, take the next one's order, clear the last one
+    const A = r, B = (r + 1) % nT, C = (r + nT - 1) % nT;
+    S.push({ a: 'pick', d: 2.2, ry: PI }, { a: 'walk', x: F[A].x, z: F[A].z, tray: 1 }, { a: 'serve', d: 2.0, ry: F[A].ry, table: A },
+      { a: 'walk', x: F[B].x, z: F[B].z }, { a: 'order', d: 3.4, ry: F[B].ry }, { a: 'walk', x: F[C].x, z: F[C].z },
+      { a: 'clear', d: 2.0, ry: F[C].ry, table: C }, { a: 'walk', x: X(px), z: pz, tray: 1 }, { a: 'drop', d: 1.6, ry: PI });
+  }
+  out.push(artWaiter(parent, 41 + sd * 17, y, S, X(px), pz, tables.map((t) => [X(t.u), t.z])));
+  return out;
+}
+function artChef(parent, seed, y, S, x0, z0, flameAt) {
+  let ladle = null, panG = null, food = null, knife = null, flame = null;
+  const pose = (W, s, u, e) => {
+    const [aL, aR] = W.arms, up = W.upper, a = s.a, sn = Math.sin;
+    ladle.visible = a === 'stir'; panG.visible = flame.visible = a === 'flip'; knife.visible = a === 'chop';
+    if (a === 'stir') { up.rotation.x = 0.28 * e; aR.rotation.set((-1.25 + 0.1 * sn(u * 4)) * e, 0, -0.1 + (-0.15 + 0.2 * Math.cos(u * 4)) * e); aL.rotation.set(-0.85 * e, 0, 0.1 + 0.15 * e); }
+    else if (a === 'flip') {                                    // toss: the food jumps and turns over, the flame flares
+      const q = (u % 1.3) / 1.3, toss = q < 0.22 ? Math.sin(q / 0.22 * Math.PI) : 0, f = Math.min(1, Math.max(0, (q - 0.1) / 0.45));
+      up.rotation.x = 0.15 * e; aR.rotation.set((-1.2 - 0.3 * toss) * e, 0, -0.1 - 0.1 * e); aL.rotation.set(-0.8 * e, 0, 0.1 + 0.1 * e);
+      panG.quaternion.copy(up.quaternion).multiply(aR.quaternion).invert(); panG.rotateX(-0.3 * toss);
+      food.position.y = 0.035 + 0.3 * Math.sin(f * Math.PI); food.rotation.x = f * Math.PI * 2;
+      flame.scale.set(1, 0.8 + 0.4 * Math.abs(sn(u * 17)) + 0.6 * toss, 1);
+    }
+    else if (a === 'chop') { up.rotation.x = 0.22 * e; aR.rotation.set((-1.15 + 0.16 * Math.abs(sn(u * 11))) * e, 0, -0.1 - 0.12 * e); aL.rotation.set(-1.1 * e, 0, 0.1 + 0.25 * e); }
+    else if (a === 'plate') { up.rotation.x = 0.12 * e; W.headG.rotation.x = 0.3 * e; aL.rotation.set((-1.2 + 0.05 * sn(u * 3)) * e, 0, 0.1 + 0.25 * e); aR.rotation.set((-1.4 + 0.05 * sn(u * 19)) * e, 0, -0.1 - 0.2 * e); }
+  };
+  const W = artWorker(parent, 'adult', seed, { look: 'chef' }, y, S, x0, z0, pose), p = W.p, aR = W.arms[1], hy = -p.arm + p.armR * 0.3;
+  ladle = artPropMesh(aR, p.owned, [[artCyl(0.012, 0.012, 0.34, 6), '#C9CCD0', 0, hy - 0.02, -0.15, Math.PI / 2], [artSph(0.045, 8, 6), '#C9CCD0', 0, hy - 0.02, -0.32]]);
+  knife = artPropMesh(aR, p.owned, [[artBox(0.02, 0.03, 0.09), '#2B2B3A', 0, hy - 0.02, -0.03], [artBox(0.006, 0.045, 0.16), '#D0D4D8', 0, hy - 0.02, -0.15]]);
+  panG = new THREE.Group(); panG.position.set(0, hy, 0); aR.add(panG);
+  artPropMesh(panG, p.owned, [[artCyl(0.13, 0.11, 0.035, 14), '#2A2A2A', 0, 0, 0.25], [artBox(0.03, 0.02, 0.18), '#2A2A2A', 0, 0.005, 0.08]]);
+  food = artPropMesh(panG, p.owned, [[artCyl(0.085, 0.085, 0.02, 12), '#E8C84A', 0, 0, 0]]); food.position.set(0, 0.035, 0.25);
+  flame = artPropMesh(parent, p.owned, [[artCone(0.07, 0.16, 8), '#FF7A1A', 0, 0.08, 0], [artCone(0.04, 0.1, 8), '#FFD84A', 0, 0.06, 0]], artFlameMat());
+  flame.position.set(flameAt[0], flameAt[1], flameAt[2]);
+  ladle.visible = knife.visible = panG.visible = flame.visible = false;
+  return W.tick;
+}
+// kitchen (restaurant right wing): stir the pot, toss a pan over a little flame, chop, plate up at the pass
+function artKitchen(ctx, parent, sd) {
+  const W = ctx.x1 - ctx.x0, X = (u) => ctx.x0 + u, PI = Math.PI, bz = ctx.backZ;
+  const rc = (R2_fit(ctx, W * 0.42 - 0.6, 1.2, W) ?? 0.2) + 0.6, pw = Math.min(2.6, W * 0.45), pu = R2_fit(ctx, 0.3, pw, W), bu = R2_fit(ctx, W * 0.72, 0.5, W);   // as R2_restaurant
+  const sz = -3.55, S = [{ a: 'stir', d: 4.5, ry: PI }, { a: 'flip', d: 3.9, ry: PI }];
+  if (bu != null) S.push({ a: 'walk', x: X(bu + 0.45), z: sz }, { a: 'chop', d: 3.6, ry: PI });
+  if (pu != null) S.push({ a: 'walk', x: X(pu + pw / 2), z: -2.62 }, { a: 'plate', d: 4.0, ry: 0 });
+  S.push({ a: 'walk', x: X(rc - 0.1), z: sz });
+  return [artChef(parent, 42 + sd * 17, ctx.y, S, X(rc - 0.1), sz, [X(rc - 0.3), ctx.y + 0.97, bz + 0.53])];
 }
 /* ======== art: time of day ======== */
 // artSetTime('day' | 'dusk' | 'night'): sky, sun/moon, fill, fog, lit windows, lamps; no rebuild. Bubbles, glow
@@ -3076,12 +3910,21 @@ function R2_shell(P, ctx, o) {
     if (h0 > 0.01) P(R2_plnUp(h0, D + hz), o.floor, o.floorCol, h0 / 2, 0.004, (bz + hz) / 2, 0, { rot90: o.floorRot });
     if (W - h1 > 0.01) P(R2_plnUp(W - h1, D + hz), o.floor, o.floorCol, (h1 + W) / 2, 0.004, (bz + hz) / 2, 0, { rot90: o.floorRot });
   } else P(R2_plnUp(W, D), o.floor, o.floorCol, W / 2, 0.004, bz / 2, 0, { rot90: o.floorRot });
-  P(R2_pln(W, CH), o.wall, o.wallCol, W / 2, CH / 2, bz + 0.005);
+  ctx._wall = { P, mat: o.wall, col: o.wallCol, W, CH, z: bz + 0.005 }; ctx._holes = [];   // back wall: built by R2_wallOut once windows are placed
   if (o.dado) { P(R2_box(W, o.dado, 0.02), o.dadoMat || 'wood', o.dadoCol, W / 2, o.dado / 2, bz + 0.015); P(R2_box(W, 0.04, 0.04), o.dadoMat || 'wood', o.dadoCol, W / 2, o.dado, bz + 0.03); }
   if (o.stripe) P(R2_box(W, 0.12, 0.012), 'plasticNC', o.stripe, W / 2, o.stripeY ?? 1.25, bz + 0.012);
   P(R2_box(W, 0.1, 0.02), o.skirtMat || 'plasticNC', o.skirt || '#6E5F52', W / 2, 0.05, bz + 0.015);
   P(R2_box(W, 0.06, 0.05), 'plasticNC', o.cornice || '#E9E5DC', W / 2, CH - 0.03, bz + 0.025);
   return { W, CH };
+}
+// back wall in pieces around the window openings (ctx._holes: [u0, u1, y0, y1] in room u / floor y)
+function R2_wallOut(ctx) {
+  const w = ctx._wall; if (!w) return; ctx._wall = null;
+  const { P, mat, col, W, CH, z } = w, piece = (a, b, y0, y1) => { if (b - a > 0.01 && y1 - y0 > 0.01) P(R2_pln(b - a, y1 - y0), mat, col, (a + b) / 2, (y0 + y1) / 2, z); };
+  const hs = (ctx._holes || []).map(([a, b, y0, y1]) => [Math.max(0, a), Math.min(W, b), Math.max(0, y0), Math.min(CH, y1)]).filter(([a, b]) => b > a).sort((p, q) => p[0] - q[0]);
+  let cx = 0;
+  for (const [a, b, y0, y1] of hs) { if (a < cx) continue; piece(cx, a, 0, CH); piece(a, b, 0, y0); piece(a, b, y1, CH); cx = b; }
+  piece(cx, W, 0, CH);
 }
 function R2_ceilingServices(P, ctx, W, CH, o = {}) {
   // duct run, sprinkler heads, smoke detector, light fixtures (emissive) with a cable tray
@@ -3097,7 +3940,7 @@ function R2_ceilingServices(P, ctx, W, CH, o = {}) {
 }
 function R2_window(P, ctx, u, w, h, y0, o = {}) {           // window in the back wall: frame, mullion, view, sill, radiator
   const z = ctx.backZ;
-  P(R2_pln(w - 0.08, h - 0.08), 'sign', '#ffffff', u, y0 + h / 2, z + 0.012, 0, { rect: R2_ATLAS.view });
+  (ctx._holes = ctx._holes || []).push([u - w / 2 + 0.04, u + w / 2 - 0.04, y0 + 0.04, y0 + h - 0.04]);   // a real opening: the street behind shows through
   P(R2_pln(w - 0.08, h - 0.08), 'glass', '#CFE3EE', u, y0 + h / 2, z + 0.03);
   for (const [dx, dy, ww, hh] of [[0, h / 2 - 0.025, w, 0.05], [0, -h / 2 + 0.025, w, 0.05], [-w / 2 + 0.025, 0, 0.05, h], [w / 2 - 0.025, 0, 0.05, h], [0, 0.12, w, 0.035], [0, 0, 0.035, h]])
     P(R2_box(ww, hh, 0.06), 'plasticNC', o.frame || '#3B4148', u + dx, y0 + h / 2 + dy, z + 0.035);
@@ -3272,15 +4115,7 @@ function R2_hotel(P, ctx, wing) {
       P(R2_box(0.05, 0.2, 0.06), 'metal', '#B08A4A', du + 0.3, 1.0, bz + 0.09); P(R2_box(0.07, 0.11, 0.02), 'plastic', '#2A2D31', du + 0.3, 1.25, bz + 0.08); P(R2_box(0.02, 0.02, 0.025), 'glow', '#5CFF8A', du + 0.3, 1.27, bz + 0.09); }
     P(R2_pln(0.4, 0.2), 'sign', '#ffffff', (c0 + W) / 2, 1.6, bz + 0.012, 0, { rect: R2_ATLAS.hotelno });
     for (const su of [c0 + 0.2, W - 0.2]) { P(R2_box(0.12, 0.2, 0.08), 'metal', '#B08A4A', su, 1.75, bz + 0.05); P(R2_cyl(0.06, 0.08, 0.14, 10), 'glow', '#FFE2A8', su, 1.92, bz + 0.07); }
-    // housekeeping cart
-    const cu = R2_fit(ctx, (c0 + W) / 2 - 0.55, 1.1, W);
-    if (cu != null) { const L = P.local(cu + 0.55, 0, -2.25, 0);
-      for (const y of [0.12, 0.55, 0.98]) L(R2_box(1.0, 0.03, 0.48), 'plastic', '#6A6E74', 0, y, 0);
-      for (const x of [-0.5, 0.5]) for (const z of [-0.23, 0.23]) L(R2_box(0.03, 1.15, 0.03), 'metal', '#B7BCC1', x, 0.6, z);
-      for (let k = 0; k < 3; k++) { L(R2_box(0.28, 0.07, 0.35), 'fabric', '#FBFAF6', -0.3 + k * 0.3, 0.6, 0); L(R2_box(0.28, 0.07, 0.35), 'fabric', '#F2EEE6', -0.3 + k * 0.3, 0.67, 0); L(R2_box(0.28, 0.06, 0.35), 'fabric', '#E8E0F0', -0.3 + k * 0.3, 1.03, 0); }
-      L(R2_box(0.32, 0.36, 0.2), 'plastic', '#EDEDEA', 0.25, 0.32, 0.05); L(R2_cyl(0.05, 0.05, 0.25, 8), 'plastic', '#3A6EA8', -0.3, 0.27, 0.05); L(R2_cyl(0.05, 0.05, 0.22, 8), 'plastic', '#C84A3A', -0.15, 0.25, 0.05);
-      L(R2_box(0.06, 0.65, 0.5), 'fabric', '#7A6A8E', 0.56, 0.72, 0, 0, { rz: 0.05 });
-      for (const x of [-0.45, 0.45]) for (const z of [-0.2, 0.2]) L(R2_cylX(0.05, 0.03, 10), 'plastic', '#222', x, 0.05, z); }
+    // housekeeping cart: drawn and pushed along the corridor by the housekeeper (artHotelMaidR)
     // brass luggage trolley
     const tu = R2_fit(ctx, W - 1.3, 1.0, W);
     if (tu != null && tu > c0) { const L = P.local(tu + 0.5, 0, -3.55, 0);
@@ -3294,6 +4129,25 @@ function R2_hotel(P, ctx, wing) {
 }
 
 /* ======== rooms2: restaurant ======== */
+// dining tables (left wing) as [{ u, z, chairs: [{ u, z, ry }] }]: a chair each side where a table and two chairs fit
+// between the wall, the door strip and the bar (bu), else a two-seat table with both chairs behind it (facing the room)
+function R2_restTables(ctx, bu) {
+  const out = [], avail = bu - 0.1, nt = Math.max(1, Math.floor(avail / 1.75)), step = avail / nt;
+  for (let k = 0; k < nt; k++) {
+    const tu = R2_fit(ctx, 0.1 + step * k + (step - 1.6) / 2, 1.6, bu); if (tu == null) continue;
+    const u = tu + 0.8, z = -3.0 + (k % 2) * 0.25;
+    if (out.some((t) => Math.abs(t.u - u) < 1.6)) continue;   // R2_fit can push two tables onto the same spot
+    out.push({ u, z, chairs: [-1, 1].map((s) => ({ u: u + s * 0.62, z, ry: -s * Math.PI / 2 })) });
+  }
+  if (out.length) return out;
+  const d = R2_doorClear(ctx), segs = d ? [[0.1, Math.min(d[0], bu - 0.05)], [d[1], bu - 0.05]] : [[0.1, bu - 0.05]];
+  for (const [a, b] of segs) {
+    if (b - a < 1.1) continue;
+    const u = (a + b) / 2, z = -3.0 + (out.length % 2) * 0.2;
+    out.push({ u, z, chairs: [-0.26, 0.26].map((dx) => ({ u: u + dx, z: z - 0.62, ry: 0 })) });
+  }
+  return out;
+}
 function R2_restaurant(P, ctx, wing) {
   const acc = '#FF8A1F', bz = ctx.backZ, r = ctx.rng;
   if (wing === 'L') {
@@ -3315,14 +4169,15 @@ function R2_restaurant(P, ctx, wing) {
     const ns = Math.floor(bw / 0.6);
     for (let k = 0; k < ns; k++) { const x = bu + 0.3 + k * (bw - 0.6) / Math.max(1, ns - 1); P(R2_cyl(0.19, 0.19, 0.06, 12), 'fabric', '#3A2A22', x, 0.78, -2.05); P(R2_cyl(0.025, 0.025, 0.75, 6), 'metal', '#2E3134', x, 0.38, -2.05); P(R2_cyl(0.16, 0.16, 0.02, 12), 'metal', '#2E3134', x, 0.01, -2.05); P(R2_torus(0.15), 'metal', '#2E3134', x, 0.28, -2.05); }
     // dining tables with cloths, plates, glasses, candles, flowers; bentwood chairs left/right of each table
-    const avail = bu - 0.1, nt = Math.max(1, Math.floor(avail / 1.75)), step = avail / nt;
-    for (let k = 0; k < nt; k++) {
-      const tu = R2_fit(ctx, 0.1 + step * k + (step - 1.6) / 2, 1.6, bu); if (tu == null) continue; const u = tu + 0.8, z = -3.0 + (k % 2) * 0.25;
+    const tabs = R2_restTables(ctx, bu);                      // shared with the diners (artDiningRoom)
+    for (let k = 0; k < tabs.length; k++) {
+      const { u, z } = tabs[k];
       P(R2_box(0.8, 0.04, 0.8), 'fabric', '#F6F3EC', u, 0.75, z); P(R2_box(0.84, 0.25, 0.84), 'fabric', '#F2EEE6', u, 0.62, z, 0, { sy: 1 });
       P(R2_cyl(0.04, 0.05, 0.5, 8), 'wood', '#3A2A1E', u, 0.25, z); P(R2_box(0.5, 0.03, 0.5), 'wood', '#3A2A1E', u, 0.015, z);
       for (const s of [-1, 1]) { P(R2_cyl(0.11, 0.09, 0.015, 14), 'plastic', '#FBFBF8', u + s * 0.24, 0.775, z); P(R2_box(0.12, 0.01, 0.09), 'fabric', acc, u + s * 0.24, 0.79, z + 0.15, 0.3);
         P(R2_box(0.012, 0.005, 0.17), 'metal', '#C9CCD0', u + s * 0.38, 0.775, z); P(R2_cyl(0.03, 0.02, 0.13, 8), 'glass', '#F0F4F4', u + s * 0.2, 0.84, z - 0.18);
-        R2_chair(P.local(u + s * 0.62, 0, z, -s * Math.PI / 2), '#5A3E2A', true, true); }
+      }
+      for (const c of tabs[k].chairs) R2_chair(P.local(c.u, 0, c.z, c.ry), '#5A3E2A', true, true);
       P(R2_cyl(0.025, 0.025, 0.08, 8), 'plastic', '#F4EEDC', u, 0.81, z + 0.05); P(R2_sph(0.015, 6, 4), 'glow', '#FFC870', u, 0.865, z + 0.05);
       P(R2_cyl(0.035, 0.03, 0.12, 8), 'glass', '#D8E8EC', u - 0.05, 0.83, z - 0.12); P(R2_sph(0.04, 8, 6), 'plastic', ['#D23A2E', '#F2C230', '#E8E2D6'][k % 3], u - 0.05, 0.93, z - 0.12);
       // pendant lamp
@@ -4010,10 +4865,11 @@ function R2_toilets(P, ctx, wing) {
     const MB = new R2_Batch(), Qm = R2_placer(MB, { x0: 0, y: 0 });
     Qm(R2_cyl(0.014, 0.014, 1.25, 6), 'metal', '#C9CCD0', 0, 0.62, 0); Qm(R2_box(0.32, 0.06, 0.12), 'fabric', '#ECEAE2', 0, 0.03, 0);
     MB.flush(mop); }
-  const wet = mesh(R2_plnUp(1, 0.9), Mt.wet, 0, y + 0.012, -2.25); wet.visible = false;
+  const CLZ = -1.95;                                           // the cleaner's line: in front of the partitions and cubicles (they reach z -2.25)
+  const wet = mesh(R2_plnUp(1, 0.9), Mt.wet, 0, y + 0.012, CLZ); wet.visible = false;
   const sign = new THREE.Group(); g.add(sign); sign.visible = false;
   for (const sd of [-1, 1]) { const m = mesh(R2_pln(0.32, 0.48), Mt.sign, 0, 0.23, sd * 0.07, sign); m.rotation.x = sd * -0.25; }
-  const C = { ph: 'wait', t: 10 + r() * 25, x: X(s), z: -2.3, face: 1, side: 0, x0: 0, x1: 0, sx: 0, wet: 0 };
+  const C = { ph: 'wait', t: 10 + r() * 25, x: X(s), z: CLZ, face: 1, side: 0, x0: 0, x1: 0, sx: 0, wet: 0 };
   const fadeTo = (o, w) => { o.want = w; };
   let wT = r() * 8, kT = 5 + r() * 10;
   return { tick(t, dt) {
@@ -4035,8 +4891,8 @@ function R2_toilets(P, ctx, wing) {
       if (C.t <= 0 && cl.a < 0.02) { const seg = C.side ? T.gents : T.ladies; C.side ^= 1;
         if (seg[1] - seg[0] < 0.8) { C.t = 20; } else {
           const nearL = Math.abs(seg[0] - s) < Math.abs(seg[1] - s);
-          C.x0 = X(nearL ? seg[0] + 0.35 : seg[1] - 0.35); C.x1 = X(nearL ? seg[1] - 0.3 : seg[0] + 0.3); C.x = X(s); C.z = -2.3; C.ph = 'in'; } } }
-    else if (C.ph === 'in') { fadeTo(cl, 1); if (cl.a > 0.9 && go(C.x0, sp)) { C.ph = 'mop'; C.sx = C.x0 - Math.sign(C.x1 - C.x0) * 0.4; sign.position.set(C.sx, y, -2.25); sign.rotation.y = 0.4; sign.visible = true; C.wet = 0.55; } }
+          C.x0 = X(nearL ? seg[0] + 0.35 : seg[1] - 0.35); C.x1 = X(nearL ? seg[1] - 0.3 : seg[0] + 0.3); C.x = X(s); C.z = CLZ; C.ph = 'in'; } } }
+    else if (C.ph === 'in') { fadeTo(cl, 1); if (cl.a > 0.9 && go(C.x0, sp)) { C.ph = 'mop'; C.sx = C.x0 - Math.sign(C.x1 - C.x0) * 0.4; sign.position.set(C.sx, y, CLZ + 0.1); sign.rotation.y = 0.4; sign.visible = true; C.wet = 0.55; } }
     else if (C.ph === 'mop') { if (go(C.x1, 0.35)) { C.ph = 'dry'; C.t = 7; } }
     else if (C.ph === 'dry') { C.t -= dt; C.wet = Math.max(0, 0.55 * C.t / 7); if (C.t <= 0) C.ph = 'back'; }
     else if (C.ph === 'back') { if (go(C.sx + Math.sign(C.x1 - C.x0) * 0.4, sp)) { sign.visible = false; C.ph = 'out'; } }
@@ -4160,6 +5016,7 @@ function R2_buildRoom(themeId, wing, ctx) {
   else if (themeId === 'bikes' || themeId === 'laundry') extra = R2_utility(Pc, ctx, wing, themeId) || {};
   else if (themeId === 'playground') extra = R2_playground(Pc, ctx, wing) || {};
   let tt = null;
+  R2_wallOut(ctx);                                            // back wall around the real window openings
   if (themeId === 'subway' && wing === 'L') tt = R2_tunnelAndTrain(group, ctx, B);
   const nTrain = group.children.length, meshes = ctx.sharedBatch ? [] : B.flush(group), h = { group, update: () => {}, meshes: meshes.length, tris: B.tris };
   if (extra.spawnPoints) h.spawnPoints = extra.spawnPoints;
