@@ -88,6 +88,7 @@ At the top of the script in `index.html`:
 | `CAR_DOOR_TIME` | 0.6 s | how long a car door stays open while someone climbs out |
 | `NIGHT_WEIGHTS` | | how much more (or less) popular each floor is at dusk and at night |
 | `LEVEL_TIMES` | | day, dusk or night for each level |
+| `ROOM_DOOR_Z`, `STAIR_DOOR_Z`, `PARK_DOOR_Z`, `TRAIN_EDGE_Z`, `PAVEMENT_Z` | | where people stand when they go through a room door, the stair door, into a car or a train, and the line they walk along the pavement |
 | `FAST_MULT` | 4 | speed-up for `?fast` |
 | `BUBBLE_PX` / `RIDER_BUBBLE` | 44 px / 0.7 | bubble size on screen, and how much smaller they are inside a lift |
 
