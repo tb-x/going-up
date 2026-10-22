@@ -222,6 +222,8 @@ const LOO_CHANCE = 1 / 6;              // someone getting up from a seat heads f
 const LOO_TIME = [20, 40];             // s in the toilets before they come out again and ride back to their seat
 const LOO_EVERY = [15, 30];            // s between people from the toilets floor itself popping in to the toilets (walk in, out again)
 const LOO_AMBIENT_MAX = 2;             // at most this many of those at once
+const BUS_GROUP = [1, 3];              // people getting off each time the bus stops
+const BUS_TAKE = 0.4;                  // share of people leaving through the lobby who take the bus instead of walking off
 const CHECKIN_TIME = 3;                // s at a reception desk for a key: street guests at the lobby's, everyone arriving on a hotel floor at its own
 const STAIR_DOOR_Z = -2.6;              // just in front of the stair door (stair column, door at z -2.95)
 const PARK_DOOR_Z = -2.3;               // between two parked cars, beside the driver's door
@@ -1231,6 +1233,8 @@ const ART_PARK = { street: 0.72, laneNear: -8.0, laneFar: -10.0, roadY: -0.12, b
   in2: { uS: 6.6, rS: 1.25, uA: 4.1, u0: 1.6, uB: 4.4, zA: -3.65, wA: 1.6, zB: -1.975, wB: 1.75, rL: 0.84, land: 1.5, holeZ: -2.75, bay1: 0.85, bay2: 6.1 } };
 let artVehNight = 0;                  // 0 day .. 1 night: vehicle head/tail lights (artSetTime)
 const artGuests = new Set();          // { x, z, L } of parking cars while they are on the road
+// the bus at its stop on the back road: the game drops people off and picks them up while the doors are open
+const artBus = { stopX: ART_PARK.busStopX, kerbZ: -6.85, open: false, seq: 0 };
 // one car at a time on the garage ramps (street ramp and the internal one, both directions): later cars wait their turn
 const ART_RAMP = { busy: null, queue: [] };
 function artRampRelease(c) { if (ART_RAMP.busy !== c) return; ART_RAMP.busy = null; const n = ART_RAMP.queue.shift(); if (n) { ART_RAMP.busy = n.c; n.start(); } }
@@ -1360,7 +1364,7 @@ function buildSky(scene) {
   // bus stop and opens its doors, and the car park's cars entering or leaving the road (artGuests are obstacles too)
   const PK = ART_PARK, SPAN = 170, XA = -85, BUS_STOP = PK.busStopX, BUS_WAIT = 5.5, traffic = [];
   const mkTraffic = (kind, seed, lane, x, vmax, sc) => {
-    const h = VEH_build(kind, seed, { scale: sc }), dir = lane ? 1 : -1, z = lane ? PK.laneFar : PK.laneNear;
+    const h = VEH_build(kind, seed, { scale: sc }), dir = lane ? -1 : 1, z = lane ? PK.laneFar : PK.laneNear;   // right-hand traffic: +x in the near lane, -x in the far lane
     h.group.rotation.y = dir > 0 ? 0 : Math.PI; h.group.position.set(x, PK.roadY, z); group.add(h.group);
     const beam = new THREE.Mesh(artPln(4.4, 2.6), lampPoolMat); beam.rotation.x = -Math.PI / 2; beam.position.set(h.info.L / 2 + 2.3, 0.05 / sc, 0); h.group.add(beam);
     const c = { h, dir, z, x, v: vmax, vmax, L: h.info.L * sc, dist: 0, lv: -1, br: -1 }; traffic.push(c); return c;
@@ -1381,10 +1385,11 @@ function buildSky(scene) {
       const b = c.bus;
       if (b && b.state === 'stop') {
         want = 0; b.t += dt; c.h.setDoor(b.t < 0.7 ? b.t / 0.7 : b.t < BUS_WAIT - 0.7 ? 1 : Math.max(0, (BUS_WAIT - b.t) / 0.7));
-        if (b.t >= BUS_WAIT) { b.state = 'gone'; c.h.setDoor(0); }
+        artBus.open = b.t >= 0.7 && b.t < BUS_WAIT - 0.7;
+        if (b.t >= BUS_WAIT) { b.state = 'gone'; c.h.setDoor(0); artBus.open = false; }
       } else if (b && b.state === 'drive') {
         const d = (BUS_STOP - c.x) * c.dir;
-        if (d > -0.3 && d < 30) { want = Math.min(want, Math.sqrt(Math.max(0, d) * 2 * 2.0)); if (d < 0.2 && c.v < 0.5) { b.state = 'stop'; b.t = 0; c.v = 0; want = 0; } }
+        if (d > -0.3 && d < 30) { want = Math.min(want, Math.sqrt(Math.max(0, d) * 2 * 2.0)); if (d < 0.2 && c.v < 0.5) { b.state = 'stop'; b.t = 0; artBus.seq++; c.v = 0; want = 0; } }
       }
       const acc = want > c.v ? 2.4 : 7; c.v += Math.sign(want - c.v) * Math.min(Math.abs(want - c.v), acc * dt);
       c.x += c.v * c.dir * dt; c.dist += c.v * dt;
@@ -1693,7 +1698,7 @@ function buildBuilding(scene, layout) {
   const live = { tick: (t, dt) => { for (const f of ticks) f(t, dt); } };
   artLive.add(live);
   let disposed = false;
-  const street = { y: 0, walkZ: -5.6, clearZ: -5.6, leftX: x0 - 34, rightX: x1 + 34, entranceX: artEntranceX };   // SPEC4: back pavement strip, back door
+  const street = { y: 0, walkZ: -5.6, clearZ: -5.6, leftX: x0 - 34, rightX: x1 + 34, entranceX: artEntranceX, bus: artBus };   // SPEC4: back pavement strip, back door
   return { group, floors, shafts, street, dispose() {
     if (disposed) return; disposed = true; artLive.delete(live);
     if (artRoofPerch && artRoofPerch.id === roofId) artRoofPerch = null;
@@ -1917,9 +1922,10 @@ function artParkingLife(bays, ramp, y, parent, owned, decor, inner) {
   const xw = ramp ? ramp.wall : inner ? inner.wall : (B[B.length - 1]?.x ?? 0) + 3, xi = ramp ? ramp.inner : xw, yR = inner ? inner.yU : y, top = xw + P.rampLen, zR = P.rampZ, zA = P.aisleZ, r1 = 2.0, r2 = 1.6, rb = 0.9;
   const inPath = (b, sc) => {
     const xd = top + 0.6 + r2, ry = P.roadY, pb = artPathB();
-    pb.to(xd - r1 - 26, ry, P.laneFar, P.vStreet, st).to(xd - r1, ry, P.laneFar, P.vStreet, st)
-      .arc(xd - r1, P.laneFar + r1, r1, -PI / 2, 0, ry, 4.2, st)                       // off the far lane, towards the tower
-      .to(xd, ry, -7.2, 3.6, st).to(xd, 0, -6.8, 3.2, st).to(xd, 0, zR - r2, 3.2, st)
+    const rIn = 1.1;                                   // right-hand traffic: along the near lane (+x), a right turn into the driveway
+    pb.to(xd - rIn - 26, ry, P.laneNear, P.vStreet, st).to(xd - rIn, ry, P.laneNear, P.vStreet, st)
+      .arc(xd - rIn, P.laneNear + rIn, rIn, -PI / 2, 0, ry, 2.6, st)                    // off the near lane, towards the tower
+      .to(xd, 0, -6.8, 2.8, st).to(xd, 0, zR - r2, 3.2, st)
       .arc(xd - r2, zR - r2, r2, 0, PI / 2, 0, 3.0, st)                                  // onto the ramp, heading down (-x)
       .to(top, 0, zR, P.vRamp, st).to(xw + P.rampLen / 2, yR / 2, zR, P.vRamp, (st + sc) / 2).to(xw, yR, zR, P.vRamp, sc);
     if (inner) {                                     // -1: S-curve into the back band, flight A, U-turn on the landing, flight B, -2 bay
@@ -1944,7 +1950,7 @@ function artParkingLife(bays, ramp, y, parent, owned, decor, inner) {
     } else pb.to(b.x, y, b.z, 1.0, sc, true).to(b.x, y, zA - rb, 1.1, sc, true).arc(b.x - rb, zA - rb, rb, 0, PI / 2, y, 1.1, sc, true);
     pb.to(xw, yR, zR, 2.4, sc).to(xw + P.rampLen / 2, yR / 2, zR, P.vRamp, (st + sc) / 2).to(top, 0, zR, P.vRamp, st).to(top + 0.6, 0, zR, 3.0, st)
       .arc(top + 0.6, zR - r2, r2, PI / 2, 0, 0, 3.4, st).to(xd, 0, -6.0, 3.6, st)        // off the ramp, across the back pavement
-      .arc(xd - r1, -6.0, r1, 0, -PI / 2, ry, 4.5, st).to(xd - r1 - 40, ry, P.laneNear, P.vStreet, st);   // join the near lane
+      .arc(xd - 4, -6.0, 4, 0, -PI / 2, ry, 4.0, st).to(xd - 4 - 40, ry, P.laneFar, P.vStreet, st);   // left turn across the near lane into the far lane (-x)
     return pb.done();
   };
   const go = (c, path, done) => {
@@ -6569,7 +6575,8 @@ function spawnPerson(origin, dest, kind, from, startX, startZ, extra) {
   if (q.length + G.people.filter((o) => (o.state === 'approach' || o.state === 'checkin') && o.floor === origin && !o.ambient).length >= QUEUE_MAX) return null;
   const L = G.layout;
   from = from || 'room';
-  const st = from === 'street' && startX == null ? streetH() : null;
+  const st = from === 'street' && (startX == null || extra?.bus) ? streetH() : null;
+  const byBus = !!(extra?.bus && st?.bus);   // stepped off the bus at its stop
   const fromDoor = !st && from === 'room' && startX == null && !L.themes[origin].basement;   // from inside a room (no doors)
   // from a room: one of the floor's seated or working occupants gets up and becomes this person (art seats API);
   // now and then they're only off to the toilets and keep their seat (trip: back to it later)
@@ -6584,7 +6591,7 @@ function spawnPerson(origin, dest, kind, from, startX, startZ, extra) {
   const K = KINDS[kind], seed = seat ? seat.seed : extra?.seed ?? 1 + rint(1e9), opts = seat ? seat.opts : extra?.opts ?? null;
   const guest = !!st && L.themes[dest]?.kind === 'hotel' && kind !== 'courier';             // a hotel guest: luggage, checks in first
   const art = buildPerson(kind, seed, guest ? Object.assign({}, opts, { luggage: true }) : opts); scene.add(art.group);
-  const x = st ? (rng() < 0.5 ? st.leftX : st.rightX) : seat ? seat.x : startX ?? (from === 'street' ? L.streetX : fromDoor ? roomSpotX(origin) : L.roomDoorXs[rint(2)]);
+  const x = byBus ? st.bus.stopX + (rng() - 0.5) * 1.4 : st ? (rng() < 0.5 ? st.leftX : st.rightX) : seat ? seat.x : startX ?? (from === 'street' ? L.streetX : fromDoor ? roomSpotX(origin) : L.roomDoorXs[rint(2)]);
   const z0 = st ? paveZ(st) : seat ? seat.z : fromDoor ? ROOM_SPOT_Z : startZ ?? L.laneZ;
   const p = { id: G.nextId++, kind, seed, opts, trip, floor: origin, dest, x, z: z0, rot: seat ? seat.face : Math.PI / 2, state: 'arriving', from,
     waited: 0, stage: 0, seats: K.seats, carIdx: -1, spots: [], patience: G.level.patience * K.patience, speed: WALK_SPEED * K.walk,
@@ -6596,6 +6603,7 @@ function spawnPerson(origin, dest, kind, from, startX, startZ, extra) {
     p.state = 'approach'; p.rec = rc; p.path = [[st.entranceX, paveZ(st)], [st.entranceX, rc.z], [rc.x, rc.z]]; G.debugLife.streetIn++;
   }
   else if (st) { p.state = 'approach'; p.path = [[st.entranceX, paveZ(st)], [st.entranceX, L.laneZ]]; G.debugLife.streetIn++; }
+  if (byBus && p.path) { p.z = st.bus.kerbZ; p.path.unshift([x, paveZ(st)]); G.debugLife.busIn = (G.debugLife.busIn || 0) + 1; }   // off the bus: across the pavement first
   else if (Math.abs(z0 - L.laneZ) > 0.01) { p.state = 'approach'; p.path = [[x, L.laneZ]]; }   // out of a door, then to the lane
   else joinQueue(p);
   G.people.push(p);
@@ -6812,6 +6820,10 @@ function planDeparture(p) {
     p.seat = { id: t.seatId, x: t.x, z: t.z, face: t.face, sit: t.sit }; p.path = [[t.x, L.laneZ], [t.x, t.z]]; return;
   }
   const st = p.floor === L.groundIndex ? streetH() : null;
+  if (st && st.bus && rng() < BUS_TAKE) {                         // to the bus stop: wait there, board when the doors open
+    p.path = [[st.entranceX, L.laneZ], [st.entranceX, paveZ(st)], [st.bus.stopX + (rng() - 0.5) * 1.8, paveZ(st) - 0.4]]; p.end = 'bus';
+    G.debugLife.streetOut++; return;
+  }
   if (st) {
     p.path = [[st.entranceX, L.laneZ], [st.entranceX, paveZ(st)], [rng() < 0.5 ? st.leftX : st.rightX, paveZ(st)]];
     G.debugLife.streetOut++; return;
@@ -6860,6 +6872,13 @@ function followPath(p, dt, anim) {
 }
 function onPlatform(sub) {
   return G.people.filter((o) => o.floor === sub && (o.state === 'platform' || (o.state === 'leaving' && (o.end === 'train' || o.end === 'platform')))).length;
+}
+// the bus: each time it stops with its doors open, a few people get off and walk in (waiting people board in 'leaving')
+function updateBus() {
+  const b = streetH()?.bus; if (!b || !b.open || G.busSeq === b.seq) return;
+  G.busSeq = b.seq; if (G.phase !== 'play') return;
+  const n = BUS_GROUP[0] + rint(BUS_GROUP[1] - BUS_GROUP[0] + 1), g = G.layout.groundIndex;
+  for (let k = 0; k < n; k++) later(0.6 * k, () => spawnPerson(g, upper(), null, 'street', undefined, undefined, { bus: true }));
 }
 // the game owns the train: gap -> comes -> doors open -> people get off and on -> doors close -> goes
 function updateTrainCycle(dt) {
@@ -7022,6 +7041,11 @@ function updatePerson(p, dt) {
         break;
       }
       if (p.end === 'loo') { startLoo(p); break; }
+      if (p.end === 'bus') {                                     // waiting at the bus stop, facing the road
+        const b = streetH()?.bus; setAnim(p, 'idle'); p.rot = Math.PI;
+        if (!b || b.open) { p.end = 'fade'; p.path = [[p.x, b ? b.kerbZ : p.z]]; G.debugLife.busBoard = (G.debugLife.busBoard || 0) + 1; }
+        break;
+      }
       if (p.seat) {                                              // at a seat: turn, sit down (or step in), fade while the occupant fades back in
         if (!p.seated) { p.seated = true; p.fade = 0; building?.floors[p.floor]?.fillSeat?.(p.seat.id); }
         p.rot = p.seat.face; setAnim(p, p.seat.sit ? 'sit' : 'idle');
@@ -7188,7 +7212,7 @@ function simStep(dt) {
     G.level.waves.forEach((w, i) => { G.waveTimers[i] -= dt; if (G.waveTimers[i] <= 0) { G.waveTimers[i] = w.every; runWave(w); } });
     if (DEMO) { G.botT -= dt; if (G.botT <= 0) { G.botT = BOT_EVERY; const m = suggestMove(); if (m) tap(m.car, m.floor); } }
   }
-  if (G.phase === 'play' || G.phase === 'won') { updateLater(dt); updateTrainCycle(dt); }
+  if (G.phase === 'play' || G.phase === 'won') { updateLater(dt); updateTrainCycle(dt); updateBus(); }
   for (const c of G.cars) updateCar(c, dt);
   for (const p of [...G.people]) if (!p.removed) updatePerson(p, dt);
   for (const f of G.floors) {
