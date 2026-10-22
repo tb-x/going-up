@@ -77,6 +77,12 @@ Play it at <https://tb-x.github.io/going-up/> (once published).
   paddling pool a child sits and splashes next to a bobbing rubber ring.
 - In a building with a hotel, the lobby desk is a hotel reception (a rack of keys, a key sign, a luggage trolley).
   Hotel guests come in from the street with a little suitcase, wait at the desk for their key, then queue for the lift.
+- The two hotel floors are full of life. The first has a guest room (big bed, wardrobe, desk with a TV, armchair, a guest
+  unpacking her suitcase, the housekeeper pushing her cart, making the bed and vacuuming) and the hotel's own reception
+  and lounge (a curved desk with a receptionist, key rack, bell and a bed sign, a concierge, a luggage trolley, sofa and
+  armchairs). Everyone who arrives on that floor stops at the desk for a key before going on. The second hotel floor has
+  a breakfast room (buffet, coffee station, guests eating, a waiter with a tray) and a suite (someone reading in bed,
+  a sofa corner, the housekeeper doing her round).
 - On level 1 a pulsing hand shows what to tap if nothing has been tapped for a couple of seconds (later levels: 8 s).
 - When the building is taller than the screen, drag up and down to look around (down into the basements too);
   on a narrow phone the outer rooms may be cut off, so drag sideways as well. The lifts and both queues always stay
@@ -140,7 +146,7 @@ At the top of the script in `index.html`:
 | `LOO_CHANCE` / `LOO_TIME` | 1 in 6 / 20-40 s | how often someone getting up goes to the toilets instead (levels with toilets), and how long they stay |
 | `LOO_EVERY` / `LOO_AMBIENT_MAX` | 15-30 s / 2 | how often someone from the toilets floor itself pops in, and how many at once |
 | `ART_REST_EAT` / `ART_REST_IDLE` | 18 s / 10-25 s | (art) how long a plate lasts, and the pause between a table's meals |
-| `CHECKIN_TIME` | 3 s | how long a hotel guest waits at the reception desk |
+| `CHECKIN_TIME` | 3 s | how long a hotel guest waits at a reception desk (the lobby's, or the hotel floor's) |
 | `FAST_MULT` | 4 | speed-up for `?fast` |
 | `BUBBLE_PX` / `RIDER_BUBBLE` | 44 px / 0.7 | bubble size on screen, and how much smaller they are inside a lift |
 

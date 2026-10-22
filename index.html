@@ -222,7 +222,7 @@ const LOO_CHANCE = 1 / 6;              // someone getting up from a seat heads f
 const LOO_TIME = [20, 40];             // s in the toilets before they come out again and ride back to their seat
 const LOO_EVERY = [15, 30];            // s between people from the toilets floor itself popping in to the toilets (walk in, out again)
 const LOO_AMBIENT_MAX = 2;             // at most this many of those at once
-const CHECKIN_TIME = 3;                // s a hotel guest from the street stands at the reception desk (gets a key)
+const CHECKIN_TIME = 3;                // s at a reception desk for a key: street guests at the lobby's, everyone arriving on a hotel floor at its own
 const STAIR_DOOR_Z = -2.6;              // just in front of the stair door (stair column, door at z -2.95)
 const PARK_DOOR_Z = -2.3;               // between two parked cars, beside the driver's door
 const TRAIN_EDGE_Z = -0.15;             // platform edge in front of the train doors (the train runs at z > 0)
@@ -1782,6 +1782,7 @@ function artBuildFloor(i, layout, parent, owned, ticks, SB, PB, R2B) {
   if (seats.length) { const api = artSeatApi(seats, i); anims.push(api.tick); hooks.takeSeat = api.takeSeat; hooks.freeSeat = api.freeSeat; hooks.fillSeat = api.fillSeat; }
   { const RS = ART_REST.get(y.toFixed(2)); if (RS && RS.K) hooks.restaurantLife = RS.life; }   // ordersTaken / mealsServed / platesWashed
   if (fg.userData.reception) { hooks.reception = fg.userData.reception; hooks.checkIn = () => { artKeyAt = artNow; }; }   // hotel reception (lobby)
+  if (fg.userData.frontDesk) { const fd = fg.userData.frontDesk; hooks.frontDesk = { x: fd.x, z: fd.z, face: fd.face }; hooks.checkIn = () => { fd.key.at = artNow; }; }   // hotel floor reception
   if (!SB) S.flush(fg, owned, false, true);
   if (hooks._bays || hooks._decor) { const life = artParkingLife(hooks._bays || [], hooks._ramp, y, fg, owned, hooks._decor, hooks._inner); delete hooks._inner; anims.push(life.tick); Object.assign(hooks, life.api); delete hooks._bays; delete hooks._ramp; delete hooks._decor; }
   if (id === 'subway') {                                     // lane spots to wait for a train, clear of the lift queue
@@ -1994,11 +1995,23 @@ function artR2Occupants(id, wing, ctx, parent, sd) {
     add('adult', 21, { look: 'suit' }, 'talk', cu - tw / 2 - 0.35, -3.05, PI / 2, 0, null);
     add('adult', 22, { look: 'dress' }, 'talk', cu + tw / 2 + 0.35, -3.05, -PI / 2, 0, null);
     add('adult', 23, { look: 'casual' }, 'phone', m0 > (v ? 1.8 : W / 2) ? 0.7 : W - 0.7, -2.1, 0, 0, null);
-  } else if (id === 'hotel' && wing === 'L') {
-    if (v) add('adult', 33, { look: 'casual', top: '#C9A46A' }, 'phone', W - 1.0, -2.0, 0, 0, null);      // hotel2: a guest by the bed
-    out.push(...artHotelMaidL(ctx, parent, sd, v));             // housekeeper: makes beds, wipes, vacuums (art: staff & diners)
-  } else if (id === 'hotel' && wing === 'R') {
-    out.push(...artHotelMaidR(ctx, parent, sd));                // housekeeper pushing her cart along the corridor
+  } else if (id === 'hotel') {                                   // positions from R2_hotelPlan, the same as the furniture
+    const H = R2_hotelPlan(ctx, wing);
+    if (H.room === 'reception' && H.counter) {
+      const key = { at: -99 };                                   // floor.checkIn() sets it: the receptionist holds out a key
+      add('adult', 61, { look: 'suit', top: '#6B3FA0', bare: true, keyRef: key }, 'recept', H.recept.u, H.recept.z, 0);
+      parent.userData.frontDesk = { x: X(H.deskSpot.u), z: H.deskSpot.z, face: PI, key };
+      add('adult', 62, { look: 'suit', top: '#2F3A4F', bare: true }, 'talk', H.stand.u, H.stand.z - 0.5, 0);
+      if (H.reader) add('adult', 63, { look: 'casual', top: '#8C5A4A' }, 'read', H.reader.u, H.reader.z, 0, 0, H.reader.stand);
+      if (H.arm2) add('grandma', 64, null, 'read', H.arm2.u, H.arm2.z, H.arm2.ry, 0, null);
+    } else if (H.room === 'guest') {
+      if (H.unpack) add('adult', 65, { look: 'dress', top: '#7A6A8E' }, 'look', H.unpack.u, H.unpack.z, PI, 0, H.unpack.stand);   // unpacking
+      out.push(...artHotelMaid(ctx, parent, sd, H));
+    } else if (H.room === 'suite') {
+      if (H.inBed) add('adult', 66, { look: 'casual', top: '#5B7A99' }, 'read', H.inBed.u, H.inBed.z, 0, 0.2);   // reading in bed
+      if (H.reader) add('kid', 67, null, 'read', H.reader.u, H.reader.z, 0, 0, H.reader.stand);
+      out.push(...artHotelMaid(ctx, parent, sd, H));
+    } else if (H.room === 'breakfast') out.push(...artHotelBreakfast(ctx, parent, sd, H, wing));
   } else if (id === 'restaurant' && wing === 'L') {
     out.push(...artDiningRoom(ctx, parent, sd));                // diners at the tables and the waiter
   } else if (id === 'restaurant') {
@@ -3293,7 +3306,7 @@ function artOccupant(parent, kind, seed, opts, pose, x, y, z, ry) {
     else if (pose === 'look') { aL.rotation.set(-0.95, 0, 0.3); aR.rotation.set(-1.1, 0, -0.2); }
     else if (pose === 'wave') { aR.rotation.set(0, 0, 2.45 + 0.35 * s(t * 6)); }
     else if (pose === 'play') { const hop = Math.abs(s(t * 4.2)); p.rig.position.y = hop * 0.16; aL.rotation.set(0, 0, -2.3 + 0.4 * s(t * 8)); aR.rotation.set(0, 0, 2.3 - 0.4 * s(t * 8)); }
-    else if (pose === 'recept') { const k = artNow - artKeyAt, give = k >= 0 && k < 2.6;   // hotel reception: hands at the desk, a key held out on check-in
+    else if (pose === 'recept') { const k = artNow - (opts && opts.keyRef ? opts.keyRef.at : artKeyAt), give = k >= 0 && k < 2.6;   // hotel reception: hands at the desk, a key held out on check-in
       aL.rotation.set(-1.0, 0, 0.3); aR.rotation.set(give ? -1.5 + 0.06 * s(k * 4) : -1.0 + 0.05 * s(t * 1.7), 0, give ? -0.05 : -0.3); }
     else if (pose === 'splash') { aL.rotation.set(-0.9 - 0.6 * Math.abs(s(t * 6)), 0, 0.45); aR.rotation.set(-0.9 - 0.6 * Math.abs(s(t * 6 + Math.PI / 2)), 0, -0.45); }   // slapping the water
     else if (pose === 'guard') { const w = s(t * 0.6) > 0.85; aR.rotation.set(0, 0, w ? 2.5 + 0.3 * s(t * 7) : -0.1); aL.rotation.set(w ? 0 : -1.0, 0, w ? 0.1 : 0.9); }
@@ -3515,68 +3528,29 @@ function artHousekeeper(parent, seed, y, S, x0, z0, cartZ, beds) {
   }
   return W.tick;
 }
-// hotel corridor (right wing): push the cart along and pull it back, towels, vacuum, knock and go into a room, wipe
-// the console (or polish the luggage trolley); she keeps out of the strip where game people walk into the room
-function artHotelMaidR(ctx, parent, sd) {
-  const W = ctx.x1 - ctx.x0, X = (u) => ctx.x0 + u, PI = Math.PI, d = R2_doorClear(ctx);
-  const rw = Math.min(3.4, W * 0.5), c0 = rw + 0.1, cu = R2_fit(ctx, (c0 + W) / 2 - 0.55, 1.1, W);   // as R2_hotel
-  if (cu == null) return [];
-  const cc = cu + 0.55, cz = -2.25, inStrip = (a, b) => d && b > d[0] - 0.1 && a < d[1] + 0.1;
-  const sg = !inStrip(cc + 0.6, cc + 1.5) && cc + 1.5 < W - 0.1 ? 1 : -1;      // her side of the cart
-  let amp = Math.min(0.4, cc - 0.6 - c0, W - 0.1 - (cc + 0.5), sg > 0 ? W - 0.3 - (cc + 0.85) : cc - 0.85 - (c0 + 0.3));
-  if (d && d[1] <= cc) amp = Math.min(amp, cc - 0.5 - d[1]); if (d && d[0] >= cc) amp = Math.min(amp, d[0] - cc - 0.5);
-  amp = Math.max(0, amp);
-  const hx0 = cc + sg * (amp + 0.85), hx1 = cc + sg * (0.85 - amp), slow = { v: 0.3, f: 4.5, stride: 0.3 }, vs = { v: 0.32, f: 4, stride: 0.25 };
-  const tu = R2_fit(ctx, W - 1.3, 1.0, W), trolley = tu != null && tu > c0 ? tu + 0.5 : null;
-  const du = [c0 + 0.7, W - 0.7].find((q) => !(d && q + 0.5 > d[0] && q - 0.5 < d[1]) && !(trolley != null && Math.abs(q - trolley) < 0.9));
-  let va = c0 + 0.9, vb = W - 0.95;                             // vacuum the longer stretch beside the strip
-  if (d) { const A = [va, Math.min(vb, d[0] - 0.3)], B = [Math.max(va, d[1] + 0.3), vb]; [va, vb] = A[1] - A[0] >= B[1] - B[0] ? A : B; }
-  const S = [
-    Object.assign({ a: 'push', x: X(hx1), z: cz, cart: -sg }, slow),
-    { a: 'towels', d: 2.4, ry: -sg * PI / 2 },
-    Object.assign({ a: 'push', x: X(hx0), ry: -sg * PI / 2, cart: -sg }, slow),     // pull it back, walking backwards
-  ];
-  S.push({ a: 'walk', z: -2.85 });                             // step back from the cart's end first, so she never walks through it
-  if (vb - va > 0.5) S.push({ a: 'walk', x: X(va), z: -2.95 }, Object.assign({ a: 'vac', x: X(vb) }, vs), Object.assign({ a: 'vac', x: X(va) }, vs));
-  if (du != null) S.push({ a: 'walk', x: X(du), z: ctx.backZ + 0.6 }, { a: 'knock', d: 1.6, ry: PI }, { a: 'stand', d: 0.6, fade: 'out' },
-    { a: 'stand', d: 2.6, fade: 'gone' }, { a: 'stand', d: 0.7, fade: 'in', ry: 0 });
-  const cartL = cc - amp - 0.5;                                  // the console needs room to get past it, clear of the cart
-  const front = !inStrip(c0 + 0.3, c0 + 0.9) && cartL > c0 + 1.35;
-  if (front) S.push({ a: 'walk', x: X(c0 + 0.6), z: -1.95 }, { a: 'wipe', d: 3.4, ry: 0, bend: 0.12, reach: -0.75 },
-    { a: 'walk', x: X(c0 + 1.2) }, { a: 'walk', z: -1.72 }, { a: 'walk', x: X(hx0) });
-  else if (trolley != null) S.push({ a: 'walk', z: -2.95 }, { a: 'walk', x: X(trolley), z: -3.0 }, { a: 'wipe', d: 3.4, ry: PI, bend: 0, reach: -1.45 });   // polish the brass rail
-  if (!front) S.push({ a: 'walk', x: X(hx0), z: -2.85 });         // back round behind the cart to her end of it
-  S.push({ a: 'walk', x: X(hx0), z: cz });
-  let cx = X(cc + sg * amp); for (const s of S) { s.cartX = cx; if (s.cart) cx = s.x + s.cart * 0.85; }
-  return [artHousekeeper(parent, 31 + sd * 17, ctx.y, S, X(hx0), cz, cz, [])];
+// hotel housekeeper (guest room, suite): her cart round from R2_hotelPlan: push the cart, towels, the duvet (guest room),
+// a bedside table wiped, the floor in front of the bed vacuumed; the cart stays between the bed's foot and the lane
+function artHotelMaid(ctx, parent, sd, H) {
+  const M = H.maid; if (!M) return [];
+  const X = (u) => ctx.x0 + u, S = M.steps.map((s) => Object.assign({}, s, s.x != null ? { x: X(s.x) } : null));
+  let cx = X(M.cart0); for (const s of S) { s.cartX = cx; if (s.cart) cx = s.x + s.cart * 0.85; }
+  const bs = S.find((s) => s.a === 'bed'), beds = bs && H.bed != null ? [{ x: X(H.bed), z: ctx.backZ + 2.095, acc: H.acc, step: bs }] : [];
+  return [artHousekeeper(parent, 31 + sd * 17, ctx.y, S, X(M.x0), M.z0, M.cz, beds)];
 }
-// hotel bedrooms (left wing): make the bed, wipe the bedside table, vacuum, then through to the next room (fade)
-function artHotelMaidL(ctx, parent, sd, v) {
-  const W = ctx.x1 - ctx.x0, X = (u) => ctx.x0 + u, PI = Math.PI, d = R2_doorClear(ctx);
-  let s = W / 2; if (d && s > d[0] - 0.1 && s < d[1] + 0.1) s = d[0] - 0.1 > W - d[1] ? d[0] - 0.1 : d[1] + 0.1;   // as R2_hotel
-  let rooms = [[0.1, s - 0.1, s - 0.45], [s + 0.1, W - 0.1, s + 0.45]].map(([a, b, ex], k) => {
-    const w = b - a, mid = (a + b) / 2; let bc = null;
-    if (w > 2.6) { const bu = R2_fit(ctx, mid - 1.3 + (w > 3.6 ? 0.4 : 0), 2.6, W); if (bu != null && bu >= a - 0.01 && bu + 2.6 <= b + 0.01) bc = bu + 1.3; }
-    return { a, b, ex, bc, k, guest: false };
-  }).filter((r) => r.bc != null);
-  if (v) { const r0 = rooms.filter((r) => r.k === 0); rooms = r0.length ? r0 : rooms.slice(0, 1); if (rooms[0] && rooms[0].k === 1) rooms[0].guest = true; }   // hotel2: a guest in room 2
-  if (!rooms.length) return [];
-  const acc = v ? (ctx.accent || '#7B4A2A') : '#9A55E6', S = [], beds = [], fz = -2.15, vs = { v: 0.32, f: 4, stride: 0.25 };
-  for (const r of rooms) {
-    const spR = r.b - (r.bc + 0.8), spL = (r.bc - 0.8) - r.a, sg = r.guest ? -1 : spR >= spL - 0.01 ? 1 : -1, sp = sg > 0 ? spR : spL;
-    if (r.guest && sp < 0.4) return [];
-    S.push({ a: 'stand', x: X(r.ex), z: fz, jump: true, d: 0.7, fade: 'in' });
-    if (sp >= 0.4) {
-      const side = r.bc + sg * 1.02, tbl = r.bc + sg * Math.min(1.15, 0.8 + sp - 0.22), bed = { a: 'bed', d: 5.5, ry: -sg * PI / 2 };
-      S.push({ a: 'walk', x: X(side), z: fz }, { a: 'walk', z: -3.05 }, bed,
-        { a: 'walk', x: X(tbl), z: -3.62 }, { a: 'wipe', d: 3.4, ry: PI, bend: 0.6, reach: 0 }, { a: 'walk', x: X(side), z: fz });
-      beds.push({ x: X(r.bc), z: ctx.backZ + 2.095, acc, step: bed });
-    }
-    const va = r.a + 1.45, vb = r.b - 0.95, ve = Math.max(r.a + 2.2, va + 0.3);   // the nozzle stays clear of the suitcases
-    if (!r.guest && vb - va > 0.6) { S.push({ a: 'walk', x: X(va), z: fz }, Object.assign({ a: 'vac', x: X(vb) }, vs)); if (ve < vb - 0.2) S.push(Object.assign({ a: 'vac', x: X(ve) }, vs)); }
-    S.push({ a: 'walk', x: X(r.ex), z: fz }, { a: 'stand', d: 0.6, fade: 'out', ry: r.ex > r.bc ? PI / 2 : -PI / 2 }, { a: 'stand', d: rooms.length > 1 ? 1.2 : 3.0, fade: 'gone' });
-  }
-  return [artHousekeeper(parent, 36 + sd * 17, ctx.y, S, X(rooms[0].ex), fz, null, beds)];
+// hotel breakfast room: three guests eating (seats the game can swap with real people), the waiter between the coffee
+// station and the two tables (tray out, an order, a table cleared)
+function artHotelBreakfast(ctx, parent, sd, H, wing) {
+  const X = (u) => ctx.x0 + u, y = ctx.y, out = [];
+  const who = [['adult', { look: 'dress', top: '#B5655A' }], ['kid', null], ['adult', { look: 'casual', top: '#6F8A5E' }]];
+  (H.diners || []).forEach((c, i) => {
+    const x = X(c.u + 0.03 * Math.sin(c.ry)), z = c.z + 0.03 * Math.cos(c.ry), seed = 431 + i * 7 + sd * 17, [kind, opts] = who[i % who.length];
+    const tk = artDiner(parent, kind, seed, opts, x, y, z, c.ry, null); out.push(tk);
+    artSeatAdd(tk.h, wing, x, z, c.ry, null, true, kind, seed, opts);
+  });
+  const Wt = H.waiter;
+  if (Wt) { const S = Wt.steps.map((s) => Object.assign({}, s, s.x != null ? { x: X(s.x) } : null));
+    out.push(artWaiter(parent, 47 + sd * 17, y, S, X(Wt.x0), Wt.z0, H.tables.map((t) => [X(t.u), t.z]))); }
+  return out;
 }
 /* -------- restaurant: diners, the waiter, the chef -------- */
 function artDiner(parent, kind, seed, opts, x, y, z, ry, mode) {   // mode(): 'call' | 'eat' | 'idle' from the restaurant flow (optional)
@@ -4227,6 +4201,7 @@ function R2_m(key) {
     trainwin: () => S({ roughness: 0.2, metalness: 0.3, emissive: '#FFF1D0', emissiveIntensity: 0, envMapIntensity: 0.8 }, 'local', 1, false),
     glass: () => { const m = S({ roughness: 0.05, metalness: 0.1, transparent: true, opacity: 0.28, depthWrite: false, envMapIntensity: 1.2 }, 'local', 1, false); return m; },
     glow: () => { const m = new THREE.MeshBasicMaterial({ vertexColors: true }); m.userData = { uv: 'local', tile: 1, cast: false }; return m; },
+    blob: () => { const m = new THREE.MeshBasicMaterial({ vertexColors: true, map: artRadialTex(), transparent: true, opacity: 0.34, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }); m.userData = { uv: 'local', tile: 1, cast: false }; return m; },   // contact shadows (black vertex colour)
     sign: () => { const t = R2_atlasTex(); return S({ map: t, emissiveMap: t, emissive: '#ffffff', emissiveIntensity: 0.28, roughness: 0.45, envMapIntensity: 0.5 }, 'atlas', 1, false); },
   };
   return (R2_MAT[key] = f[key]());
@@ -4367,12 +4342,6 @@ function R2_chair(L, col, back = true, wood = false) {           // L = local pl
   else { L(R2_cyl(0.025, 0.025, 0.36, 6), 'metal', '#2E3134', 0, 0.26, 0); for (let k = 0; k < 5; k++) { const a = k * 1.2566; L(R2_box(0.3, 0.03, 0.04), 'metal', '#2E3134', Math.cos(a) * 0.14, 0.06, Math.sin(a) * 0.14, -a); L(R2_sph(0.03, 6, 4), 'plastic', '#222', Math.cos(a) * 0.27, 0.03, Math.sin(a) * 0.27); }
     if (back) L(R2_box(0.04, 0.3, 0.04), 'metal', '#2E3134', 0, 0.58, -0.2); }
 }
-function R2_suitcase(P, u, z, col, ry = 0, s = 1) {
-  const L = P.local(u, 0, z, ry);
-  L(R2_box(0.42 * s, 0.6 * s, 0.24 * s), 'plastic', col, 0, 0.36 * s, 0); for (const x of [-0.1, 0.1]) L(R2_box(0.02, 0.58 * s, 0.25 * s), 'plastic', '#3a3a3a', x * s, 0.36 * s, 0);
-  L(R2_box(0.025, 0.22, 0.025), 'metal', '#888', -0.12 * s, 0.77 * s, 0); L(R2_box(0.025, 0.22, 0.025), 'metal', '#888', 0.12 * s, 0.77 * s, 0); L(R2_box(0.27 * s, 0.03, 0.035), 'plastic', '#222', 0, 0.88 * s, 0);
-  for (const x of [-0.16, 0.16]) L(R2_cylX(0.035, 0.03, 8), 'plastic', '#222', x * s, 0.04, 0.09);
-}
 
 /* ======== rooms2: office ======== */
 function R2_office(P, ctx, wing) {
@@ -4462,67 +4431,328 @@ function R2_office(P, ctx, wing) {
 }
 
 /* ======== rooms2: hotel ======== */
+// hotel (v0): left wing a guest room, right wing the reception and lounge (people going to the floor stop at the desk);
+// hotel2 (v1): left wing a breakfast room, right wing a suite. R2_hotelPlan holds every position the furniture, the
+// occupants, the housekeeper's cart round and the waiter share (u = metres from the wing's x0, z world), and `obs`:
+// footprints [u0, u1, z0, z1, tag] of everything standing on the floor (for the path checks). Pure: no THREE.
+function R2_hotelPlan(ctx, wing) {
+  const W = ctx.x1 - ctx.x0, v = ctx.variant || 0, d = R2_doorClear(ctx), segs = R2_segs(ctx, W), PI = Math.PI;
+  const room = wing === 'L' ? (v ? 'breakfast' : 'guest') : (v ? 'suite' : 'reception');
+  const H = { W, v, room, acc: v ? (ctx.accent || '#7B4A2A') : '#9A55E6', spot: d ? (d[0] + d[1]) / 2 : null, obs: [], seats: [], rugs: [] };
+  const ob = (u, z, w, dd, tag = '') => H.obs.push([u - w / 2, u + w / 2, z - dd / 2, z + dd / 2, tag]);
+  // a stretch of wall beside the clear strip: near = its end at the strip, s = +1 when it runs to the right from there
+  const run = (sg) => { const s = d && sg[1] <= d[0] + 0.01 ? -1 : 1; return { near: s > 0 ? sg[0] : sg[1], far: s > 0 ? sg[1] : sg[0], s, len: sg[1] - sg[0], mid: (sg[0] + sg[1]) / 2 }; };
+  const A = run(segs[0] || [0.1, W - 0.1]), B = segs[1] ? run(segs[1]) : null, sp = H.spot;
+  const cz = -1.55, slow = { v: 0.3, f: 4.5, stride: 0.3 }, vs = { v: 0.32, f: 4, stride: 0.25 };
+  const bed = (bc) => { H.bed = bc; ob(bc, -3.39, 1.66, 2.06, 'bed'); for (const s of [-1, 1]) ob(bc + s * 1.15, -4.25, 0.46, 0.42, 'table'); };
+  // the housekeeper's round: pushes her cart along the front (z cz) from her0 to her1 and back (she is on side hs of
+  // it), takes towels, steps back to z -2.1, then her tasks (bed, bedside table, vacuuming) and back to the cart
+  const maid = (her0, her1, hs, tasks) => { H.maid = { x0: her0, z0: cz, cz, cart0: her0 - hs * 0.85, steps: [
+    Object.assign({ a: 'push', x: her1, z: cz, cart: -hs }, slow), { a: 'towels', d: 2.4, ry: -hs * PI / 2 },
+    Object.assign({ a: 'push', x: her0, ry: -hs * PI / 2, cart: -hs }, slow), { a: 'walk', z: -2.1 }, ...tasks,
+    { a: 'walk', x: her0, z: -2.1 }, { a: 'walk', z: cz }] }; };
+  if (room === 'guest' && A.len >= 2.8) {
+    // bed from the strip side, wardrobe at the far end, armchair + floor lamp in front of it; desk + TV on the other
+    // stretch; luggage rack with an open suitcase (and its guest) at the back of the strip, under the window
+    const s = A.s, bc = A.near + s * 1.39, side = bc + s * 1.03; bed(bc);
+    if (A.len >= 3.5) { H.ward = { u: A.far - s * 0.42, w: 0.8 }; ob(H.ward.u, -4.2, 0.8, 0.6, 'ward'); }
+    H.arm = { u: A.far - s * 0.42, z: -2.15, ry: -s * 1.2 }; ob(H.arm.u, H.arm.z, 1.0, 1.0, 'arm');
+    H.lamp = { u: A.far - s * 0.14, z: -3.15 }; ob(H.lamp.u, H.lamp.z, 0.32, 0.32, 'lamp');
+    H.rugs.push({ u: bc, z: -2.75, w: 2.7, d: 1.7 });
+    maid(bc + s * 0.85, bc + s * 0.15, s, [{ a: 'walk', x: side }, { a: 'walk', z: -3.05 }, { a: 'bed', d: 5.5, ry: -s * PI / 2 },
+      { a: 'walk', x: bc + s * 1.1, z: -3.62 }, { a: 'wipe', d: 3.4, ry: PI, bend: 0.6, reach: 0 }, { a: 'walk', x: side, z: -2.1 },
+      { a: 'walk', x: bc + s * 0.7 }, Object.assign({ a: 'vac', x: bc - s * 0.95 }, vs), Object.assign({ a: 'vac', x: bc + s * 0.3 }, vs)]);
+    if (B && B.len >= 1.0) { const w = Math.min(1.15, B.len - 0.1); H.desk = { u: B.mid, w }; ob(B.mid, -4.24, w, 0.5, 'desk'); ob(B.mid, -3.66, 0.5, 0.5, 'chair'); }
+    if (sp != null) { H.win = { u: sp, w: 0.9, y0: 1.05, h: 1.25 }; H.rack = { u: sp, z: -4.05, ry: 0 }; ob(sp, -4.05, 0.78, 0.44, 'rack');
+      H.unpack = { u: sp, z: -3.45, stand: -3.15 }; H.seats.push({ u: sp, z: -3.15 }); }
+  } else if (room === 'suite' && A.len >= 2.8) {
+    // bed in the middle of the long stretch (a guest reading in it), luggage rack across its far end; desk + TV at the
+    // back of the strip; sofa, coffee table, wardrobe, armchair + floor lamp on the other stretch, a window over the sofa
+    const bc = A.mid, hs = -A.s; bed(bc);
+    const ru = A.far - A.s * 0.24; if (Math.abs(ru - bc) - 0.22 >= 0.86) { H.rack = { u: ru, z: -2.05, ry: PI / 2 }; ob(ru, -2.05, 0.46, 0.82, 'rack'); }
+    H.inBed = { u: bc - hs * 0.38, z: -3.95 };
+    H.rugs.push({ u: bc, z: -2.8, w: 2.3, d: 1.2 });
+    const her0 = A.near - hs * 0.4, tb = bc + hs * 1.15;              // her round stays on the strip side of the bed
+    maid(her0, her0 - hs * 0.7, hs, [{ a: 'walk', x: tb }, { a: 'walk', z: -3.7 }, { a: 'wipe', d: 3.4, ry: PI, bend: 0.6, reach: 0 },
+      { a: 'walk', z: -2.1 }, Object.assign({ a: 'vac', x: A.far - A.s * 0.95 }, vs), Object.assign({ a: 'vac', x: bc + hs * 0.5 }, vs)]);
+    if (sp != null) { H.desk = { u: sp, w: 1.1 }; ob(sp, -4.24, 1.1, 0.5, 'desk'); ob(sp, -3.66, 0.5, 0.5, 'chair'); }
+    if (B && B.len >= 2.2) { const s = B.s, so = H.sofa = { u: B.near + s * 0.8, w: 1.4 }; ob(so.u, -4.05, so.w, 0.88, 'sofa');
+      if (B.len >= 2.3) { H.ward = { u: B.far - s * 0.4, w: 0.75 }; ob(H.ward.u, -4.2, 0.75, 0.6, 'ward'); }
+      H.table = { u: so.u + s * 0.25, z: -3.0, w: 0.8, d: 0.45 }; ob(H.table.u, H.table.z, 0.8, 0.45, 'ctable');
+      H.reader = { u: so.u - s * 0.4, z: -3.85, stand: -2.55 }; H.seats.push({ u: H.reader.u, z: -2.55 });
+      H.arm = { u: B.far - s * 0.5, z: -2.2, ry: -s * 1.1 }; ob(H.arm.u, H.arm.z, 1.04, 1.04, 'arm');
+      H.lamp = { u: B.far - s * 0.2, z: -3.3 }; ob(H.lamp.u, H.lamp.z, 0.32, 0.32, 'lamp');
+      H.win = { u: so.u, w: 0.8, y0: 1.15, h: 1.2 }; H.rugs.push({ u: so.u + s * 0.15, z: -3.05, w: 2.1, d: 1.6 }); }
+  } else if (room === 'reception') {
+    // curved counter (receptionist, key rack and the hotel sign behind) with the guests' spot in front of it, the
+    // concierge's stand at the far end, a luggage trolley and a big plant by the strip; the lounge on the other stretch
+    const s = A.s, cu = A.mid + s * 0.07;
+    H.counter = { u: cu, zc: -5.2 }; ob(cu, -3.9, 2.22, 1.2, 'counter');
+    H.deskSpot = { u: cu, z: -2.85 }; H.recept = { u: cu, z: -4.28 };
+    H.stand = { u: A.far - s * 0.42, z: -2.4 }; ob(H.stand.u, -2.4, 0.5, 0.42, 'stand'); ob(H.stand.u, -2.9, 0.4, 0.4, 'concierge');
+    H.trolley = { u: A.near + s * 0.32, z: -2.35, ry: PI / 2 }; ob(H.trolley.u, -2.35, 0.6, 1.0, 'trolley');
+    H.plant = { u: A.near + s * 0.22, z: -4.2 }; ob(H.plant.u, -4.2, 0.5, 0.5, 'plant');
+    H.rugs.push({ u: cu, z: -2.7, w: 1.9, d: 0.8, mat: true });
+    if (B && B.len >= 2.2) { const t = B.s, so = H.sofa = { u: B.near + t * 0.9, w: 1.4 }; ob(so.u, -4.05, so.w, 0.88, 'sofa');
+      H.table = { u: so.u + t * 0.25, z: -3.05, w: 0.7, d: 0.45 }; ob(H.table.u, H.table.z, 0.7, 0.45, 'ctable');
+      H.reader = { u: so.u - t * 0.4, z: -3.85, stand: -2.6 }; H.seats.push({ u: H.reader.u, z: -2.6 });
+      H.arm = { u: B.far - t * 0.4, z: -3.15, ry: -t * PI / 2 }; ob(H.arm.u, H.arm.z, 0.78, 0.8, 'arm');
+      H.arm2 = { u: B.far - t * 0.55, z: -2.05, ry: -t * 0.9 }; ob(H.arm2.u, H.arm2.z, 1.08, 1.08, 'arm2'); H.seats.push({ u: H.arm2.u, z: H.arm2.z, inPlace: true });
+      H.lamp = { u: B.far - t * 0.2, z: -4.2 }; ob(H.lamp.u, H.lamp.z, 0.32, 0.32, 'lamp');
+      H.win = { u: so.u, w: 0.8, y0: 1.2, h: 1.15 }; H.rugs.push({ u: so.u + t * 0.2, z: -3.0, w: 2.1, d: 1.9 }); }
+  } else if (room === 'breakfast') {
+    // buffet along the back of the long stretch, two tables with a chair each side in front of it (three guests
+    // eating), the coffee station on the other stretch (where the waiter picks up his tray), a plant at the far end
+    const s = A.s, b0 = Math.min(A.near + s * 0.15, A.far - s * 0.15), b1 = Math.max(A.near + s * 0.15, A.far - s * 0.15);
+    H.buffet = { u0: b0, u1: b1 }; ob((b0 + b1) / 2, -4.2, b1 - b0, 0.6, 'buffet');
+    H.tables = (A.len >= 3.4 ? [A.near + s * 0.85, A.far - s * 0.85] : [A.mid]).map((u) => ({ u, z: -2.55, chairs: [-1, 1].map((k) => ({ u: u + k * 0.62, z: -2.55, ry: -k * PI / 2 })) }));
+    for (const t of H.tables) { ob(t.u, t.z, 0.78, 0.78, 'btable'); for (const c of t.chairs) ob(c.u, c.z, 0.46, 0.46, 'chair'); }
+    H.diners = H.tables.flatMap((t) => t.chairs).slice(0, 3);
+    for (const c of H.diners) H.seats.push({ u: c.u, z: c.z, inPlace: true });
+    if (B && B.len >= 0.9) { const w = Math.min(1.2, B.len - 0.15); H.station = { u: B.mid, w }; ob(B.mid, -4.22, w, 0.56, 'station'); H.win2 = { u: B.mid, w: Math.min(0.7, w), y0: 1.5, h: 0.85 }; }
+    if (sp != null) H.win = { u: sp, w: 0.8, y0: 1.0, h: 1.3 };
+    H.plant = { u: A.far - s * 0.2, z: -3.55 }; ob(H.plant.u, H.plant.z, 0.46, 0.46, 'plant');
+    // the waiter: a tray from the coffee station to one table, the next table's order, that table cleared, back
+    const px = H.station ? H.station.u : b0 + 0.3, pz = -3.45, fz = -1.91, nT = H.tables.length;
+    const F = H.tables.map((t) => ({ x: t.u + 0.28, ry: Math.atan2(-0.28, t.z - fz) })), S = [];
+    for (let r = 0; r < nT; r++) { const a = F[r], n = (r + 1) % nT, b = F[n];
+      S.push({ a: 'pick', d: 2.2, ry: PI }, { a: 'walk', z: fz, tray: 1 }, { a: 'walk', x: a.x, tray: 1 }, { a: 'serve', d: 2.0, ry: a.ry, table: r },
+        { a: 'walk', x: b.x }, { a: 'order', d: 3.4, ry: b.ry }, { a: 'clear', d: 2.0, ry: b.ry, table: n },
+        { a: 'walk', x: px, tray: 1 }, { a: 'walk', z: pz, tray: 1 }, { a: 'drop', d: 1.6, ry: PI }); }
+    H.waiter = { x0: px, z0: pz, fz, steps: S };
+  }
+  return H;
+}
+// a placer whose props cast no sun shadow (indoors: contact blobs instead)
+function R2_noCast(P) {
+  const Q = (geo, mat, hex, u, yy, z, ry = 0, o = {}) => P(geo, mat, hex, u, yy, z, ry, o.cast === undefined ? Object.assign({ cast: false }, o) : o);
+  Q.local = (ou, oy, oz, ry, sc = 1) => (geo, mat, hex, lx, ly, lz, lry = 0, o = {}) => {
+    lx *= sc; ly *= sc; lz *= sc;
+    const c = Math.cos(ry), s = Math.sin(ry);
+    if (sc !== 1) o = Object.assign({}, o, { sx: (o.sx || 1) * sc, sy: (o.sy || 1) * sc, sz: (o.sz || 1) * sc });
+    Q(geo, mat, hex, ou + lx * c + lz * s, oy + ly, oz - lx * s + lz * c, ry + lry, o);
+  };
+  return Q;
+}
+function R2_blob(P, u, z, w, d, ry = 0) { P(R2_plnUp(1, 1), 'blob', '#000000', u, 0.014, z, ry, { sx: w, sz: d, cast: false }); }   // contact shadow
+function R2_rug(P, g, col, border) { P(R2_plnUp(g.w, g.d), 'carpet', border, g.u, 0.009, g.z); P(R2_plnUp(g.w - 0.16, g.d - 0.16), 'carpet', col, g.u, 0.011, g.z); }
+const R2_hemi = (r) => R2_GEO['hm' + r] || (R2_GEO['hm' + r] = new THREE.SphereGeometry(r, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2));
+// an annulus sector r0..r1 over -a..a around +z (centre at the origin), h tall from y 0: the curved reception counter
+function R2_arcSlab(r0, r1, a, h, n = 18) {
+  const k = 'arc' + [r0, r1, a, h, n]; if (R2_GEO[k]) return R2_GEO[k];
+  const sh = new THREE.Shape(), pt = (r, i) => { const t = -a + 2 * a * i / n; return [r * Math.sin(t), -r * Math.cos(t)]; };
+  for (let i = 0; i <= n; i++) { const [x, y] = pt(r1, i); i ? sh.lineTo(x, y) : sh.moveTo(x, y); }
+  for (let i = n; i >= 0; i--) { const [x, y] = pt(r0, i); sh.lineTo(x, y); }
+  sh.closePath();
+  return (R2_GEO[k] = new THREE.ExtrudeGeometry(sh, { depth: h, bevelEnabled: false }).rotateX(-Math.PI / 2));
+}
 function R2_bed(P, u, ctx, accent, flip) {
   const bz = ctx.backZ, L = P.local(u, 0, bz, 0), r = ctx.rng;
   L(R2_box(1.7, 1.15, 0.08), 'fabric', '#7A6A5C', 0, 0.62, 0.06); L(R2_box(1.8, 0.06, 0.1), 'wood', '#5A4434', 0, 1.22, 0.06);
   L(R2_box(1.6, 0.25, 2.0), 'wood', '#5A4434', 0, 0.2, 1.1); L(R2_box(1.56, 0.22, 1.96), 'fabric', '#F2EFE8', 0, 0.42, 1.1);
   L(R2_box(1.62, 0.1, 1.45), 'fabric', '#F7F5F0', 0, 0.55, 1.36); L(R2_box(1.64, 0.3, 0.04), 'fabric', '#F7F5F0', 0, 0.42, 2.08);
-  L(R2_box(1.66, 0.12, 0.42), 'fabric', accent, 0, 0.58, 1.7);                                            // runner in the theme colour
+  L(R2_box(1.66, 0.12, 0.42), 'fabric', accent, 0, 0.58, 1.7);                                            // throw in the theme colour
   for (const x of [-0.4, 0.4]) { L(R2_box(0.62, 0.16, 0.36), 'fabric', '#FBFAF6', x, 0.64, 0.33, 0, { rx: -0.35 }); }
   L(R2_box(0.36, 0.3, 0.12), 'fabric', '#B9A68C', 0, 0.68, 0.55, 0, { rx: -0.3 });
   for (const x of [-1.15, 1.15]) {                                                                           // bedside tables + lamps
     L(R2_box(0.45, 0.5, 0.4), 'wood', '#5A4434', x, 0.25, 0.25); L(R2_box(0.4, 0.01, 0.01), 'metal', '#B08A4A', x, 0.38, 0.455);
-    L(R2_cyl(0.06, 0.09, 0.25, 10), 'plastic', '#D8CFC0', x, 0.63, 0.22); L(R2_cyl(0.13, 0.17, 0.22, 12), 'fabric', '#F1E6D0', x, 0.88, 0.22);
-    L(R2_cyl(0.11, 0.15, 0.2, 12), 'glow', '#FFE2A8', x, 0.87, 0.22);
+    L(R2_cyl(0.06, 0.09, 0.25, 10), 'plastic', '#D8CFC0', x, 0.63, 0.22); L(R2_cyl(0.13, 0.17, 0.22, 12), 'glow', '#F3DDB0', x, 0.88, 0.22);                                     // lit shade
   }
   L(R2_box(0.14, 0.02, 0.2), 'plastic', '#2A2D31', flip ? -1.1 : 1.1, 0.51, 0.3); L(R2_cyl(0.035, 0.03, 0.1, 8), 'glass', '#EEF4F6', flip ? 1.1 : -1.1, 0.55, 0.32);
   R2_frame(P, ctx, u, 1.75, 1.1, 0.62, r() < 0.5 ? R2_ATLAS.art1 : R2_ATLAS.art2, '#C8A86A');
+  R2_blob(P, u, bz + 1.1, 2.1, 2.3);
 }
 function R2_wardrobe(P, u, ctx, w = 1.0) {
   const bz = ctx.backZ; P(R2_box(w, 2.1, 0.6), 'wood', '#6E5440', u, 1.05, bz + 0.31);
   P(R2_box(0.008, 2.0, 0.005), 'plastic', '#2E2520', u, 1.05, bz + 0.612); for (const s of [-1, 1]) P(R2_box(0.02, 0.3, 0.03), 'metal', '#B08A4A', u + s * 0.06, 1.1, bz + 0.63);
   P(R2_box(w + 0.04, 0.05, 0.62), 'wood', '#5A4434', u, 2.12, bz + 0.31);
+  R2_blob(P, u, bz + 0.33, w + 0.25, 0.8);
 }
-function R2_hotel(P, ctx, wing) {
-  const v = ctx.variant || 0, acc = v ? (ctx.accent || '#7B4A2A') : '#9A55E6', bz = ctx.backZ, r = ctx.rng;   // hotel2: blue-grey palette
-  const { W, CH } = R2_shell(P, ctx, { floor: 'hcarpet', floorCol: v ? '#5E7A8A' : '#8A7E8C', wall: 'paint', wallCol: v ? '#D6DEE0' : '#DCD3C6', dado: 0.9, dadoMat: 'paint',
-    dadoCol: v ? '#B9C6CA' : '#C9BDAE', skirt: '#5A4434', cornice: '#EEE8DE' });
-  R2_ceilingServices(P, ctx, W, CH, { lights: [W * 0.3, W * 0.72], duct: false });
-  const d = R2_doorClear(ctx);
-  const room = (a, b, k) => {                                // one bedroom between u = a and b
-    const w = b - a, mid = (a + b) / 2;
-    if (w > 2.6) { const bu = R2_fit(ctx, mid - 1.3 + (w > 3.6 ? 0.4 : 0), 2.6, W); if (bu != null && bu >= a - 0.01 && bu + 2.6 <= b + 0.01) R2_bed(P, bu + 1.3, ctx, acc, k % 2); }
-    if (w > 3.7) { const wu = R2_fit(ctx, a + 0.1, 1.0, W); if (wu != null && wu + 1.0 < mid - 0.9) R2_wardrobe(P, wu + 0.5, ctx); }
-    R2_suitcase(P, a + 0.45 + r() * 0.3, -1.75, ['#3E4B5E', '#8C5A4A', '#5B6E5A'][k % 3], 0.4 + r() * 0.5);
-    if (k === 0) R2_suitcase(P, a + 0.95, -1.95, '#C9A46A', -0.3, 0.75);
-    P(R2_box(0.5, 0.012, 0.012), 'plasticNC', '#B08A4A', mid, CH - 0.34, bz + 0.012);
-    R2_socket(P, ctx, mid - 1.5 > a ? mid - 1.5 : mid + 1.5);
-  };
-  const part = (u) => { P(R2_box(0.12, CH, -bz - 1.35), 'paint', '#D4CABC', u, CH / 2, bz / 2 - 0.68); P(R2_box(0.14, 0.1, -bz - 1.35), 'wood', '#5A4434', u, 0.05, bz / 2 - 0.68); };
-  if (wing === 'L') {
-    let s = W / 2; if (d && s > d[0] - 0.1 && s < d[1] + 0.1) s = d[0] - 0.1 > W - d[1] ? d[0] - 0.1 : d[1] + 0.1;
-    part(s); room(0.1, s - 0.1, 0); room(s + 0.1, W - 0.1, 1);
-    R2_window(P, ctx, s < W / 2 ? 0.25 + 0.4 : W - 0.65, 0.7, 1.2, 0.95, { curtains: v ? '#3E5E7E' : '#7A6A8E', radiator: false, frame: '#E8E6E0' });
-  } else {
-    // bedroom on the inner side, corridor with room doors, housekeeping cart and luggage trolley outside
-    const rw = Math.min(3.4, W * 0.5); part(rw); room(0.1, rw - 0.1, 2);
-    const c0 = rw + 0.1;
-    P(R2_plnUp(W - c0, -bz - 0.05), 'carpet', '#6B4E5A', (c0 + W) / 2, 0.007, bz / 2);
-    for (const du of [c0 + 0.7, W - 0.7]) { if (d && du + 0.5 > d[0] && du - 0.5 < d[1]) continue;
-      P(R2_box(0.95, 2.15, 0.05), 'wood', '#5A4434', du, 1.075, bz + 0.03); P(R2_box(0.85, 2.05, 0.04), 'wood', '#7A5C44', du, 1.02, bz + 0.05);
-      P(R2_box(0.05, 0.2, 0.06), 'metal', '#B08A4A', du + 0.3, 1.0, bz + 0.09); P(R2_box(0.07, 0.11, 0.02), 'plastic', '#2A2D31', du + 0.3, 1.25, bz + 0.08); P(R2_box(0.02, 0.02, 0.025), 'glow', '#5CFF8A', du + 0.3, 1.27, bz + 0.09); }
-    P(R2_pln(0.4, 0.2), 'sign', '#ffffff', (c0 + W) / 2, 1.6, bz + 0.012, 0, { rect: R2_ATLAS.hotelno });
-    for (const su of [c0 + 0.2, W - 0.2]) { P(R2_box(0.12, 0.2, 0.08), 'metal', '#B08A4A', su, 1.75, bz + 0.05); P(R2_cyl(0.06, 0.08, 0.14, 10), 'glow', '#FFE2A8', su, 1.92, bz + 0.07); }
-    // housekeeping cart: drawn and pushed along the corridor by the housekeeper (artHotelMaidR)
-    // brass luggage trolley
-    const tu = R2_fit(ctx, W - 1.3, 1.0, W);
-    if (tu != null && tu > c0) { const L = P.local(tu + 0.5, 0, -3.55, 0);
-      L(R2_box(0.95, 0.06, 0.55), 'fabric', '#8A2E3A', 0, 0.18, 0); for (const x of [-0.45, 0.45]) { L(R2_cyl(0.02, 0.02, 1.6, 8), 'metal', '#B08A4A', x, 1.0, 0); L(R2_cylX(0.02, 0.0001 + 0.02, 6), 'metal', '#B08A4A', x, 1.8, 0); }
-      L(R2_cylX(0.022, 0.95, 8), 'metal', '#B08A4A', 0, 1.8, 0); L(R2_cylX(0.015, 0.95, 8), 'metal', '#B08A4A', 0, 1.3, 0);
-      for (const x of [-0.4, 0.4]) L(R2_cylZ(0.06, 0.04, 10), 'plastic', '#222', x, 0.07, 0.2);
-      R2_suitcase(P, tu + 0.28, -3.55, '#2F3A4F', 0); R2_suitcase(P, tu + 0.72, -3.55, '#8C5A4A', 0.1, 0.8); }
-    P(R2_box(0.8, 0.7, 0.35), 'wood', '#5A4434', c0 + 0.6, 0.35, -1.55 - 0.0001, 0);
-    P(R2_cyl(0.08, 0.06, 0.25, 10), 'glass', '#D8E8EC', c0 + 0.6, 0.82, -1.55); for (let k = 0; k < 4; k++) P(R2_sph(0.06, 8, 6), 'plastic', ['#E8E2D6', '#C97A8A', '#9A55E6', '#E8E2D6'][k], c0 + 0.55 + k * 0.035, 1.03 + (k % 2) * 0.05, -1.55 + (k - 1.5) * 0.04);
+function R2_armchair(P, u, z, ry, col) {
+  const A = P.local(u, 0, z, ry);
+  A(R2_box(0.78, 0.3, 0.76), 'fabric', col, 0, 0.2, 0); A(R2_box(0.5, 0.13, 0.56), 'fabric', col, 0, 0.42, 0.06);
+  A(R2_box(0.78, 0.46, 0.18), 'fabric', col, 0, 0.6, -0.29);
+  for (const sx of [-1, 1]) { A(R2_box(0.14, 0.5, 0.76), 'fabric', col, sx * 0.32, 0.31, 0); for (const zz of [-0.32, 0.32]) A(R2_box(0.05, 0.05, 0.05), 'wood', '#3A2A1E', sx * 0.33, 0.025, zz); }
+  R2_blob(P, u, z, 1.05, 1.0, ry);
+}
+function R2_sofa(P, u, z, w, col, cush) {                          // against the back wall, facing out
+  const L = P.local(u, 0, z, 0);
+  L(R2_box(w, 0.3, 0.86), 'fabric', col, 0, 0.2, 0); L(R2_box(w - 0.34, 0.14, 0.64), 'fabric', col, 0, 0.42, 0.08);
+  L(R2_box(w, 0.48, 0.2), 'fabric', col, 0, 0.6, -0.33);
+  for (const sx of [-1, 1]) { L(R2_box(0.17, 0.55, 0.86), 'fabric', col, sx * (w / 2 - 0.085), 0.33, 0);
+    L(R2_box(0.36, 0.32, 0.1), 'fabric', cush, sx * (w / 2 - 0.42), 0.66, -0.2, sx * 0.15, { rx: -0.2 });
+    for (const zz of [-0.36, 0.36]) L(R2_box(0.05, 0.05, 0.05), 'wood', '#3A2A1E', sx * (w / 2 - 0.08), 0.025, zz); }
+  R2_blob(P, u, z, w + 0.3, 1.1);
+}
+function R2_coffeeTable(P, u, z, w, d, acc) {                     // with magazines, a cup and a little vase
+  const T = P.local(u, 0, z, 0);
+  T(R2_box(w, 0.04, d), 'wood', '#6B4A33', 0, 0.4, 0); T(R2_box(w - 0.06, 0.02, d - 0.06), 'wood', '#5A3E2A', 0, 0.12, 0);
+  for (const [x, zz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) T(R2_box(0.04, 0.38, 0.04), 'wood', '#5A3E2A', x * (w / 2 - 0.03), 0.19, zz * (d / 2 - 0.03));
+  T(R2_box(0.24, 0.012, 0.17), 'plastic', acc, -w * 0.22, 0.426, 0.02, 0.3); T(R2_box(0.22, 0.01, 0.16), 'plastic', '#F4F2EC', -w * 0.22 + 0.03, 0.437, 0, 0.1);
+  T(R2_cyl(0.06, 0.06, 0.008, 12), 'plastic', '#F4F2EC', w * 0.16, 0.424, 0.06); T(R2_cyl(0.04, 0.03, 0.08, 10), 'plastic', '#F4F2EC', w * 0.16, 0.465, 0.06);
+  T(R2_cyl(0.035, 0.045, 0.14, 8), 'glass', '#D8E8EC', w * 0.32, 0.49, -0.08);
+  for (let k = 0; k < 3; k++) T(R2_sph(0.035, 8, 6), 'plastic', ['#D23A2E', '#F2C230', '#E8E2D6'][k], w * 0.32 + (k - 1) * 0.03, 0.6 + (k % 2) * 0.03, -0.08);
+  R2_blob(P, u, z, w + 0.3, d + 0.3);
+}
+function R2_floorLamp(P, u, z) {
+  P(R2_cyl(0.15, 0.15, 0.03, 12), 'metal', '#2E3134', u, 0.015, z); P(R2_cyl(0.015, 0.015, 1.45, 6), 'metal', '#2E3134', u, 0.74, z);
+  P(R2_cyl(0.13, 0.2, 0.28, 14), 'glow', '#F3DDB0', u, 1.55, z);                                     // lit shade
+  R2_blob(P, u, z, 0.45, 0.45);
+}
+function R2_hotelDesk(P, ctx, u, w) {                             // writing desk with a chair, lamp and phone; TV on the wall above
+  const bz = ctx.backZ, z = bz + 0.27, ux = u - w / 2 + 0.2;
+  P(R2_box(w, 0.035, 0.5), 'wood', '#6B4A33', u, 0.75, z);
+  for (const sx of [-1, 1]) P(R2_box(0.035, 0.73, 0.46), 'wood', '#5A3E2A', u + sx * (w / 2 - 0.02), 0.365, z);
+  P(R2_box(0.42, 0.14, 0.46), 'wood', '#5A3E2A', u + w / 2 - 0.25, 0.66, z); P(R2_box(0.12, 0.015, 0.012), 'metal', '#B08A4A', u + w / 2 - 0.25, 0.66, z + 0.236);
+  P(R2_cyl(0.06, 0.07, 0.02, 10), 'metal', '#B08A4A', ux, 0.778, z - 0.1); P(R2_cyl(0.008, 0.008, 0.3, 6), 'metal', '#B08A4A', ux, 0.93, z - 0.1);
+  P(R2_cyl(0.07, 0.11, 0.13, 12), 'glow', '#F3DDB0', ux, 1.1, z - 0.1);
+  P(R2_box(0.3, 0.004, 0.22), 'plasticNC', '#FBFBF8', u + 0.05, 0.77, z + 0.05, 0.12); P(R2_cylX(0.006, 0.13, 6), 'plastic', '#2A2D31', u + 0.12, 0.775, z + 0.1);
+  P(R2_box(0.18, 0.05, 0.14), 'plastic', '#2A2D31', u + w / 2 - 0.2, 0.795, z - 0.05); P(R2_box(0.16, 0.035, 0.04), 'plastic', '#2A2D31', u + w / 2 - 0.2, 0.835, z - 0.1);
+  R2_chair(P.local(u, 0, bz + 0.84, Math.PI), '#7A5C44', true, true); R2_blob(P, u, bz + 0.84, 0.6, 0.6); R2_blob(P, u, z, w + 0.2, 0.7);
+  P(R2_box(0.2, 0.2, 0.02), 'metal', '#2E3134', u, 1.62, bz + 0.01);
+  P(R2_box(0.92, 0.54, 0.04), 'plastic', '#15181C', u, 1.62, bz + 0.035); P(R2_pln(0.86, 0.48), 'sign', '#ffffff', u, 1.62, bz + 0.056, 0, { rect: R2_ATLAS.view });
+}
+function R2_luggageRack(P, u, z, ry, col) {                       // folding rack, an open suitcase (lid up on the wall side) with clothes
+  const L = P.local(u, 0, z, ry);
+  for (const x of [-0.34, 0.34]) { for (const zz of [-0.17, 0.17]) L(R2_box(0.03, 0.47, 0.03), 'wood', '#6B4A33', x, 0.235, zz);
+    L(R2_box(0.03, 0.03, 0.37), 'wood', '#6B4A33', x, 0.12, 0); L(R2_box(0.03, 0.03, 0.4), 'wood', '#6B4A33', x, 0.46, 0); }
+  for (const zz of [-0.12, 0, 0.12]) L(R2_box(0.72, 0.01, 0.05), 'fabric', '#3A2A22', 0, 0.478, zz);
+  L(R2_box(0.62, 0.15, 0.4), 'plastic', col, 0, 0.558, 0); L(R2_box(0.58, 0.01, 0.36), 'fabric', '#E8E2D6', 0, 0.63, 0);
+  [['#5B7A99', -0.15, -0.06], ['#E8E2D6', 0.13, -0.08], ['#B5655A', -0.12, 0.09], ['#6F8A5E', 0.15, 0.08]].forEach(([c, x, zz], k) => L(R2_box(0.22, 0.045 + k * 0.01, 0.15), 'fabric', c, x, 0.655, zz, (k - 1.5) * 0.08));
+  L(R2_box(0.62, 0.4, 0.035), 'plastic', col, 0, 0.83, -0.236, 0, { rx: -0.18 }); L(R2_box(0.56, 0.35, 0.01), 'fabric', '#E8E2D6', 0, 0.834, -0.214, 0, { rx: -0.18 });
+  R2_blob(P, u, z, 0.95, 0.6, ry);
+}
+function R2_trolley(P, u, z, ry) {                                // brass luggage trolley, cases and a garment bag on it
+  const L = P.local(u, 0, z, ry);
+  L(R2_box(0.95, 0.06, 0.55), 'fabric', '#8A2E3A', 0, 0.18, 0); L(R2_box(0.97, 0.03, 0.57), 'metal', '#B08A4A', 0, 0.135, 0);
+  for (const x of [-0.45, 0.45]) { L(R2_cyl(0.02, 0.02, 1.62, 8), 'metal', '#B08A4A', x, 0.99, 0); L(R2_sph(0.035, 8, 6), 'metal', '#B08A4A', x, 1.82, 0); }
+  L(R2_cylX(0.022, 0.9, 8), 'metal', '#B08A4A', 0, 1.8, 0); L(R2_cylX(0.015, 0.9, 8), 'metal', '#B08A4A', 0, 1.3, 0);
+  for (const x of [-0.4, 0.4]) for (const zz of [-0.22, 0.22]) L(R2_cylZ(0.055, 0.035, 10), 'plastic', '#222', x, 0.06, zz);
+  L(R2_box(0.42, 0.58, 0.24), 'plastic', '#2F3A4F', -0.2, 0.5, 0); for (const x of [-0.3, -0.1]) L(R2_box(0.02, 0.56, 0.25), 'plastic', '#1E2430', x, 0.5, 0);
+  L(R2_box(0.34, 0.44, 0.22), 'plastic', '#8C5A4A', 0.22, 0.43, 0.02); L(R2_box(0.3, 0.16, 0.24), 'fabric', '#6F8A5E', -0.2, 0.87, 0, 0.15);
+  L(R2_box(0.36, 0.9, 0.05), 'fabric', '#3E4B5E', 0.22, 1.32, -0.15); L(R2_cylX(0.01, 0.12, 6), 'metal', '#C9CCD0', 0.22, 1.79, -0.15);
+  R2_blob(P, u, z, 1.1, 0.75, ry);
+}
+function R2_hotelSign(P, ctx, u, y, acc) {                        // the hotel's sign: a lit plaque with a bed pictogram and three stars
+  const z = ctx.backZ, wq = (dx, dy, w, h) => P(R2_box(w, h, 0.012), 'glow', '#FFFFFF', u + dx, y + dy, z + 0.067);
+  P(R2_box(1.04, 0.56, 0.04), 'metal', '#B08A4A', u, y, z + 0.022); P(R2_box(0.96, 0.48, 0.02), 'glow', acc, u, y, z + 0.05);
+  wq(-0.3, -0.07, 0.045, 0.26); wq(0.005, -0.125, 0.62, 0.05); wq(0.305, -0.12, 0.045, 0.14);          // headboard, mattress, foot
+  wq(0.08, -0.07, 0.42, 0.07); P(R2_cylZ(0.05, 0.012, 14), 'glow', '#FFFFFF', u - 0.2, y - 0.045, z + 0.067);   // a sleeper under the cover
+  for (let k = 0; k < 3; k++) P(R2_box(0.06, 0.06, 0.012), 'glow', '#FFD54A', u - 0.12 + k * 0.12, y + 0.14, z + 0.067, 0, { rz: Math.PI / 4 });
+}
+function R2_keyRack(P, ctx, u, y) {                               // pigeon-holes with room keys on red tags
+  const z = ctx.backZ;
+  P(R2_box(0.96, 0.62, 0.05), 'wood', '#5A3825', u, y, z + 0.035);
+  for (let q = 0; q <= 4; q++) P(R2_box(0.02, 0.62, 0.08), 'wood', '#7A5232', u - 0.48 + q * 0.24, y, z + 0.06);
+  for (let q = 0; q <= 3; q++) P(R2_box(0.96, 0.02, 0.08), 'wood', '#7A5232', u, y - 0.31 + q * 0.207, z + 0.06);
+  for (let c = 0; c < 4; c++) for (let rr = 0; rr < 3; rr++) if ((c * 3 + rr) % 4 !== 1) {
+    const kx = u - 0.36 + c * 0.24, ky = y - 0.207 + rr * 0.207;
+    P(R2_ring(0.018, 0.006, 10), 'metal', '#B08A4A', kx, ky + 0.03, z + 0.08); P(R2_box(0.028, 0.06, 0.008), 'plastic', '#C84A3A', kx, ky - 0.02, z + 0.08); }
+}
+function R2_pendant(P, u, z, y0, CH, col) {
+  P(R2_cyl(0.005, 0.005, CH - y0, 4), 'metalNC', '#333', u, (CH + y0) / 2, z);
+  P(R2_cyl(0.07, 0.22, 0.18, 14), 'metal', col, u, y0, z); P(R2_cyl(0.07, 0.2, 0.02, 14), 'glow', '#FFE2A8', u, y0 - 0.085, z);
+}
+function R2_hotel(P0, ctx, wing) {
+  const P = R2_noCast(P0), H = R2_hotelPlan(ctx, wing), v = H.v, acc = H.acc, bz = ctx.backZ, PI = Math.PI;   // hotel2: blue-grey palette
+  const pal = v ? { floor: '#5E7A8A', wall: '#D6DEE0', dado: '#B9C6CA', cur: '#3E5E7E', sofa: '#7A8E9A', chair: '#C9A46A', rug: '#3E5E7E', rugB: '#2E3E4E' }
+    : { floor: '#8A7E8C', wall: '#DCD3C6', dado: '#C9BDAE', cur: '#7A6A8E', sofa: '#6E5A7E', chair: '#B5A48A', rug: '#7A6A8E', rugB: '#4A3E52' };
+  const shell = H.room === 'reception' ? { floor: 'floortile', floorCol: '#E2DACB', dadoMat: 'wood', dadoCol: '#6B4A33' }
+    : H.room === 'breakfast' ? { floor: 'planks', floorCol: '#A87B52', dadoMat: 'paint', dadoCol: pal.dado } : { floor: 'hcarpet', floorCol: pal.floor, dadoMat: 'paint', dadoCol: pal.dado };
+  const { W, CH } = R2_shell(P, ctx, Object.assign({ wall: 'paint', wallCol: pal.wall, dado: 0.9, skirt: '#5A4434', cornice: '#EEE8DE' }, shell));
+  const win = (w, o) => w && R2_window(P, ctx, w.u, w.w, w.h, w.y0, Object.assign({ curtains: pal.cur, radiator: false, frame: '#E8E6E0' }, o));
+  for (const g of H.rugs) if (g.mat) R2_rug(P, g, '#4A4038', '#3A322C'); else R2_rug(P, g, pal.rug, pal.rugB);
+  if (H.room === 'guest' || H.room === 'suite') {
+    R2_ceilingServices(P, ctx, W, CH, { lights: [H.bed ?? W * 0.3, H.desk ? H.desk.u : W * 0.75], duct: false });
+    if (H.bed != null) R2_bed(P, H.bed, ctx, acc, H.room === 'suite');
+    if (H.ward) R2_wardrobe(P, H.ward.u, ctx, H.ward.w);
+    if (H.arm) R2_armchair(P, H.arm.u, H.arm.z, H.arm.ry, pal.chair);
+    if (H.lamp) R2_floorLamp(P, H.lamp.u, H.lamp.z);
+    if (H.desk) R2_hotelDesk(P, ctx, H.desk.u, H.desk.w);
+    if (H.rack) R2_luggageRack(P, H.rack.u, H.rack.z, H.rack.ry, H.room === 'suite' ? '#8C5A4A' : '#3E4B5E');
+    if (H.sofa) { R2_sofa(P, H.sofa.u, -4.05, H.sofa.w, pal.sofa, acc); R2_coffeeTable(P, H.table.u, H.table.z, H.table.w, H.table.d, acc); }
+    if (H.inBed) P(R2_box(0.66, 0.14, 0.72), 'fabric', '#F7F5F0', H.inBed.u, 0.66, -3.5);   // the duvet pulled over the reader's knees
+    win(H.win);
+    if (H.ward) R2_frame(P, ctx, H.ward.u, 2.45, 0.42, 0.26, R2_ATLAS.art3, '#C8A86A');
+    R2_socket(P, ctx, H.bed != null ? H.bed - 1.5 : W * 0.5);
+  } else if (H.room === 'reception') {
+    R2_ceilingServices(P, ctx, W, CH, { lights: [H.sofa ? H.sofa.u : W * 0.75], duct: false });
+    const C = H.counter, cu = C.u, zc = C.zc, a = 0.6, at = (r, t) => [cu + r * Math.sin(t), zc + r * Math.cos(t)];
+    // curved counter: dark plinth, walnut body with fluting, a band in the floor colour, stone top, a work shelf inside
+    P(R2_arcSlab(1.46, 1.79, a, 0.08), 'plasticNC', '#2A2420', cu, 0, zc);
+    P(R2_arcSlab(1.42, 1.82, a, 0.98), 'wood', '#5A3E2A', cu, 0.08, zc);
+    for (let k = 0; k <= 10; k++) { const t = -a + 0.05 + (2 * a - 0.1) * k / 10, [x, z] = at(1.83, t); P(R2_box(0.035, 0.66, 0.02), 'wood', '#7A5638', x, 0.45, z, t); }
+    P(R2_arcSlab(1.82, 1.845, a, 0.07), 'plasticNC', acc, cu, 0.84, zc);
+    P(R2_arcSlab(1.36, 1.88, a + 0.02, 0.05), 'plastic', '#E6E0D4', cu, 1.06, zc);
+    P(R2_arcSlab(1.1, 1.42, a - 0.05, 0.03), 'wood', '#C9B08A', cu, 0.74, zc);
+    R2_blob(P, cu, -3.7, 2.6, 1.0);
+    { const [mx, mz] = at(1.27, 0.3), M = P.local(mx, 0, mz, PI + 0.3);   // computer facing the receptionist, keyboard
+      M(R2_box(0.18, 0.012, 0.14), 'metal', '#9A9EA3', 0, 0.776, 0); M(R2_box(0.04, 0.2, 0.04), 'metal', '#9A9EA3', 0, 0.87, -0.02);
+      M(R2_box(0.5, 0.31, 0.03), 'plastic', '#1B1E22', 0, 1.12, 0); M(R2_pln(0.47, 0.28), 'sign', '#ffffff', 0, 1.12, 0.016, 0, { rect: R2_ATLAS.monitor });
+      const [kx, kz] = at(1.17, 0.05); P(R2_box(0.4, 0.015, 0.13), 'plastic', '#2A2D31', kx, 0.778, kz, 0.05); }
+    { const [x, z] = at(1.62, -0.3);                                   // the desk bell
+      P(R2_cyl(0.06, 0.065, 0.015, 12), 'metal', '#8A6A3A', x, 1.118, z); P(R2_hemi(0.05), 'metal', '#C8A24A', x, 1.125, z); P(R2_sph(0.012, 6, 4), 'metal', '#C8A24A', x, 1.18, z); }
+    { const [x, z] = at(1.6, 0.42);                                    // flowers, a card stand
+      P(R2_cyl(0.04, 0.05, 0.18, 8), 'glass', '#D8E8EC', x, 1.2, z); for (let k = 0; k < 4; k++) P(R2_sph(0.04, 8, 6), 'plastic', ['#E8E2D6', acc, '#F2C230', '#E8E2D6'][k], x + (k - 1.5) * 0.03, 1.33 + (k % 2) * 0.04, z + (k % 2 ? 0.02 : -0.02));
+      const [cx, cz] = at(1.58, 0.1); P(R2_box(0.14, 0.1, 0.06), 'plastic', '#F4F2EC', cx, 1.14, cz, 0.1, { rx: -0.3 }); }
+    R2_keyRack(P, ctx, cu - 0.75, 1.55); R2_hotelSign(P, ctx, cu, 2.2, acc);
+    P(R2_pln(0.28, 0.28), 'sign', '#ffffff', cu + 0.85, 2.2, bz + 0.012, 0, { rect: R2_ATLAS.clock });
+    for (const dx of [-0.6, 0.6]) R2_pendant(P, cu + dx, -3.75, 2.05, CH, '#B08A4A');
+    { const s = H.stand, L = P.local(s.u, 0, s.z, 0);               // the concierge's stand: a lectern with a lamp and a bell
+      L(R2_box(0.46, 0.95, 0.36), 'wood', '#5A3E2A', 0, 0.475, 0); L(R2_box(0.5, 0.04, 0.42), 'wood', '#3A2A1E', 0, 0.99, -0.02, 0, { rx: -0.22 });
+      L(R2_box(0.4, 0.06, 0.01), 'plasticNC', acc, 0, 0.8, 0.181); L(R2_box(0.28, 0.006, 0.2), 'plasticNC', '#FBFBF8', -0.04, 1.02, -0.03, 0.1, { rx: -0.22 });
+      L(R2_cyl(0.035, 0.04, 0.012, 10), 'metal', '#B08A4A', 0.17, 1.02, 0.1); L(R2_hemi(0.03), 'metal', '#C8A24A', 0.17, 1.026, 0.1);
+      R2_blob(P, s.u, s.z, 0.75, 0.65); }
+    R2_trolley(P, H.trolley.u, H.trolley.z, H.trolley.ry);
+    R2_plant(P, H.plant.u, 0, H.plant.z, 1.3, '#3F4348', 0); R2_blob(P, H.plant.u, H.plant.z, 0.7, 0.7);
+    if (H.sofa) {
+      R2_sofa(P, H.sofa.u, -4.05, H.sofa.w, pal.sofa, acc); R2_coffeeTable(P, H.table.u, H.table.z, H.table.w, H.table.d, acc);
+      R2_armchair(P, H.arm.u, H.arm.z, H.arm.ry, pal.chair); R2_armchair(P, H.arm2.u, H.arm2.z, H.arm2.ry, pal.chair);
+      R2_floorLamp(P, H.lamp.u, H.lamp.z); win(H.win); R2_pendant(P, H.table.u, H.table.z, 2.1, CH, '#2E3134');
+    }
+    R2_socket(P, ctx, cu - 1.2);
+  } else {                                                             // breakfast room
+    R2_ceilingServices(P, ctx, W, CH, { lights: [H.station ? H.station.u : 0.8], duct: false });
+    const { u0, u1 } = H.buffet, bw = u1 - u0, bc = (u0 + u1) / 2, z = bz + 0.3;
+    // buffet: cabinet, stone top, glass sneeze guard with a light under it, and breakfast laid out along it
+    P(R2_box(bw, 0.86, 0.58), 'wood', '#6B4A33', bc, 0.43, z); P(R2_box(bw + 0.04, 0.04, 0.62), 'plastic', '#E6E0D4', bc, 0.88, z);
+    for (let x = u0 + 0.55; x < u1 - 0.2; x += 0.55) P(R2_box(0.006, 0.72, 0.005), 'plasticNC', '#3A2A1E', x, 0.45, z + 0.292);
+    P(R2_box(bw - 0.1, 0.015, 0.36), 'glass', '#DCEAF0', bc, 1.34, z + 0.06); P(R2_box(bw - 0.2, 0.01, 0.04), 'glow', '#FFF1D6', bc, 1.325, z - 0.05);
+    for (const x of [u0 + 0.08, bc, u1 - 0.08]) P(R2_cyl(0.012, 0.012, 0.44, 6), 'metal', '#C9CCD0', x, 1.12, z + 0.2);
+    R2_blob(P, bc, z, bw + 0.2, 0.75);
+    const items = [
+      (x) => { P(R2_box(0.5, 0.06, 0.32), 'metal', '#B7BCC1', x, 0.93, z); P(R2_cylX(0.15, 0.48, 12), 'metal', '#D0D4D8', x, 0.97, z, 0, { sy: 0.45 }); P(R2_sph(0.02, 6, 4), 'metal', '#8E949A', x, 1.04, z); return 0.6; },
+      (x) => { P(R2_cyl(0.17, 0.1, 0.08, 14), 'plastic', '#F4F2EC', x, 0.94, z); for (let k = 0; k < 7; k++) P(R2_sph(0.045, 8, 6), 'plastic', ['#F2A541', '#D23A2E', '#7AAE4E', '#F2C230'][k % 4], x + Math.cos(k * 2.4) * 0.08 * (k % 3 ? 1 : 0.2), 1.0 + (k > 4 ? 0.05 : 0), z + Math.sin(k * 2.4) * 0.08 * (k % 3 ? 1 : 0.2)); return 0.45; },
+      (x) => { P(R2_box(0.36, 0.08, 0.26), 'wood', '#C9A46A', x, 0.94, z); for (let k = 0; k < 4; k++) P(R2_sph(0.05, 8, 6), 'plastic', '#D8A050', x - 0.11 + k * 0.075, 1.0, z + (k % 2 ? 0.05 : -0.05), 0.4, { sx: 1.6, sy: 0.7 }); return 0.45; },
+      (x) => { for (const dx of [0, 0.15]) { P(R2_cyl(0.06, 0.06, 0.22, 10), 'glass', '#E8F0F2', x + dx, 1.01, z); P(R2_cyl(0.05, 0.05, 0.15, 10), 'plastic', dx ? '#F2C230' : '#F2A541', x + dx, 0.975, z); } return 0.4; },
+      (x) => { P(R2_box(0.42, 0.04, 0.16), 'metal', '#B7BCC1', x, 0.92, z - 0.05); for (let k = 0; k < 3; k++) { P(R2_cyl(0.055, 0.055, 0.34, 10), 'glass', '#E8F0F2', x - 0.13 + k * 0.13, 1.11, z - 0.05); P(R2_cyl(0.048, 0.048, 0.2, 10), 'plastic', ['#C9A46A', '#8A5A3A', '#E8C84A'][k], x - 0.13 + k * 0.13, 1.04, z - 0.05); } return 0.5; },
+      (x) => { P(R2_cyl(0.12, 0.11, 0.12, 14), 'plastic', '#FBFBF8', x, 0.96, z); P(R2_cyl(0.08, 0.06, 0.1, 12), 'plastic', '#FBFBF8', x + 0.2, 0.95, z + 0.05); return 0.4; },
+    ];
+    for (let x = u0 + 0.3, k = 0; x < u1 - 0.25; k++) { const f = items[k % items.length]; x += f(x); }
+    R2_frame(P, ctx, bc - bw * 0.22, 1.95, 0.7, 0.5, R2_ATLAS.art1, '#B08A4A'); R2_frame(P, ctx, bc + bw * 0.22, 1.95, 0.7, 0.5, R2_ATLAS.art2, '#B08A4A');
+    // tables: wood top, pedestal, plates, cups, juice, a bread basket and a flower; a pendant lamp over each
+    for (const t of H.tables) { const T = P.local(t.u, 0, t.z, 0);
+      T(R2_box(0.78, 0.04, 0.78), 'wood', '#8A6142', 0, 0.75, 0); T(R2_cyl(0.04, 0.05, 0.72, 8), 'wood', '#3A2A1E', 0, 0.37, 0); T(R2_box(0.5, 0.03, 0.5), 'wood', '#3A2A1E', 0, 0.015, 0);
+      for (const s of [-1, 1]) { T(R2_cyl(0.11, 0.09, 0.015, 14), 'plastic', '#FBFBF8', s * 0.24, 0.775, 0); T(R2_cyl(0.05, 0.05, 0.006, 12), 'plastic', '#FBFBF8', s * 0.2, 0.774, -0.22);
+        T(R2_cyl(0.035, 0.03, 0.07, 10), 'plastic', '#FBFBF8', s * 0.2, 0.81, -0.22); T(R2_cyl(0.03, 0.025, 0.1, 8), 'glass', '#F0F4F4', s * 0.22, 0.82, 0.22); T(R2_cyl(0.026, 0.022, 0.07, 8), 'plastic', '#F2A541', s * 0.22, 0.805, 0.22);
+        T(R2_box(0.012, 0.005, 0.17), 'metal', '#C9CCD0', s * 0.37, 0.773, 0); }
+      T(R2_box(0.2, 0.06, 0.14), 'wood', '#C9A46A', 0, 0.8, 0.02); for (let k = 0; k < 3; k++) T(R2_sph(0.035, 8, 6), 'plastic', '#D8A050', -0.05 + k * 0.05, 0.84, 0.02, 0, { sx: 1.4, sy: 0.7 });
+      T(R2_cyl(0.025, 0.03, 0.1, 8), 'glass', '#D8E8EC', 0.02, 0.82, -0.2); T(R2_sph(0.035, 8, 6), 'plastic', acc, 0.02, 0.9, -0.2);
+      for (const c of t.chairs) R2_chair(P.local(c.u, 0, c.z, c.ry), '#5A3E2A', true, true);
+      R2_blob(P, t.u, t.z, 2.0, 0.9); R2_pendant(P, t.u, t.z, 1.85, CH, '#B08A4A'); }
+    if (H.station) { const { u, w } = H.station, sz = bz + 0.28, mx = u - w / 2 + 0.28;     // coffee station: machine, cups, milk, juice
+      P(R2_box(w, 0.86, 0.54), 'wood', '#5A3E2A', u, 0.43, sz); P(R2_box(w + 0.03, 0.035, 0.57), 'plastic', '#2E2B2A', u, 0.88, sz);
+      P(R2_box(0.38, 0.46, 0.36), 'metal', '#B7BCC1', mx, 1.13, sz - 0.02); P(R2_box(0.3, 0.1, 0.01), 'plastic', '#1E1F21', mx, 1.28, sz + 0.165);
+      P(R2_box(0.08, 0.03, 0.005), 'glow', '#7FD0FF', mx - 0.06, 1.28, sz + 0.172); P(R2_box(0.1, 0.05, 0.06), 'plastic', '#2A2D31', mx, 1.08, sz + 0.17);
+      P(R2_box(0.26, 0.02, 0.14), 'metal', '#8E949A', mx, 0.91, sz + 0.12); P(R2_cyl(0.035, 0.03, 0.08, 10), 'plastic', '#FBFBF8', mx, 0.96, sz + 0.12);
+      P(R2_cyl(0.07, 0.06, 0.16, 10), 'glass', '#E8F0F2', mx, 1.44, sz - 0.05); P(R2_cyl(0.06, 0.05, 0.1, 10), 'plastic', '#5A3825', mx, 1.41, sz - 0.05);   // beans
+      for (let k = 0; k < 3; k++) for (let j = 0; j < 3 - k % 2; j++) P(R2_cyl(0.035, 0.03, 0.07, 10), 'plastic', '#FBFBF8', u + 0.02 + k * 0.08, 0.935 + j * 0.07, sz + 0.05);
+      P(R2_cyl(0.04, 0.045, 0.12, 10), 'metal', '#D0D4D8', u + 0.3, 0.96, sz + 0.1);
+      if (w > 0.95) { P(R2_cyl(0.08, 0.08, 0.28, 12), 'glass', '#E8F0F2', u + w / 2 - 0.14, 1.04, sz - 0.05); P(R2_cyl(0.07, 0.07, 0.2, 12), 'plastic', '#F2A541', u + w / 2 - 0.14, 1.0, sz - 0.05); }
+      R2_blob(P, u, sz, w + 0.2, 0.7); win(H.win2, { curtains: null, blinds: true }); }
+    win(H.win);
+    R2_plant(P, H.plant.u, 0, H.plant.z, 1.1, '#D8D4CC', 1); R2_blob(P, H.plant.u, H.plant.z, 0.55, 0.55);
+    R2_socket(P, ctx, bc);
   }
 }
 
@@ -5757,7 +5987,7 @@ function setupLevel(i) {
   G.later = []; G.train = { phase: 'gap', t: 6, min: 0 };
   if (params.has('mockhooks')) installMockHooks(L);
   G.looTimer = 8;
-  G.debugLife = { looIn: 0, looOut: 0, ordersTaken: 0, mealsServed: 0, platesWashed: 0, carIn: 0, carOut: 0, carBoard: 0, carAlight: 0, trains: 0, trainAlight: 0, trainBoard: 0, streetIn: 0, streetOut: 0, queueL: 0, queueR: 0, boardL: 0, boardR: 0 };
+  G.debugLife = { looIn: 0, looOut: 0, ordersTaken: 0, mealsServed: 0, platesWashed: 0, carIn: 0, carOut: 0, carBoard: 0, carAlight: 0, trains: 0, trainAlight: 0, trainBoard: 0, streetIn: 0, streetOut: 0, hotelDesk: 0, queueL: 0, queueR: 0, boardL: 0, boardR: 0 };
   for (const k of ['ordersTaken', 'mealsServed', 'platesWashed']) Object.defineProperty(G.debugLife, k, { enumerable: true, configurable: true,
     get: () => (building?.floors || []).reduce((n, f) => n + (f?.restaurantLife?.[k] || 0), 0) });
   setupParking();
@@ -6071,11 +6301,15 @@ function planDeparture(p) {
     p.platX = x; p.path = [[x, L.laneZ]]; p.end = 'platform'; return;
   }
   if (p.floor !== L.groundIndex && !L.themes[p.floor].basement) {   // into a room: a free seat if there is one (art seats API)
-    const seat = building?.floors?.[p.floor]?.freeSeat?.();
-    if (seat) { p.seat = seat; p.path = [[seat.x, L.laneZ], [seat.x, seat.z]]; return; }
-    // else along the lane, then to a spot inside the room (fades there)
-    const x = roomSpotX(p.floor);
-    p.roomDoor = false; p.intoRoom = true; p.linger = ROOM_LINGER; p.path = [[x, L.laneZ], [x, ROOM_SPOT_Z]]; return;
+    const fh = building?.floors?.[p.floor], seat = fh?.freeSeat?.();
+    if (seat) { p.seat = seat; p.path = [[seat.x, L.laneZ], [seat.x, seat.z]]; }
+    else {                                                        // along the lane, then to a spot inside the room (fades there)
+      const x = roomSpotX(p.floor);
+      p.roomDoor = false; p.intoRoom = true; p.linger = ROOM_LINGER; p.path = [[x, L.laneZ], [x, ROOM_SPOT_Z]];
+    }
+    const fd = fh?.frontDesk;                                     // a hotel floor's reception: to the desk first for a key (once per guest)
+    if (fd && !p.checked && !p.trip && Number.isFinite(fd.x) && Number.isFinite(fd.z)) { p.desk = { t: CHECKIN_TIME, face: fd.face ?? Math.PI, then: p.path, on: false }; p.path = [[fd.x, L.laneZ], [fd.x, fd.z]]; }
+    return;
   }
   // old art without street / parking / train hooks: out through the lobby entrance, or into a basement wing
   const x = p.floor === L.groundIndex ? L.streetX : wingX();
@@ -6246,6 +6480,12 @@ function updatePerson(p, dt) {
       break;
     case 'leaving': {
       if (!followPath(p, dt)) break;
+      if (p.desk) {                                              // at a hotel floor's reception desk: a key, then on to the room
+        const k = p.desk; setAnim(p, 'idle'); p.rot = k.face;
+        if (!k.on) { k.on = true; building?.floors[p.floor]?.checkIn?.(); G.debugLife.hotelDesk++; }
+        k.t -= dt; if (k.t <= 0) { p.path = k.then; p.desk = null; }
+        break;
+      }
       if (p.end === 'loo') { startLoo(p); break; }
       if (p.seat) {                                              // at a seat: turn, sit down (or step in), fade while the occupant fades back in
         if (!p.seated) { p.seated = true; p.fade = 0; building?.floors[p.floor]?.fillSeat?.(p.seat.id); }
