@@ -1762,6 +1762,7 @@ function artBuildFloor(i, layout, parent, owned, ticks, SB, PB, R2B) {
     } else artWing(id, i, wing, rx0, rx1, y, doorX, fg, owned, anims, S, PB);
     if (doorX != null) doors.push({ wing, d: artRoomDoor(i, doorX, y, S, fg, owned) });
   });
+  if (fg.userData.roomSpots) (hooks.roomSpots = hooks.roomSpots || []).push(...fg.userData.roomSpots);   // classic rooms' clear spots (artWing)
   if (!SB) S.flush(fg, owned, false, true);
   if (hooks._bays || hooks._decor) { const life = artParkingLife(hooks._bays || [], hooks._ramp, y, fg, owned, hooks._decor, hooks._inner); delete hooks._inner; anims.push(life.tick); Object.assign(hooks, life.api); delete hooks._bays; delete hooks._ramp; delete hooks._decor; }
   if (id === 'subway') {                                     // lane spots to wait for a train, clear of the lift queue
@@ -3402,43 +3403,51 @@ function artHousekeeper(parent, seed, y, S, x0, z0, cartZ, beds) {
   }
   return W.tick;
 }
-// hotel corridor (right wing): cart along the corridor, towels, vacuum, knock and go into a room, wipe the console
+// hotel corridor (right wing): push the cart along and pull it back, towels, vacuum, knock and go into a room, wipe
+// the console (or polish the luggage trolley); she keeps out of the strip where game people walk into the room
 function artHotelMaidR(ctx, parent, sd) {
-  const W = ctx.x1 - ctx.x0, X = (u) => ctx.x0 + u, PI = Math.PI;
+  const W = ctx.x1 - ctx.x0, X = (u) => ctx.x0 + u, PI = Math.PI, d = R2_doorClear(ctx);
   const rw = Math.min(3.4, W * 0.5), c0 = rw + 0.1, cu = R2_fit(ctx, (c0 + W) / 2 - 0.55, 1.1, W);   // as R2_hotel
   if (cu == null) return [];
-  const cc = cu + 0.55, cz = -2.25, amp = Math.max(0, Math.min(0.4, cc - 0.85 - (c0 + 0.3), W - 0.3 - (cc + 0.85)));
-  const d = R2_doorClear(ctx), tu = R2_fit(ctx, W - 1.3, 1.0, W);
-  const du = [c0 + 0.7, W - 0.7].find((q) => !(d && q + 0.5 > d[0] && q - 0.5 < d[1]) && !(tu != null && tu > c0 && Math.abs(q - tu - 0.5) < 0.9));
-  const L0 = cc - amp - 0.85, va = c0 + 0.9, vb = Math.max(va + 0.5, W - 0.95), vz = -2.95, slow = { v: 0.3, f: 4.5, stride: 0.3 }, vs = { v: 0.32, f: 4, stride: 0.25 };
+  const cc = cu + 0.55, cz = -2.25, inStrip = (a, b) => d && b > d[0] - 0.1 && a < d[1] + 0.1;
+  const sg = !inStrip(cc + 0.6, cc + 1.5) && cc + 1.5 < W - 0.1 ? 1 : -1;      // her side of the cart
+  let amp = Math.min(0.4, cc - 0.6 - c0, W - 0.1 - (cc + 0.5), sg > 0 ? W - 0.3 - (cc + 0.85) : cc - 0.85 - (c0 + 0.3));
+  if (d && d[1] <= cc) amp = Math.min(amp, cc - 0.5 - d[1]); if (d && d[0] >= cc) amp = Math.min(amp, d[0] - cc - 0.5);
+  amp = Math.max(0, amp);
+  const hx0 = cc + sg * (amp + 0.85), hx1 = cc + sg * (0.85 - amp), slow = { v: 0.3, f: 4.5, stride: 0.3 }, vs = { v: 0.32, f: 4, stride: 0.25 };
+  const tu = R2_fit(ctx, W - 1.3, 1.0, W), trolley = tu != null && tu > c0 ? tu + 0.5 : null;
+  const du = [c0 + 0.7, W - 0.7].find((q) => !(d && q + 0.5 > d[0] && q - 0.5 < d[1]) && !(trolley != null && Math.abs(q - trolley) < 0.9));
+  let va = c0 + 0.9, vb = W - 0.95;                             // vacuum the longer stretch beside the strip
+  if (d) { const A = [va, Math.min(vb, d[0] - 0.3)], B = [Math.max(va, d[1] + 0.3), vb]; [va, vb] = A[1] - A[0] >= B[1] - B[0] ? A : B; }
   const S = [
-    Object.assign({ a: 'push', x: X(cc + amp - 0.85), z: cz, cart: 1 }, slow),
-    { a: 'towels', d: 2.4, ry: PI / 2 },
-    { a: 'walk', x: X(va), z: vz },
-    Object.assign({ a: 'vac', x: X(vb) }, vs), Object.assign({ a: 'vac', x: X(va) }, vs),
+    Object.assign({ a: 'push', x: X(hx1), z: cz, cart: -sg }, slow),
+    { a: 'towels', d: 2.4, ry: -sg * PI / 2 },
+    Object.assign({ a: 'push', x: X(hx0), ry: -sg * PI / 2, cart: -sg }, slow),     // pull it back, walking backwards
   ];
+  if (vb - va > 0.5) S.push({ a: 'walk', x: X(va), z: -2.95 }, Object.assign({ a: 'vac', x: X(vb) }, vs), Object.assign({ a: 'vac', x: X(va) }, vs));
   if (du != null) S.push({ a: 'walk', x: X(du), z: ctx.backZ + 0.6 }, { a: 'knock', d: 1.6, ry: PI }, { a: 'stand', d: 0.6, fade: 'out' },
     { a: 'stand', d: 2.6, fade: 'gone' }, { a: 'stand', d: 0.7, fade: 'in', ry: 0 });
-  S.push({ a: 'walk', x: X(c0 + 0.6), z: -1.95 }, { a: 'wipe', d: 3.4, ry: 0, bend: 0.12, reach: -0.75 },
-    { a: 'walk', x: X(cc + amp + 0.85), z: -1.85 }, { a: 'walk', z: cz },
-    Object.assign({ a: 'push', x: X(cc - amp + 0.85), cart: -1 }, slow),
-    { a: 'walk', z: -2.8 }, { a: 'walk', x: X(L0) }, { a: 'walk', z: cz });
-  let cx = X(cc - amp); for (const s of S) { s.cartX = cx; if (s.cart) cx = s.x + s.cart * 0.85; }
-  return [artHousekeeper(parent, 31 + sd * 17, ctx.y, S, X(L0), cz, cz, [])];
+  if (!inStrip(c0 + 0.3, c0 + 0.9)) S.push({ a: 'walk', x: X(c0 + 0.6), z: -1.95 }, { a: 'wipe', d: 3.4, ry: 0, bend: 0.12, reach: -0.75 }, { a: 'walk', x: X(hx0), z: -1.85 });
+  else if (trolley != null) S.push({ a: 'walk', x: X(trolley), z: -3.0 }, { a: 'wipe', d: 3.4, ry: PI, bend: 0, reach: -1.45 });   // polish the brass rail
+  S.push({ a: 'walk', x: X(hx0), z: cz });
+  let cx = X(cc + sg * amp); for (const s of S) { s.cartX = cx; if (s.cart) cx = s.x + s.cart * 0.85; }
+  return [artHousekeeper(parent, 31 + sd * 17, ctx.y, S, X(hx0), cz, cz, [])];
 }
 // hotel bedrooms (left wing): make the bed, wipe the bedside table, vacuum, then through to the next room (fade)
 function artHotelMaidL(ctx, parent, sd, v) {
   const W = ctx.x1 - ctx.x0, X = (u) => ctx.x0 + u, PI = Math.PI, d = R2_doorClear(ctx);
   let s = W / 2; if (d && s > d[0] - 0.1 && s < d[1] + 0.1) s = d[0] - 0.1 > W - d[1] ? d[0] - 0.1 : d[1] + 0.1;   // as R2_hotel
-  const rooms = [[0.1, s - 0.1, s - 0.45], [s + 0.1, W - 0.1, s + 0.45]].map(([a, b, ex]) => {
+  let rooms = [[0.1, s - 0.1, s - 0.45], [s + 0.1, W - 0.1, s + 0.45]].map(([a, b, ex], k) => {
     const w = b - a, mid = (a + b) / 2; let bc = null;
     if (w > 2.6) { const bu = R2_fit(ctx, mid - 1.3 + (w > 3.6 ? 0.4 : 0), 2.6, W); if (bu != null && bu >= a - 0.01 && bu + 2.6 <= b + 0.01) bc = bu + 1.3; }
-    return { a, b, ex, bc };
-  }).filter((r, k) => r.bc != null && (k === 0 || !v));         // hotel2 has a guest in the second room
+    return { a, b, ex, bc, k, guest: false };
+  }).filter((r) => r.bc != null);
+  if (v) { const r0 = rooms.filter((r) => r.k === 0); rooms = r0.length ? r0 : rooms.slice(0, 1); if (rooms[0] && rooms[0].k === 1) rooms[0].guest = true; }   // hotel2: a guest in room 2
   if (!rooms.length) return [];
   const acc = v ? (ctx.accent || '#7B4A2A') : '#9A55E6', S = [], beds = [], fz = -2.15, vs = { v: 0.32, f: 4, stride: 0.25 };
   for (const r of rooms) {
-    const spR = r.b - (r.bc + 0.8), spL = (r.bc - 0.8) - r.a, sg = spR >= spL ? 1 : -1, sp = Math.max(spR, spL);
+    const spR = r.b - (r.bc + 0.8), spL = (r.bc - 0.8) - r.a, sg = r.guest ? -1 : spR >= spL - 0.01 ? 1 : -1, sp = sg > 0 ? spR : spL;
+    if (r.guest && sp < 0.4) return [];
     S.push({ a: 'stand', x: X(r.ex), z: fz, jump: true, d: 0.7, fade: 'in' });
     if (sp >= 0.4) {
       const side = r.bc + sg * 1.02, tbl = r.bc + sg * Math.min(1.15, 0.8 + sp - 0.22), bed = { a: 'bed', d: 5.5, ry: -sg * PI / 2 };
@@ -3447,7 +3456,7 @@ function artHotelMaidL(ctx, parent, sd, v) {
       beds.push({ x: X(r.bc), z: ctx.backZ + 2.095, acc, step: bed });
     }
     const va = r.a + 1.45, vb = r.b - 0.95, ve = Math.max(r.a + 2.2, va + 0.3);   // the nozzle stays clear of the suitcases
-    if (vb - va > 0.6) { S.push({ a: 'walk', x: X(va), z: fz }, Object.assign({ a: 'vac', x: X(vb) }, vs)); if (ve < vb - 0.2) S.push(Object.assign({ a: 'vac', x: X(ve) }, vs)); }
+    if (!r.guest && vb - va > 0.6) { S.push({ a: 'walk', x: X(va), z: fz }, Object.assign({ a: 'vac', x: X(vb) }, vs)); if (ve < vb - 0.2) S.push(Object.assign({ a: 'vac', x: X(ve) }, vs)); }
     S.push({ a: 'walk', x: X(r.ex), z: fz }, { a: 'stand', d: 0.6, fade: 'out', ry: r.ex > r.bc ? PI / 2 : -PI / 2 }, { a: 'stand', d: rooms.length > 1 ? 1.2 : 3.0, fade: 'gone' });
   }
   return [artHousekeeper(parent, 36 + sd * 17, ctx.y, S, X(rooms[0].ex), fz, null, beds)];
