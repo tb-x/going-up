@@ -217,6 +217,7 @@ const LOWER_PARK_SHARE = 0.5;     // with two garages and no drivable bays (old 
 const ROOM_DOOR_Z = -4.1;              // (old: in front of a back-wall room door; rooms have no doors now)
 const ROOM_SPOT_Z = -1.9;              // where people stand when they come out of / go into a room: just in front of the furniture
                                         // (no doors: the back wall is the outside wall), so they step sideways, not towards the back wall
+const VISIT_MAX = 2, VISIT_TOTAL = 12;  // people who stay in a room without a seat (per floor / whole building); extras leave by the stairs
 const ROOM_LINGER = 2.2;               // s a person stands at the spot, facing out, before fading into the room
 const LOO_CHANCE = 1 / 6;              // someone getting up from a seat heads for the toilets instead (levels with a toilets wing)
 const LOO_TIME = [20, 40];             // s in the toilets before they come out again and ride back to their seat
@@ -6803,7 +6804,7 @@ function setupLevel(i) {
     get: () => (building?.floors || []).reduce((n, f) => n + (f?.restaurantLife?.[k] || 0), 0) });
   setupParking();
   G.people = []; G.lastInputTime = 0; G.cardShown = false; G.resumable = false; G.glow = new Array(L.nFloors).fill(0);
-  G.floors = L.floorY.map(() => ({ queues: [[], []], get queue() { return [...this.queues[0], ...this.queues[1]].sort((a, b) => a.id - b.id); }, stairHold: 0, stairOpen: 0, roomHold: { L: 0, R: 0 }, roomOpen: { L: 0, R: 0 }, shownRoom: { L: -1, R: -1 } }));
+  G.floors = L.floorY.map(() => ({ queues: [[], []], get queue() { return [...this.queues[0], ...this.queues[1]].sort((a, b) => a.id - b.id); }, stairHold: 0, stairOpen: 0, roomHold: { L: 0, R: 0 }, roomOpen: { L: 0, R: 0 }, shownRoom: { L: -1, R: -1 }, visitors: [] }));
   G.cars = L.shaftX.map((x, s) => {
     const cap = L.carCap[s], art = buildCar(s, cap, { wide: L.wide[s], zoneLabel: L.zoneLabel[s], zoneColor: L.zoneColor[s] }); scene.add(art.group);
     let f0 = L.groundIndex;                                       // start at the lobby, or the served floor nearest to it
@@ -6843,7 +6844,7 @@ function pickKind() {
 // from: 'street' | 'room' | 'parking' | 'subway' (where on the floor they appear)
 // extra (optional): { seed, opts, trip } to bring back the same person (a toilet visit's way home)
 function spawnPerson(origin, dest, kind, from, startX, startZ, extra) {
-  if (G.people.length >= MAX_PEOPLE || origin === dest) return null;
+  if (G.people.reduce((n, o) => n + (o.state === 'visiting' ? 0 : 1), 0) >= MAX_PEOPLE || origin === dest) return null;
   const q = G.floors[origin].queue;
   if (q.length + G.people.filter((o) => (o.state === 'approach' || o.state === 'checkin') && o.floor === origin && !o.ambient).length >= QUEUE_MAX) return null;
   const L = G.layout;
@@ -6860,12 +6861,19 @@ function spawnPerson(origin, dest, kind, from, startX, startZ, extra) {
     seat = fh.takeSeat(undefined, loo);
     if (seat && loo) { dest = lf.f; trip = { home: origin, loo: lf.f, wing: lf.wing, seatId: seat.id, x: seat.x, z: seat.z, face: seat.face, sit: !!seat.rise }; }
   }
+  const vis = fromDoor && !seat ? G.floors[origin].visitors : null;
+  if (vis && vis.length) {                                     // a visitor in the room walks out and becomes this passenger
+    const v = vis.shift(); Object.assign(v, { dest, trip: null, seat: null, waited: 0, stage: 0, state: 'approach', path: [[v.x, L.laneZ]], end: null, desk: null, from: 'room',
+      patience: G.level.patience * (KINDS[v.kind]?.patience || 1) });
+    v.art.setBubble(dest); v.art.setMood(0, 0); G.spawnCount.room = (G.spawnCount.room || 0) + 1; return v;
+  }
   kind = seat && KINDS[seat.kind] ? seat.kind : kind || pickKind();
   const K = KINDS[kind], seed = seat ? seat.seed : extra?.seed ?? 1 + rint(1e9), opts = seat ? seat.opts : extra?.opts ?? null;
   const guest = !!st && L.themes[dest]?.kind === 'hotel' && kind !== 'courier';             // a hotel guest: luggage, checks in first
   const art = buildPerson(kind, seed, guest ? Object.assign({}, opts, { luggage: true }) : opts); scene.add(art.group);
-  const x = byBus ? st.bus.stopX + (rng() - 0.5) * 1.4 : st ? (rng() < 0.5 ? st.leftX : st.rightX) : seat ? seat.x : startX ?? (from === 'street' ? L.streetX : fromDoor ? roomSpotX(origin) : L.roomDoorXs[rint(2)]);
-  const z0 = st ? paveZ(st) : seat ? seat.z : fromDoor ? ROOM_SPOT_Z : startZ ?? L.laneZ;
+  const x = byBus ? st.bus.stopX + (rng() - 0.5) * 1.4 : st ? (rng() < 0.5 ? st.leftX : st.rightX) : seat ? seat.x : startX ?? (from === 'street' ? L.streetX : fromDoor ? L.stairX : L.roomDoorXs[rint(2)]);   // nobody in the room: they come through the stair door
+  const z0 = st ? paveZ(st) : seat ? seat.z : fromDoor ? doorZ(origin, 'stairDoorZ', STAIR_DOOR_Z) : startZ ?? L.laneZ;
+  if (fromDoor && !seat) G.floors[origin].stairHold = 0.8;
   const p = { id: G.nextId++, kind, seed, opts, trip, floor: origin, dest, x, z: z0, rot: seat ? seat.face : Math.PI / 2, state: 'arriving', from,
     waited: 0, stage: 0, seats: K.seats, carIdx: -1, spots: [], patience: G.level.patience * K.patience, speed: WALK_SPEED * K.walk,
     move: K.move, art, alpha: 0, fade: 1, anim: 'walk', animT: 0, shakeT: 0, phase: 0, timer: 0, shownAlpha: -1, exitX: L.roomDoorX,
@@ -6876,9 +6884,9 @@ function spawnPerson(origin, dest, kind, from, startX, startZ, extra) {
     p.state = 'approach'; p.rec = rc; p.path = [[st.entranceX, paveZ(st)], [st.entranceX, rc.z], [rc.x, rc.z]]; G.debugLife.streetIn++;
   }
   else if (st) { p.state = 'approach'; p.path = [[st.entranceX, paveZ(st)], [st.entranceX, L.laneZ]]; G.debugLife.streetIn++; }
-  if (byBus && p.path) { p.z = st.bus.kerbZ; p.path.unshift([x, paveZ(st)]); G.debugLife.busIn = (G.debugLife.busIn || 0) + 1; }   // off the bus: across the pavement first
   else if (Math.abs(z0 - L.laneZ) > 0.01) { p.state = 'approach'; p.path = [[x, L.laneZ]]; }   // out of a door, then to the lane
   else joinQueue(p);
+  if (byBus && st && p.path) { p.z = st.bus.kerbZ; p.path.unshift([x, paveZ(st)]); G.debugLife.busIn = (G.debugLife.busIn || 0) + 1; }   // off the bus: across the pavement first
   G.people.push(p);
   if (from === 'parking' && !parkH(origin)) building?.floors[origin]?.carArrive?.(x);
   G.spawnCount[from]++;
@@ -7124,7 +7132,7 @@ function planDeparture(p) {
     const fh = building?.floors?.[p.floor], seat = fh?.freeSeat?.();
     if (seat) { p.seat = seat; p.path = [[seat.x, L.laneZ], [seat.x, seat.z]]; }
     else {                                                        // along the lane, then to a spot inside the room (fades there)
-      const x = roomSpotX(p.floor);
+      const nv = G.floors[p.floor].visitors.length, x = roomSpotX(p.floor) + (nv ? (nv % 2 ? 0.9 : -0.9) * Math.ceil(nv / 2) : 0);   // visitors spread out
       p.roomDoor = false; p.intoRoom = true; p.linger = ROOM_LINGER; p.path = [[x, L.laneZ], [x, ROOM_SPOT_Z]];
     }
     const fd = fh?.frontDesk;                                     // a hotel floor's reception: to the desk first for a key (once per guest)
@@ -7311,6 +7319,7 @@ function updatePerson(p, dt) {
       break;
     }
     case 'riding': setAnim(p, 'idle'); break;
+    case 'visiting': setAnim(p, 'idle'); break;               // in a room, looking around (idle gestures)
     case 'exiting':
       if (!walkTo(p, p.x, L.laneZ, dt)) break;
       if (p.floor !== p.dest) {                                            // zoned lifts: off at a floor to change lifts
@@ -7348,7 +7357,15 @@ function updatePerson(p, dt) {
         break;
       }
       setAnim(p, 'idle');
-      if (p.intoRoom && p.linger > 0) { p.linger -= dt; p.rot = 0; break; }   // arrived in the room: stand facing out a moment, then fade
+      if (p.intoRoom && !p.looIn) {                             // arrived in a room without a free seat: stays there as a visitor
+        p.intoRoom = false; p.state = 'visiting'; p.rot = 0; p.path = null; fl.visitors.push(p);
+        const all = G.floors.reduce((n, f) => n + f.visitors.length, 0);
+        if (fl.visitors.length > VISIT_MAX || all > VISIT_TOTAL) { const o = fl.visitors.shift();   // the room is full: the oldest leaves by the stairs
+          o.state = 'leaving'; o.end = 'stairs'; o.path = [[o.x, L.laneZ], [L.stairX, L.laneZ], [L.stairX, doorZ(o.floor, 'stairDoorZ', STAIR_DOOR_Z)]]; }
+        break;
+      }
+      if (p.intoRoom && p.linger > 0) { p.linger -= dt; p.rot = 0; break; }   // (toilet fallback) stand a moment, then fade
+      if (p.end === 'stairs') { fl.stairHold = 0.6; p.fade = 0; if (p.alpha <= 0) removePerson(p); break; }   // out through the stair door
       if (p.end === 'fade') {
         if (p.roomDoor) fl.roomHold[p.roomDoor] = 0.6;
         if (p.looIn && !p.looDur) { p.looDur = LOO_TIME[0] + rng() * (LOO_TIME[1] - LOO_TIME[0]); building?.floors[p.floor]?.occupyToilet?.(p.looDur); }
