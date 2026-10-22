@@ -212,7 +212,7 @@ const NIGHT_WEIGHTS = { day: { office: 1.5, home: 0.5 }, dusk: { restaurant: 2, 
 // where trips between floors start: by day people leave home, at dusk they leave work, at night they leave dinner
 const ORIGIN_WEIGHTS = { day: { home: 2.5 }, dusk: { office: 2.5 }, night: { restaurant: 1.5, cafe: 1.5 } };
 const HOME_TO_BASEMENT = 0.7;     // by day, people leaving a home floor head for the subway / car park this often
-const LOWER_PARK_SHARE = 0.5;     // with two garages, this share of car-park arrivals walk up from the lower one (-2)
+const LOWER_PARK_SHARE = 0.5;     // with two garages and no drivable bays (old art), this share of car-park arrivals use the lower one
 // door points (z) people walk to before fading through them; the art may override with floor handle fields
 const ROOM_DOOR_Z = -4.1;              // (old: in front of a back-wall room door; rooms have no doors now)
 const ROOM_SPOT_Z = -2.3;              // where people stand when they come out of / go into a room (no doors: the back wall is the outside wall)
@@ -268,8 +268,8 @@ const THEME_LIB = {
 };
 for (const t of Object.values(THEME_LIB)) { t.kind = t.kind || t.id; t.v = t.v || 0; }
 // floors bottom -> top (basements first: subway -3, parking2 -2, parking -1; parking2 always sits right under parking).
-// `wings` swaps a wing room for another room, by theme id: { office: { R: 'toilets' } }. Rooms: toilets (lobby right
-// wing, office, restaurant), bikes / laundry (parking2 left wing), playground (garden). The floor keeps its colour and number.
+// `wings` swaps a wing room for another room, by theme id: { office: { R: 'toilets' } }. Rooms: toilets (right wing of a
+// lobby, office or restaurant floor), bikes / laundry (parking2 left wing), playground (garden right wing). The floor keeps its colour and number.
 // Difficulty (floors, cars, cap, every, patience, target) rises step by step; levels 3, 6, 10 and 12 sit between old steps.
 const LEVELS = [
   // 1 corner flats
@@ -296,7 +296,7 @@ const LEVELS = [
     wings: { lobby: { R: 'toilets' } } },
   // 9 big hotel
   { floors: ['subway', 'parking', 'lobby', 'restaurant', 'hotel', 'hotel2', 'pool', 'garden'], cars: 2, cap: 4, every: 5.2, patience: 32, target: 15, specials: SP3, waves: [RUSH],
-    wings: { restaurant: { L: 'toilets' } } },
+    wings: { lobby: { R: 'toilets' } } },
   // 10 apartment tower: two garages, laundry, playground
   { floors: ['parking2', 'parking', 'lobby', 'cafe', 'home', 'home2', 'home3', 'garden'], cars: 3, cap: 4, every: 4.7, patience: 31, target: 16, specials: SP3, waves: [],
     wings: { parking2: { L: 'laundry' }, garden: { R: 'playground' } } },
@@ -1216,11 +1216,15 @@ function VEH_build(kind, seed = 1, opts = {}) {
    scale per point (street cars are a little bigger than parked ones); timing is precomputed, so carIn/carOut return
    exact seconds. Moving cars on the road are obstacles for the street traffic (artGuests). */
 const ART_PARK = { street: 0.72, laneNear: -8.0, laneFar: -10.0, roadY: -0.12, busStopX: -16, aisleZ: -0.95, rampZ: -1.15, rampLen: 8.0, groundX: 23.5,
-  vStreet: 7, vRamp: 2.8, vBay: 1.2, bayW: 1.72, holeL: 3.2, holeZ: -2.75 };
+  vStreet: 7, vRamp: 2.8, vBay: 1.2, bayW: 1.72,
+  // two garages, right wing (u from the core): S-curve start uS (radius rS) on -1, flight A uA -> u0 in the back band
+  // (centre zA, width wA), landing at u < u0 half a storey (land) above -2, flight B u0 -> uB in the front band
+  // (centre zB, width wB, U-turn radius rL on the landing); the -1 floor is open over flight A (z < holeZ); bays bay1 (-1), bay2 (-2)
+  in2: { uS: 6.6, rS: 1.25, uA: 4.1, u0: 1.6, uB: 4.4, zA: -3.65, wA: 1.6, zB: -2.05, wB: 1.4, rL: 0.8, land: 1.5, holeZ: -2.75, bay1: 0.85, bay2: 6.1 } };
 let artVehNight = 0;                  // 0 day .. 1 night: vehicle head/tail lights (artSetTime)
 const artGuests = new Set();          // { x, z, L } of parking cars while they are on the road
 // two garages (parking -1 over parking2 -2): the lower one's cars reach it by an internal ramp at the far end of the
-// right wing, rising from parking2 to parking through an opening holeL long (x) at the back (z < holeZ)
+// right wing: a split-level ramp from -1 down to -2 (ART_PARK.in2, R2_parkInner), the -1 floor open over its upper flight
 const artLowerPark = (layout) => !!(layout && layout.ids && layout.ids.includes('parking2') && layout.ids.includes('parking'));
 function artRampOf(layout) {          // the car park ramp outside the right wall (null without a parking floor)
   const i = layout && layout.ids ? layout.ids.indexOf('parking') : -1; if (i < 0) return null;
@@ -1490,10 +1494,11 @@ function buildBuilding(scene, layout) {
     S(artBox(w, SL, 1.2), '#A9A6A0', cx, yt - SL / 2, -0.6);
     const back = (a, b, hex = '#A9A6A0') => S(artBox(b - a, SL, D - 1.2), hex, (a + b) / 2, yt - SL / 2, -1.2 - (D - 1.2) / 2);
     back(x0 + STW, coreX0);
-    if (k === holeK) {                                        // two garages: the internal ramp's opening in the upper garage floor
-      const hx = x1 - ART_PARK.holeL, hz = ART_PARK.holeZ;
+    if (k === holeK) {                                        // two garages: the opening over the ramp's upper flight in the -1 floor
+      const I2 = ART_PARK.in2, ha = coreX1 + I2.u0, hb = coreX1 + I2.uA, hz = I2.holeZ;
       S(artBox(x1 - coreX1, SL, -hz - 1.2), '#A9A6A0', (coreX1 + x1) / 2, yt - SL / 2, (-1.2 + hz) / 2);
-      S(artBox(hx - coreX1, SL, D + hz), '#A9A6A0', (coreX1 + hx) / 2, yt - SL / 2, (hz - D) / 2);
+      S(artBox(ha - coreX1, SL, D + hz), '#A9A6A0', (coreX1 + ha) / 2, yt - SL / 2, (hz - D) / 2);
+      S(artBox(x1 - hb, SL, D + hz), '#A9A6A0', (hb + x1) / 2, yt - SL / 2, (hz - D) / 2);
     } else back(coreX1, x1);
     if (k === nFloors) back(coreX0, coreX1);                  // shaft roof
     else if (k === 0) {                                       // shaft pit: 1.2 m below the lowest floor, not a floor level with the lobby
@@ -1748,9 +1753,8 @@ function artBuildFloor(i, layout, parent, owned, ticks, SB, PB, R2B) {
         sharedBatch: R2B && ART_R2_SHARED.has(room) ? R2B : null };
       const h = R2_buildRoom(room, wing, rctx);
       for (const f of artR2Occupants(room, wing, rctx, fg, i * 10 + wi)) anims.push(f);
-      if (h.footXZ) hooks.footXZ = h.footXZ;
       if (rctx.spotX != null) (hooks.roomSpots = hooks.roomSpots || []).push({ x: rctx.spotX, z: -2.3, wing });   // clear strip, see R2_doorClear
-      if (h.bays) { (hooks._bays = hooks._bays || []).push(...h.bays); if (h.ramp) hooks._ramp = h.ramp; }
+      if (h.bays) { (hooks._bays = hooks._bays || []).push(...h.bays); if (h.ramp) hooks._ramp = h.ramp; if (h.inner) hooks._inner = h.inner; }
       if (h.decor) (hooks._decor = hooks._decor || []).push(...h.decor);
       if (h.train) { hooks.train = h.train; }
       fg.add(h.group); anims.push((t, dt) => h.update(t, dt));
@@ -1759,16 +1763,15 @@ function artBuildFloor(i, layout, parent, owned, ticks, SB, PB, R2B) {
       if (h.spawnPoints) hooks.spawnPoints = (hooks.spawnPoints || []).concat(h.spawnPoints);
       const W = rx1 - rx0, wc = (rx0 + rx1) / 2;                  // ceiling finish + corner shading for rooms2 rooms
       if (room === 'parking' && variant === 1 && wing === 'R') {   // lower garage: leave the internal ramp's opening open
-        const hl = ART_PARK.holeL, hz = ART_PARK.holeZ;
-        Ps(artPln(W - hl, D - 0.3), '#BDB9B1', rx0 + (W - hl) / 2, CH - 0.003, -0.3 - (D - 0.3) / 2, Math.PI / 2, 0, 0, 1, 1, 1, conc);
-        Ps(artPln(hl, -hz - 0.3), '#BDB9B1', rx1 - hl / 2, CH - 0.003, (-0.3 + hz) / 2, Math.PI / 2, 0, 0, 1, 1, 1, conc);
+        const I2 = ART_PARK.in2, hz = I2.holeZ, cp = (x0c, x1c, za, zb) => Ps(artPln(x1c - x0c, za - zb), '#BDB9B1', (x0c + x1c) / 2, CH - 0.003, (za + zb) / 2, Math.PI / 2, 0, 0, 1, 1, 1, conc);
+        cp(rx0, rx1, -0.3, hz); cp(rx0, rx0 + I2.u0, hz, -D); cp(rx0 + I2.uA, rx1, hz, -D);
       } else Ps(artPln(W, D - 0.3), basement ? '#BDB9B1' : '#E9E5DC', wc, CH - 0.003, -0.3 - (D - 0.3) / 2, Math.PI / 2, 0, 0, 1, 1, 1, basement ? conc : clay);
       S.add(artPln(W, 0.5), artAoM(), artXf(wc, y + CH - 0.25, -D + 0.01), '#000000');
     } else artWing(id, i, wing, rx0, rx1, y, doorX, fg, owned, anims, S, PB);
     if (doorX != null) doors.push({ wing, d: artRoomDoor(i, doorX, y, S, fg, owned) });
   });
   if (!SB) S.flush(fg, owned, false, true);
-  if (hooks._bays || hooks._decor) { const life = artParkingLife(hooks._bays || [], hooks._ramp, y, fg, owned, hooks._decor); anims.push(life.tick); Object.assign(hooks, life.api); delete hooks._bays; delete hooks._ramp; delete hooks._decor; }
+  if (hooks._bays || hooks._decor) { const life = artParkingLife(hooks._bays || [], hooks._ramp, y, fg, owned, hooks._decor, hooks._inner); delete hooks._inner; anims.push(life.tick); Object.assign(hooks, life.api); delete hooks._bays; delete hooks._ramp; delete hooks._decor; }
   if (id === 'subway') {                                     // lane spots to wait for a train, clear of the lift queue
     const qx = layout.queueX ? Math.min(...layout.queueX) - 0.5 : roomL[1] - 4.2;
     hooks.platformXs = [roomL[0] + 0.8, roomL[0] + 1.8, roomR[0] + 1.0, roomR[0] + 2.2, roomR[0] + 3.4, roomR[0] + 4.6].filter((px) => px < qx || px > roomR[0]);
@@ -1845,7 +1848,9 @@ function artPathPose(path, s, g) {            // place group g at distance s (re
   g.rotation.set(0, a.yaw + (b.yaw - a.yaw) * k, a.pitch + (b.pitch - a.pitch) * k);
   const sc = a.s + (b.s - a.s) * k; g.scale.setScalar(sc); return sc;
 }
-function artParkingLife(bays, ramp, y, parent, owned, decor) {
+// inner (two garages, on -2's life only): { yU, x0, wall } - its cars come down the street ramp to -1 (y yU), then
+// along -1 and down the split-level ramp in the right wing (ART_PARK.in2, wing left end x0) to -2, and back the same way
+function artParkingLife(bays, ramp, y, parent, owned, decor, inner) {
   const P = ART_PARK, B = bays.slice().sort((a, b) => a.x - b.x), cars = B.map(() => null), moving = new Set(), still = [];
   const PI = Math.PI, st = P.street;
   // ---- the ramp outside the right wall: sloped slab, retaining wall, edge beam and railing, signs (R2 materials)
@@ -1853,18 +1858,19 @@ function artParkingLife(bays, ramp, y, parent, owned, decor) {
     const RB = new R2_Batch(), Q = R2_placer(RB, { x0: 0, y: 0 }), xw = ramp.wall, xi = ramp.inner, Lr = P.rampLen, top = xw + Lr, rise = -y;
     const ang = Math.atan2(rise, Lr), RL = Math.hypot(Lr, rise), sn = Math.sin(ang), cs = Math.cos(ang), zc = -1.15, wd = 2.2;
     const along = (off, yOff, len, h, d, z, mat, hex) => Q(R2_box(len, h, d), mat, hex, xw + Lr / 2 + sn * -off, y + rise / 2 + cs * off + yOff, z, 0, { rz: ang });
-    along(-0.16, 0, RL + 0.12, 0.32, wd, zc, 'concrete', '#A9A6A0');                     // slab
+    // prisms with vertical ends (a rotated box would stick out at a slant past the wall and the entrance)
+    const prism = (pts, dz, z, hex) => { const sh = new THREE.Shape(); sh.moveTo(pts[0][0], pts[0][1]); for (const [px, py] of pts.slice(1)) sh.lineTo(px, py); sh.closePath();
+      const g = new THREE.ExtrudeGeometry(sh, { depth: dz, bevelEnabled: false }); g.translate(0, 0, -dz / 2); Q(g, 'concrete', hex, 0, 0, z); };
+    prism([[xw, y], [top, 0], [top, -0.32], [xw, y - 0.32]], wd, zc, '#A9A6A0');                          // slab
     for (const z of [zc - wd / 2 + 0.12, zc + wd / 2 - 0.12]) along(0.004, 0, RL - 0.2, 0.01, 0.07, z, 'plasticNC', '#ECEAE2');   // edge lines
     for (let k = 0; k < Lr / 0.55 - 1; k++) { const u = 0.4 + k * 0.55; Q(R2_box(0.05, 0.012, wd - 0.5), 'plasticNC', '#7E7B75', xw + u, y + u * rise / Lr + 0.004, zc, 0, { rz: ang }); }  // grooves
     Q(R2_box(xw - xi + 0.12, 0.3, 2.3), 'concrete', '#A9A6A0', (xi + xw) / 2, y - 0.15 + 0.004, -1.15);    // floor through the wall
-    Q(R2_box(Lr, rise + 0.3 + 0.85, 0.22), 'concrete', '#B4B0A8', xw + Lr / 2 - 0.2, (y - 0.3 + 0.85) / 2, -2.38);   // retaining wall
-    Q(R2_box(Lr + 0.1, 0.06, 0.3), 'concrete', '#C9C6BF', xw + Lr / 2 - 0.2, 0.88, -2.38);
     // covered ramp: a roof slab parallel to the ramp (2.3 m clear) along its whole length, rising out of the ground to the
     // entrance at street level, a sloped back wall under it, and a concrete wedge filling the soil gap above the buried part
     { const clr = 2.3, rt = 0.3;
-      along(clr + rt / 2, 0, RL + 0.12, rt, wd + 0.25, zc, 'concrete', '#B4B0A8');                                    // roof
-      Q(R2_box(RL, clr + 0.3, 0.22), 'concrete', '#B4B0A8', xw + Lr / 2, y + rise / 2 + (clr + 0.3) / 2 - 0.15, -2.38, 0, { rz: ang });   // back wall
-      const top0 = y + (clr + rt) / cs, xg = xw + Math.max(0, -top0) * Lr / rise;                                       // roof top meets y = 0 at xg
+      prism([[xw, y + clr], [top, clr], [top, clr + rt], [xw, y + clr + rt]], wd + 0.25, zc, '#B4B0A8');                     // roof
+      prism([[xw, y - 0.3], [top, -0.3], [top, clr + rt], [xw, y + clr + rt]], 0.22, -2.38, '#B4B0A8');                   // back wall
+      const top0 = y + clr + rt, xg = xw + Math.max(0, -top0) * Lr / rise;                                       // roof top meets y = 0 at xg
       if (top0 < -0.02 && xg > xw + 0.05) {
         const sh = new THREE.Shape(); sh.moveTo(xw, top0); sh.lineTo(xg, 0); sh.lineTo(xw, 0); sh.closePath();
         const wedge = new THREE.ExtrudeGeometry(sh, { depth: wd + 0.25, bevelEnabled: false }); wedge.translate(0, 0, -(wd + 0.25) / 2);
@@ -1879,36 +1885,49 @@ function artParkingLife(bays, ramp, y, parent, owned, decor) {
     for (const m of RB.flush(parent)) owned.push(m.geometry);
   }
   const kindOf = (seed) => { const r = artRng((seed | 0) * 131 + 17); return artPick(r, ['hatchback', 'mini', 'estate', 'sedan', 'suv', 'minivan', 'coupe', 'hatchback', 'mini']); };
-  const parkSc = (h) => Math.min(0.78, 2.7 / h.info.L);
-  const mk = (seed) => { const h = VEH_build(kindOf(seed), seed | 0); h.group.rotation.order = 'YXZ'; parent.add(h.group);
+  const parkSc = (h) => (inner ? Math.min(0.68, 2.3 / h.info.L) : Math.min(0.78, 2.7 / h.info.L));   // -2 cars: small, they fit under the landing
+  const mk = (seed) => { const h = VEH_build(inner ? artPick(artRng((seed | 0) * 131 + 17), ['hatchback', 'mini', 'coupe']) : kindOf(seed), seed | 0); h.group.rotation.order = 'YXZ'; parent.add(h.group);
     h.group.traverse((o) => { if (o.isMesh) o.castShadow = false; });   // parked cars: contact shadow only (no sun shadow through the slabs)
     return { h, sc: parkSc(h), path: null, t: 0, wd: 0, lastS: 0, g: { x: 0, z: 0, L: 0 }, lv: -1, br: -1 }; };
   const place = (c, b) => { c.h.group.position.set(b.x, y, b.z); c.h.group.rotation.set(0, PI / 2, 0); c.h.group.scale.setScalar(c.sc); c.h.setLights(0); c.h.setBrake(0); };
   const drop = (c) => { if (!c) return; moving.delete(c); artGuests.delete(c.g); c.h.dispose(); };
   for (const d of decor || []) { const c = mk(d.seed); place(c, d); still.push(c); }
-  const xw = ramp ? ramp.wall : (B[B.length - 1]?.x ?? 0) + 3, xi = ramp ? ramp.inner : xw, top = xw + P.rampLen, zR = P.rampZ, zA = P.aisleZ, r1 = 2.0, r2 = 1.6, rb = 0.9;
+  const xw = ramp ? ramp.wall : inner ? inner.wall : (B[B.length - 1]?.x ?? 0) + 3, xi = ramp ? ramp.inner : xw, yR = inner ? inner.yU : y, top = xw + P.rampLen, zR = P.rampZ, zA = P.aisleZ, r1 = 2.0, r2 = 1.6, rb = 0.9;
   const inPath = (b, sc) => {
     const xd = top + 0.6 + r2, ry = P.roadY, pb = artPathB();
     pb.to(xd - r1 - 26, ry, P.laneFar, P.vStreet, st).to(xd - r1, ry, P.laneFar, P.vStreet, st)
       .arc(xd - r1, P.laneFar + r1, r1, -PI / 2, 0, ry, 4.2, st)                       // off the far lane, towards the tower
       .to(xd, ry, -7.2, 3.6, st).to(xd, 0, -6.8, 3.2, st).to(xd, 0, zR - r2, 3.2, st)
       .arc(xd - r2, zR - r2, r2, 0, PI / 2, 0, 3.0, st)                                  // onto the ramp, heading down (-x)
-      .to(top, 0, zR, P.vRamp, st).to(xw + P.rampLen / 2, y / 2, zR, P.vRamp, (st + sc) / 2).to(xw, y, zR, P.vRamp, sc);
+      .to(top, 0, zR, P.vRamp, st).to(xw + P.rampLen / 2, yR / 2, zR, P.vRamp, (st + sc) / 2).to(xw, yR, zR, P.vRamp, sc);
+    if (inner) {                                     // -1: S-curve into the back band, flight A, U-turn on the landing, flight B, -2 bay
+      const I = P.in2, U = (u) => inner.x0 + u, yU = inner.yU, yM = y + I.land, zc = (I.zA + I.zB) / 2;
+      pb.to(U(I.uS), yU, zR, 2.2, sc).arc(U(I.uS), zR - I.rS, I.rS, PI / 2, PI, yU, 1.8, sc).arc(U(I.uS - 2 * I.rS), zR - I.rS, I.rS, 0, -PI / 2, yU, 1.8, sc)
+        .to(U(I.u0), yM, I.zA, 1.7, sc).arc(U(I.u0 - 0.05), zc, I.rL, -PI / 2, -3 * PI / 2, yM, 1.2, sc)
+        .to(U(I.uB), y, I.zB, 1.7, sc).to(b.x - rb, y, I.zB, 1.6, sc)
+        .arc(b.x - rb, I.zB - rb, rb, PI / 2, 0, y, P.vBay, sc).to(b.x, y, b.z, 0.8, sc);
+      return pb.done();
+    }
     if (b.x + rb < xw - 0.45) pb.to(b.x + rb, y, zA, 2.2, sc);
     pb.arc(b.x + rb, zA - rb, rb, PI / 2, PI, y, P.vBay, sc).to(b.x, y, b.z, 0.8, sc);
     return pb.done();
   };
   const outPath = (b, sc) => {
     const xd = top + 0.6 + r2, ry = P.roadY, pb = artPathB();
-    pb.to(b.x, y, b.z, 1.0, sc, true).to(b.x, y, zA - rb, 1.1, sc, true).arc(b.x - rb, zA - rb, rb, 0, PI / 2, y, 1.1, sc, true)
-      .to(xw, y, zR, 2.4, sc).to(xw + P.rampLen / 2, y / 2, zR, P.vRamp, (st + sc) / 2).to(top, 0, zR, P.vRamp, st).to(top + 0.6, 0, zR, 3.0, st)
+    if (inner) {                                     // back out of the -2 bay, then the inside ramps up to -1 and out the way it came
+      const I = P.in2, U = (u) => inner.x0 + u, yU = inner.yU, yM = y + I.land, zc = (I.zA + I.zB) / 2, zo = I.zB + 0.35;
+      pb.to(b.x, y, b.z, 1.0, sc, true).to(b.x, y, zo, 1.0, sc, true).arc(b.x - 0.35, zo, 0.35, 0, -PI / 2, y, 1.0, sc)
+        .to(U(I.uB), y, I.zB, 1.7, sc).to(U(I.u0 - 0.05), yM, I.zB, 1.5, sc).arc(U(I.u0 - 0.05), zc, I.rL, PI / 2, 3 * PI / 2, yM, 1.2, sc)
+        .to(U(I.uA), yU, I.zA, 1.7, sc).arc(U(I.uA), zR - I.rS, I.rS, -PI / 2, 0, yU, 1.8, sc).arc(U(I.uS), zR - I.rS, I.rS, PI, PI / 2, yU, 1.8, sc);
+    } else pb.to(b.x, y, b.z, 1.0, sc, true).to(b.x, y, zA - rb, 1.1, sc, true).arc(b.x - rb, zA - rb, rb, 0, PI / 2, y, 1.1, sc, true);
+    pb.to(xw, yR, zR, 2.4, sc).to(xw + P.rampLen / 2, yR / 2, zR, P.vRamp, (st + sc) / 2).to(top, 0, zR, P.vRamp, st).to(top + 0.6, 0, zR, 3.0, st)
       .arc(top + 0.6, zR - r2, r2, PI / 2, 0, 0, 3.4, st).to(xd, 0, -6.0, 3.6, st)        // off the ramp, across the back pavement
       .arc(xd - r1, -6.0, r1, 0, -PI / 2, ry, 4.5, st).to(xd - r1 - 40, ry, P.laneNear, P.vStreet, st);   // join the near lane
     return pb.done();
   };
   const go = (c, path, done) => { c.path = path; c.t = 0; c.lastS = 0; c.done = done; moving.add(c); };
   const api = {
-    bays: B.map((b) => ({ x: b.x, z: b.z, doorX: b.x + P.bayW / 2 })),
+    bays: B.map((b) => ({ x: b.x, z: b.z, doorX: b.doorX ?? b.x + P.bayW / 2 })),
     carDoorZ: -2.45,
     carIn(k, seed) { const b = B[k]; if (!b) return 0; drop(cars[k]); const c = cars[k] = mk(seed); go(c, inPath(b, c.sc), 'in'); api._tick(0); return c.path.T; },
     carOut(k) {
@@ -1941,17 +1960,21 @@ function artParkingLife(bays, ramp, y, parent, owned, decor) {
 /* Occupants of the rooms2 rooms, placed next to the props R2 draws (same fitting rules as R2). */
 function artR2Occupants(id, wing, ctx, parent, sd) {
   const W = ctx.x1 - ctx.x0, X = (u) => ctx.x0 + u, y = ctx.y, out = [], PI = Math.PI;
-  const add = (kind, seed, opts, pose, u, z, ry) => out.push(artOccupant(parent, kind, seed + sd * 17, opts, pose, X(u), y, z, ry));
-  if (id === 'office' && wing === 'L') {
+  const add = (kind, seed, opts, pose, u, z, ry, yy = 0) => out.push(artOccupant(parent, kind, seed + sd * 17, opts, pose, X(u), y + yy, z, ry));
+  const v = ctx.variant || 0, lay = id === 'office' && v ? (wing === 'L' ? 'R' : 'L') : wing;   // office2 swaps its wings' layouts
+  if (id === 'office' && lay === 'L') {
     const n = W > 6.2 ? 3 : 2, step = (W - 0.4) / n;
-    for (let k = 0; k < Math.min(n, 2); k++) { const u = R2_fit(ctx, 0.2 + step * k + (step - 1.5) / 2, 1.5, W); if (u != null) add('adult', 11 + k, { look: k ? 'suit' : 'casual' }, 'type', u + 0.75, -3.05, PI); }
+    if (v) R2_deskUs(ctx, W).slice(0, 2).forEach((u, k) => add('adult', 11 + k, { look: k ? 'suit' : 'casual' }, 'type', u + 0.75, -3.05, PI));
+    else for (let k = 0; k < Math.min(n, 2); k++) { const u = R2_fit(ctx, 0.2 + step * k + (step - 1.5) / 2, 1.5, W); if (u != null) add('adult', 11 + k, { look: k ? 'suit' : 'casual' }, 'type', u + 0.75, -3.05, PI); }
   } else if (id === 'office') {
     const d = R2_doorClear(ctx); let a = 0.15, b = W - 0.15;
     if (d) { if (d[0] - 0.15 > W - 0.15 - d[1]) b = d[0] - 0.05; else a = d[1] + 0.05; }
     const mw = Math.min(b - a, 4.6), m0 = a + (b === W - 0.15 ? 0 : (b - a - mw)), cu = m0 + mw / 2, tw = Math.min(2.4, mw - 1.2);
     add('adult', 21, { look: 'suit' }, 'talk', cu - tw / 2 - 0.35, -3.05, PI / 2);
     add('adult', 22, { look: 'dress' }, 'talk', cu + tw / 2 + 0.35, -3.05, -PI / 2);
-    add('adult', 23, { look: 'casual' }, 'phone', m0 > W / 2 ? 0.7 : W - 0.7, -2.1, 0);
+    add('adult', 23, { look: 'casual' }, 'phone', m0 > (v ? 1.8 : W / 2) ? 0.7 : W - 0.7, -2.1, 0);
+  } else if (id === 'hotel' && wing === 'L' && v) {
+    add('adult', 33, { look: 'casual', top: '#C9A46A' }, 'phone', W - 1.0, -2.0, 0);      // hotel2: a guest by the bed
   } else if (id === 'hotel' && wing === 'R') {
     const c0 = Math.min(3.4, W * 0.5) + 0.1, cu = R2_fit(ctx, (c0 + W) / 2 - 0.55, 1.1, W);
     if (cu != null) add('adult', 31, { look: 'dress', top: '#5B7A99' }, 'push', cu + 0.55 - 0.85, -2.25, PI / 2);
@@ -1962,6 +1985,30 @@ function artR2Occupants(id, wing, ctx, parent, sd) {
     add('adult', 42, { look: 'chef' }, 'cook', ru + 0.6, -3.45, PI);
   } else if (id === 'subway' && wing === 'L') {
     add('adult', 51, { look: 'worker' }, 'talk', W * 0.42, -2.9, 0);
+  } else if (id === 'home') {                                   // positions from R2_homePlan, the same as the furniture
+    const H = R2_homePlan(ctx, wing), sg = H.sgn;
+    if (H.room === 'living') {
+      const s = H.sofa;
+      add(H.v === 2 ? 'grandma' : 'adult', 81 + H.v, H.v === 0 ? { look: 'casual', top: '#B5655A' } : null, 'read', s.u - sg * s.w * 0.22, -3.85, s.ry);
+      if (H.v === 1) add('kid', 84, null, 'play', H.table.u + 0.75, -2.25, 0);
+    } else if (H.room === 'kitchen') {
+      const K = H.kit;
+      add('adult', 86 + H.v, { look: 'casual', top: H.v ? '#6F8A5E' : '#C9A46A' }, 'cook', K.hob, -3.45, PI);
+      if (K.dc != null) add(H.v ? 'adult' : 'kid', 88 + H.v, null, H.v ? 'read' : 'sit', K.dc - sg * 0.85, -3.0, sg * PI / 2);
+    } else {
+      add('kid', 90, null, 'play', H.rugU, -2.3, 0);
+      if (H.desk != null) add('kid', 91, { look: 'casual' }, 'read', H.desk, -3.62, PI);
+    }
+  } else if (id === 'bikes') {                                  // (the toilets make and animate their own people)
+    const [a] = R2_segs(ctx, W)[0] || [0.1];
+    add('kid', 96, null, 'look', a + 4.0, -2.35, PI);
+  } else if (id === 'laundry') {
+    add('adult', 97, { look: 'casual', top: '#7A6A8E' }, 'carry', W * 0.62, -2.0, PI / 2);
+  } else if (id === 'playground') {
+    const G = R2_playPlan(ctx, W);
+    add('kid', 98, null, 'wave', G.px, G.pz, 0, G.ph + 0.03);                    // on the slide's deck
+    if (G.swing != null) add('kid', 99, null, 'sit', G.swing - 0.45, -3.2, 0, 0.1);   // on a swing
+    else add('kid', 99, null, 'play', G.sand, -2.2, 0, 0.1);
   }
   return out;
 }
@@ -2650,7 +2697,7 @@ function buildPerson(kind, seed, opts) {
 /* Room occupants (not game people): a person builder figure with its body frozen into one mesh (legs, torso and
    head merged; arms stay animated), at a fixed spot doing its job. Per figure: body, face, 2 arms, contact shadow. */
 let artOccList = null;                                       // occupants of the building being built (disposed with it)
-const ART_OCC_ARMS = { talk: 'L', cook: 'R', swim: 'LR', wave: 'R', guard: 'R' };   // arms that keep moving per pose
+const ART_OCC_ARMS = { talk: 'L', cook: 'R', swim: 'LR', wave: 'R', guard: 'R', wash: 'LR' };   // arms that keep moving per pose
 function artOccupant(parent, kind, seed, opts, pose, x, y, z, ry) {
   const h = buildPerson(kind, seed, opts), p = h._p, sit = pose === 'type' || pose === 'read' || pose === 'sit';
   if (sit) for (const l of p.legs) l.rotation.x = -1.45;
@@ -2667,6 +2714,7 @@ function artOccupant(parent, kind, seed, opts, pose, x, y, z, ry) {
     else if (pose === 'water') { aR.rotation.set(-0.95 + 0.12 * s(t * 1.4), 0, -0.12); h.group.position.x = base.x + 0.5 * s(t * 0.25); }
     else if (pose === 'swim') { aL.rotation.set(-(t * 3.4) % 6.283, 0, 0.25); aR.rotation.set(-(t * 3.4 + 3.14) % 6.283, 0, -0.25); h.group.position.x = base.x + 0.9 * s(t * 0.3); h.group.rotation.y = Math.cos(t * 0.3) > 0 ? Math.PI / 2 : -Math.PI / 2; }
     else if (pose === 'push') { aL.rotation.set(-1.2, 0, 0.12); aR.rotation.set(-1.2, 0, -0.12); }
+    else if (pose === 'wash') { aL.rotation.set(-1.0 + 0.1 * s(t * 10), 0, 0.42 + 0.08 * s(t * 10)); aR.rotation.set(-1.0 + 0.1 * s(t * 10 + 3.1), 0, -0.42 - 0.08 * s(t * 10 + 3.1)); }
     else if (pose === 'carry') { aL.rotation.set(-1.25, 0, 0.1); aR.rotation.set(-1.25, 0, -0.1); const k = s(t * 0.35); h.group.position.x = base.x + 1.3 * k; h.group.rotation.y = Math.cos(t * 0.35) > 0 ? Math.PI / 2 : -Math.PI / 2; p.rig.position.y = Math.abs(s(t * 7)) * 0.025; }
     else if (pose === 'look') { aL.rotation.set(-0.95, 0, 0.3); aR.rotation.set(-1.1, 0, -0.2); }
     else if (pose === 'wave') { aR.rotation.set(0, 0, 2.45 + 0.35 * s(t * 6)); }
@@ -2690,6 +2738,7 @@ function artOccupant(parent, kind, seed, opts, pose, x, y, z, ry) {
   for (const o of [p.steam, pose === 'swim' || sit ? p.blob : null]) if (o && o.parent) o.parent.remove(o);
   p.rig.position.y = rest; tick(0);
   if (artOccList) artOccList.push(h);
+  tick.h = h;                                                  // rooms that move or fade their occupants (toilets) use the handle
   return tick;
 }
 /* ======== art: time of day ======== */
@@ -2899,12 +2948,15 @@ function R2_atlasTex() {
       g.lineWidth = 3; g.beginPath(); g.moveTo(x + 32, y + 32); g.lineTo(x + 32, y + 12); g.moveTo(x + 32, y + 32); g.lineTo(x + 46, y + 38); g.stroke(); }
     { const [x, y, w, h] = R.logo; g.fillStyle = '#2F6FE0'; g.fillRect(x, y, w, h); txt('BLUEDESK', x + w / 2, y + h / 2 + 2, 34, '#fff'); }
     { const [x, y, w, h] = R.hotelno; g.fillStyle = '#3a2f2a'; g.fillRect(x, y, w, h); txt('214  216', x + w / 2, y + h / 2 + 2, 22, '#e8d6a8'); }
-    { const [x, y, w, h] = R.wc; g.fillStyle = '#2459B8'; g.fillRect(x, y, w, h); g.fillStyle = '#fff'; g.fillRect(x + w / 2 - 1.5, y + 8, 3, h - 16);   // toilets: man | woman pictograms
-      for (const [cx, dress] of [[x + 32, false], [x + 96, true]]) { g.beginPath(); g.arc(cx, y + 13, 6.5, 0, 7); g.fill();
-        if (dress) { g.beginPath(); g.moveTo(cx - 5, y + 22); g.lineTo(cx + 5, y + 22); g.lineTo(cx + 11, y + 46); g.lineTo(cx - 11, y + 46); g.closePath(); g.fill(); }
-        else g.fillRect(cx - 7, y + 22, 14, 22);
-        g.fillRect(cx - 6, y + 44, 5, 15); g.fillRect(cx + 1, y + 44, 5, 15);
-        g.fillRect(cx - 11, y + 23, 3, 17); g.fillRect(cx + 8, y + 23, 3, 17); } }
+    { const [x, y, w, h] = R.wc; g.fillStyle = '#2459B8'; g.fillRect(x, y, w, h); g.fillStyle = '#fff'; g.strokeStyle = '#fff';   // toilets: man | woman | accessible
+      for (const dx of [42.5, 85]) g.fillRect(x + dx - 1, y + 8, 2, h - 16);
+      for (const [cx, dress] of [[x + 21, false], [x + 63.5, true]]) { g.beginPath(); g.arc(cx, y + 13, 5.5, 0, 7); g.fill();
+        if (dress) { g.beginPath(); g.moveTo(cx - 4, y + 21); g.lineTo(cx + 4, y + 21); g.lineTo(cx + 9, y + 43); g.lineTo(cx - 9, y + 43); g.closePath(); g.fill(); }
+        else g.fillRect(cx - 6, y + 21, 12, 21);
+        g.fillRect(cx - 5, y + 42, 4, 15); g.fillRect(cx + 1, y + 42, 4, 15); g.fillRect(cx - 9.5, y + 22, 3, 15); g.fillRect(cx + 6.5, y + 22, 3, 15); }
+      { const cx = x + 106; g.beginPath(); g.arc(cx - 3, y + 12, 5, 0, 7); g.fill(); g.lineWidth = 4; g.lineCap = 'round';
+        g.beginPath(); g.moveTo(cx - 4, y + 20); g.lineTo(cx - 4, y + 36); g.lineTo(cx + 8, y + 36); g.lineTo(cx + 12, y + 48); g.stroke();
+        g.lineWidth = 3; g.beginPath(); g.arc(cx - 3, y + 44, 11, 0.4 * Math.PI, 2.1 * Math.PI); g.stroke(); } }
   });
 }
 
@@ -3352,24 +3404,32 @@ function R2_car(P, type, col, u, z, ry, yy = 0, sc = 1) {      // nose along loc
 }
 function R2_parking(P, ctx, wing) {
   const bz = ctx.backZ, r = ctx.rng;
-  const { W, CH } = R2_shell(P, ctx, { floor: 'concrete', floorCol: '#8F8D88', wall: 'concrete', wallCol: '#B4B0A8', skirt: '#F2C230', skirtMat: 'plasticNC', cornice: '#A9A6A0', stripe: '#2459B8', stripeY: 1.1 });
+  // two garages (parking -1 over parking2 -2): the right wing holds a split-level ramp between them (R2_parkInner).
+  // -1 has the opening over its upper flight, with kerbs and railings; -2 has both flights, the landing and the walls.
+  const lower = (ctx.variant || 0) === 1, I = ART_PARK.in2;
+  const hole = !!ctx.dynamicCars && wing === 'R' && (lower || !!ctx.parkLower);
+  const { W, CH } = R2_shell(P, ctx, { floor: 'concrete', floorCol: lower ? '#86837D' : '#8F8D88', wall: 'concrete', wallCol: lower ? '#A9A49A' : '#B4B0A8', skirt: '#F2C230', skirtMat: 'plasticNC',
+    cornice: '#A9A6A0', stripe: lower ? '#7A6A58' : '#2459B8', stripeY: 1.1, hole: hole && !lower ? [I.u0, I.uA, I.holeZ] : null });
   P(R2_box(W, 0.03, 0.02), 'plasticNC', '#F2C230', W / 2, 0.55, bz + 0.012);
   R2_ceilingServices(P, ctx, W, CH, { lights: [W * 0.2, W * 0.55, W * 0.88], lightType: 'tube', duct: false });
-  // ceiling pipes: red sprinkler main, grey drain pipe, cable tray, small conduit
-  P(R2_cylX(0.06, W), 'metalNC', '#B8322A', W / 2, CH - 0.12, -3.2); P(R2_cylX(0.09, W), 'plasticNC', '#8E949A', W / 2, CH - 0.22, -4.0);
+  // ceiling pipes: red sprinkler main, grey drain pipe (not across the ramp opening above -2), cable tray, small conduit
+  for (const [a, b] of hole && lower ? [[0, I.u0], [I.uA, W]] : [[0, W]]) {
+    P(R2_cylX(0.06, b - a), 'metalNC', '#B8322A', (a + b) / 2, CH - 0.12, -3.2); P(R2_cylX(0.09, b - a), 'plasticNC', '#8E949A', (a + b) / 2, CH - 0.22, -4.0);
+    for (let u = a + 0.5; u < b; u += 1.5) { P(R2_box(0.03, 0.2, 0.03), 'metalNC', '#8E949A', u, CH - 0.1, -3.2); P(R2_box(0.03, 0.3, 0.03), 'metalNC', '#8E949A', u, CH - 0.15, -4.0); }
+  }
   P(R2_box(W, 0.06, 0.32), 'metalNC', '#A9ADB2', W / 2, CH - 0.07, -1.9); for (let k = 0; k < 6; k++) P(R2_cylX(0.018, W, 6), 'plasticNC', ['#2E3134', '#3A3D42', '#5A4A3A'][k % 3], W / 2, CH - 0.03 - (k % 2) * 0.03, -2.0 + k * 0.04);
-  for (let u = 0.5; u < W; u += 1.5) { P(R2_box(0.03, 0.2, 0.03), 'metalNC', '#8E949A', u, CH - 0.1, -3.2); P(R2_box(0.03, 0.3, 0.03), 'metalNC', '#8E949A', u, CH - 0.15, -4.0); }
   // tyre marks, oil stains (dark flat boxes)
-  for (let k = 0; k < 7; k++) P(R2_box(0.5 + r() * 1.2, 0.002, 0.05 + r() * 0.15), 'plasticNC', '#55524E', r() * W, 0.008, -1.4 - r() * 2.8, r() * 0.6 - 0.3);
+  for (let k = 0; k < 7; k++) P(R2_box(0.5 + r() * 1.2, 0.002, 0.05 + r() * 0.15), 'plasticNC', '#55524E', r() * W, 0.008, -1.4 - r() * (hole ? 0.0 : 2.8), r() * 0.6 - 0.3);
   const column = (u) => { P(R2_box(0.42, CH, 0.42), 'concrete', '#A9A6A0', u, CH / 2, -2.9); P(R2_box(0.44, 0.7, 0.44), 'plasticNC', '#F2C230', u, 0.35, -2.9);
     for (let k = 0; k < 3; k++) P(R2_box(0.445, 0.08, 0.445), 'plasticNC', '#1D1D1D', u, 0.12 + k * 0.22, -2.9); };
   const line = (u0, u1, z0, z1) => { const dx = u1 - u0, dz = z1 - z0, l = Math.hypot(dx, dz); P(R2_box(l, 0.004, 0.08), 'plasticNC', '#ECEAE2', (u0 + u1) / 2, 0.008, (z0 + z1) / 2, -Math.atan2(dz, dx)); };
   const spawn = [], bays = [];
   let ramp = null;
+  if (hole) return R2_parkInner(P, ctx, lower, line);
   if (ctx.dynamicCars) {
     // painted nose-in bays (cars rear to the camera). Right wing: the game's bays, the aisle to the opening in the
     // outer wall and the ramp beyond it (built by artParkingLife). Left wing: bays with two cars parked for good.
-    const BW = ART_PARK.bayW, n = Math.max(1, Math.floor((W - 0.1) / BW)), u0 = (W - n * BW) / 2, game = wing === 'R', decor = [];
+    const BW = ART_PARK.bayW, n = Math.max(1, Math.floor((W - 0.1) / BW)), u0 = (W - n * BW) / 2, game = wing === 'R' && !lower, decor = [];
     for (let k = 0; k <= n; k++) line(u0 + k * BW, u0 + k * BW, -1.5, -4.4);
     line(u0, u0 + n * BW, -4.4, -4.4);
     for (let k = 0; k < n; k++) {
@@ -3452,6 +3512,73 @@ function R2_parking(P, ctx, wing) {
     P(R2_box(0.35, 0.6, 0.18), 'plasticNC', '#C8322A', tu + 0.0, 1.9, bz + 0.1, 0, { sx: 0.7, sy: 0.6 });
   }
   return { spawnPoints: spawn, bays, ramp };
+}
+
+/* Two garages, right wing (u from the core): a split-level ramp. From -1, cars swing from the aisle into the back band
+   (S-curve, u uS -> uA), go down flight A (back band, u uA -> u0) to a landing half a storey down at the inner end,
+   turn round on it, and go down flight B (front band, u u0 -> uB) to -2, then into the -2 bay at the far end. -1 keeps
+   one bay over the landing; its floor is open over flight A (kerb and railings). Ramp slabs are extruded
+   parallelograms, so their ends are cut vertically and meet the floors flush. */
+function R2_poly(pts, depth) {                  // a flat polygon in x-y (u, height), extruded `depth` along +z
+  const k = 'po' + pts.join(';') + '|' + depth; if (R2_GEO[k]) return R2_GEO[k];
+  const sh = new THREE.Shape(); pts.forEach(([x, y], i) => (i ? sh.lineTo(x, y) : sh.moveTo(x, y))); sh.closePath();
+  return (R2_GEO[k] = new THREE.ExtrudeGeometry(sh, { depth, bevelEnabled: false }));
+}
+// parallelogram (ua,ya)-(ub,yb) with vertical ends, t thick: a ramp slab or a sloped wall that meets the floors flush
+const R2_para = (ua, ya, ub, yb, t, depth) => R2_poly([[ua, ya], [ub, yb], [ub, yb - t], [ua, ya - t]], depth);
+function R2_parkInner(P, ctx, lower, line) {
+  const I = ART_PARK.in2, bz = ctx.backZ, W = ctx.x1 - ctx.x0, FH = ctx.floorH || 3.0, X = (u) => ctx.x0 + u, D = -bz, PI = Math.PI;
+  const bays = [], spawn = [], numSign = (u, n) => P(R2_pln(0.32, 0.6), 'sign', '#ffffff', u, 0.95, bz + 0.012, 0, { rect: [R2_ATLAS.num[0] + (n % 8) * 64, R2_ATLAS.num[1], 64, 128] });
+  const zA0 = I.zA - I.wA / 2, zB1 = I.zB + I.wB / 2;              // back band starts at the back wall, front band ends at -1.35
+  if (!lower) {
+    // -1: one bay over the landing, kerb + railings round the opening over flight A, arrows along the S-curve
+    const bu = I.bay1;
+    line(bu - 0.75, bu - 0.75, -1.5, -4.4); line(bu + 0.75, bu + 0.75, -1.5, I.holeZ); numSign(bu, 3);
+    P(R2_box(0.9, 0.1, 0.14), 'concrete', '#C9C6BF', bu, 0.05, -4.22);
+    bays.push({ x: X(bu), z: -2.85, ry: PI / 2, doorX: X(bu + 0.78) });
+    spawn.push(new THREE.Vector3(X(bu + 0.78), ctx.y, ctx.laneZ));
+    const h0 = I.u0, h1 = I.uA, hz = I.holeZ;
+    P(R2_box(h1 - h0, 0.12, 0.12), 'concrete', '#C9C6BF', (h0 + h1) / 2, 0.06, hz + 0.06); P(R2_box(h1 - h0, 0.02, 0.125), 'plasticNC', '#F2C230', (h0 + h1) / 2, 0.13, hz + 0.06);
+    P(R2_box(0.12, 0.12, D + hz), 'concrete', '#C9C6BF', h0 - 0.06, 0.06, (bz + hz) / 2); P(R2_box(0.125, 0.02, D + hz), 'plasticNC', '#F2C230', h0 - 0.06, 0.13, (bz + hz) / 2);
+    for (let k = 0; k <= 3; k++) P(R2_box(0.05, 1.0, 0.05), 'metal', '#F2C230', h0 + k * (h1 - h0 - 0.1) / 3, 0.5, hz + 0.06);
+    P(R2_cylX(0.03, h1 - h0), 'metal', '#F2C230', (h0 + h1) / 2, 1.0, hz + 0.06); P(R2_cylX(0.02, h1 - h0), 'metal', '#F2C230', (h0 + h1) / 2, 0.6, hz + 0.06);
+    for (const z of [hz - 0.6, bz + 0.2]) P(R2_box(0.05, 1.0, 0.05), 'metal', '#F2C230', h0 - 0.06, 0.5, z);
+    P(R2_cylZ(0.03, D + hz), 'metal', '#F2C230', h0 - 0.06, 1.0, (bz + hz) / 2);
+    for (const [u, z, a] of [[I.uS - 0.2, -1.3, PI], [I.uS - 1.25, -2.4, PI / 2], [I.uA + 0.5, -3.6, PI]]) for (const sd of [-1, 1])   // arrows
+      P(R2_box(0.24, 0.004, 0.07), 'plasticNC', '#ECEAE2', u + Math.cos(a) * 0.08, 0.008, z - Math.sin(a) * 0.08, a + sd * 0.75);
+    P(R2_pln(0.45, 0.45), 'sign', '#ffffff', I.uA + 0.9, 2.2, bz + 0.012, 0, { rect: R2_ATLAS.park });
+    P(R2_box(0.35, 0.6, 0.18), 'plasticNC', '#C8322A', W - 0.4, 1.0, bz + 0.1); P(R2_cyl(0.07, 0.07, 0.4, 10), 'plastic', '#D23A2E', W - 0.4, 0.95, bz + 0.12);
+    P(R2_pln(0.6, 0.3), 'sign', '#ffffff', W - 0.02, 2.5, -1.15, -PI / 2, { rect: R2_ATLAS.exit });
+    return { spawnPoints: spawn, bays, decor: [], ramp: { inner: ctx.x1, wall: ctx.buildingX1, y: ctx.y } };
+  }
+  // -2: flight A (landing -> -1) in the back band, the landing at the inner end, flight B (landing -> -2) in the front band
+  const t = 0.22, yM = I.land, conc = '#9A968F', wall = '#B4B0A8';
+  P(R2_para(I.u0, yM, I.uA, FH, t, I.wA), 'concrete', conc, 0, 0, zA0);                                  // flight A
+  P(R2_para(I.u0, yM, I.uB, 0, t, I.wB), 'concrete', conc, 0, 0, I.zB - I.wB / 2);                       // flight B
+  P(R2_box(I.u0 - 0.1, t, D - 1.35), 'concrete', conc, 0.1 + (I.u0 - 0.1) / 2, yM - t / 2, (bz - 1.35) / 2);   // landing
+  P(R2_box(I.u0 - 0.1, yM - t, 0.15), 'concrete', wall, 0.1 + (I.u0 - 0.1) / 2, (yM - t) / 2, zB1 - 0.08);   // closed front under the landing
+  P(R2_poly([[I.u0, 0], [I.uA, 0], [I.uA, FH - t], [I.u0, yM - t]], 0.1), 'concrete', wall, 0, 0, zA0 + I.wA - 0.02);   // wall under flight A, between the bands
+  { const g = 0.75;                                                                                        // guard walls with yellow tops
+    P(R2_para(I.u0, yM + g, I.uB, g, g + t, 0.12), 'concrete', wall, 0, 0, zB1 - 0.06);                  // flight B, lane side
+    P(R2_para(I.u0, yM + g + 0.03, I.uB, g + 0.03, 0.03, 0.13), 'plasticNC', '#F2C230', 0, 0, zB1 - 0.065);
+    P(R2_para(I.u0, yM + g, I.uA, FH + g, g + t, 0.12), 'concrete', wall, 0, 0, zA0 + I.wA - 0.06);      // flight A, front edge
+    P(R2_para(I.u0, yM + g + 0.03, I.uA, FH + g + 0.03, 0.03, 0.13), 'plasticNC', '#F2C230', 0, 0, zA0 + I.wA - 0.065);
+    P(R2_box(I.u0 - 0.1, g, 0.12), 'concrete', wall, 0.1 + (I.u0 - 0.1) / 2, yM + g / 2, zB1 - 0.06);   // landing, lane side
+    P(R2_box(I.u0 - 0.1, 0.03, 0.13), 'plasticNC', '#F2C230', 0.1 + (I.u0 - 0.1) / 2, yM + g + 0.015, zB1 - 0.06); }
+  for (const [ua, ya, ub, yb, zc] of [[I.u0, yM, I.uA, FH, I.zA], [I.u0, yM, I.uB, 0, I.zB]]) {          // painted chevrons
+    const ang = Math.atan2(yb - ya, ub - ua);
+    for (let k = 1; k <= 3; k++) { const f = k / 4, u = ua + (ub - ua) * f, yy = ya + (yb - ya) * f + 0.012;
+      for (const sd of [-1, 1]) P(R2_box(0.26, 0.006, 0.07), 'plasticNC', '#ECEAE2', u, yy, zc + sd * 0.09, sd * 0.6, { rz: ang }); }
+  }
+  // the -2 bay at the far end, reached from the foot of flight B
+  const bu = I.bay2;
+  line(bu - 0.85, bu - 0.85, -1.7, -4.4); line(bu + 0.85, bu + 0.85, -1.7, -4.4); numSign(bu, 0);
+  P(R2_box(0.9, 0.1, 0.14), 'concrete', '#C9C6BF', bu, 0.05, -4.32);
+  bays.push({ x: X(bu), z: -3.05, ry: PI / 2, doorX: X(bu - 0.8) });
+  spawn.push(new THREE.Vector3(X(bu - 0.8), ctx.y, ctx.laneZ));
+  P(R2_pln(0.45, 0.45), 'sign', '#ffffff', bu, 2.15, bz + 0.012, 0, { rect: R2_ATLAS.park });
+  P(R2_box(0.35, 0.6, 0.18), 'plasticNC', '#C8322A', I.uB + 0.4, 1.0, bz + 0.1); P(R2_cyl(0.07, 0.07, 0.4, 10), 'plastic', '#D23A2E', I.uB + 0.4, 0.95, bz + 0.12);
+  return { spawnPoints: spawn, bays, decor: [], ramp: null, inner: { yU: ctx.y + FH, x0: ctx.x0, wall: ctx.buildingX1 } };
 }
 
 /* ======== rooms2: subway ======== */
@@ -3591,11 +3718,6 @@ function R2_segs(ctx, W, a = 0.1, b = W - 0.1) {
   return out.sort((p, q) => (q[1] - q[0]) - (p[1] - p[0]));
 }
 const R2_ring = (r, t, s = 18) => R2_GEO['rg' + [r, t, s]] || (R2_GEO['rg' + [r, t, s]] = new THREE.TorusGeometry(r, t, 6, s));   // upright ring facing +z
-function R2_wedge(len, rise, depth) {          // right triangle (0,0)-(len,0)-(len,rise) in x-y, extruded `depth` along +z
-  const k = 'wd' + [len, rise, depth]; if (R2_GEO[k]) return R2_GEO[k];
-  const sh = new THREE.Shape(); sh.moveTo(0, 0); sh.lineTo(len, 0); sh.lineTo(len, rise); sh.closePath();
-  return (R2_GEO[k] = new THREE.ExtrudeGeometry(sh, { depth, bevelEnabled: false }));
-}
 // office2: left edges of 1.5 m desks packed into the free stretches of wall (at most 3)
 function R2_deskUs(ctx, W) {
   const out = [];
@@ -3676,7 +3798,7 @@ function R2_home(P, ctx, wing) {
     P(R2_cyl(0.15, 0.15, 0.03, 12), 'metal', '#2E3134', H.lamp, 0.015, -4.2); P(R2_cyl(0.015, 0.015, 1.45, 6), 'metal', '#2E3134', H.lamp, 0.74, -4.2);
     P(R2_cyl(0.13, 0.2, 0.28, 14), 'fabric', '#F1E6D0', H.lamp, 1.55, -4.2); P(R2_cyl(0.11, 0.18, 0.26, 12), 'glow', '#FFE2A8', H.lamp, 1.55, -4.2);
     R2_frame(P, ctx, s.u, 1.75, 0.9, 0.56, R2_ATLAS[pal.art], '#3A2F28');
-    R2_window(P, ctx, H.tv.u, 1.0, 0.9, 1.4, { curtains: pal.cur, radiator: false, frame: '#E8E6E0' });
+    R2_window(P, ctx, H.tv.u, 0.8, 0.9, 1.4, { curtains: pal.cur, radiator: false, frame: '#E8E6E0' });
     pend(s.u, -3.1, 2.15, pal.cur);
     if (H.shelf) { const u = H.shelf.u, w = H.shelf.w;
       for (const sx of [-1, 1]) P(R2_box(0.03, 1.8, 0.32), 'wood', pal.wood, u + sx * (w / 2 - 0.015), 0.9, bz + 0.17);
@@ -3761,46 +3883,170 @@ function R2_home(P, ctx, wing) {
   return {};
 }
 
-/* public toilets: a row of cubicles (some doors ajar), basins with mirrors, a hand dryer, tiles, a pictogram sign;
-   a cleaner's mop cart and a wet-floor sign (the cleaner is an occupant) */
+/* public toilets, split into a ladies' and a gents' half by two partitions, with a shared wash area at the wing's
+   clear spot (the entrance, where game people fade in and out). Ladies: cubicles + a baby-changing table; gents:
+   urinals with privacy dividers + a cubicle. Wash area: vanity with 3 sinks and a long mirror, hand dryer and towel
+   dispenser on the partitions, bin, pictogram signs. Alive: cubicle doors close (lock red, feet under the door) and
+   open (lock green) on staggered timers, people wash their hands and use the dryer, and every 40-60 s a cleaner
+   comes with a mop cart, mops a stretch of floor (shiny while wet) behind a wet-floor sign, then takes the sign away. */
+function R2_toiletPlan(ctx, W) {        // shared by the builder and anything that needs the layout
+  const d = R2_doorClear(ctx), s = d ? (d[0] + d[1]) / 2 : W / 2;
+  const wa = [Math.max(0.1, s - 1.15), Math.min(W - 0.1, s + 1.15)];
+  const A = [0.1, wa[0] - 0.05], B = [wa[1] + 0.05, W - 0.1], len = (g) => g[1] - g[0];
+  const shortS = len(A) <= len(B) ? A : B, longS = shortS === A ? B : A;
+  const gents = len(shortS) >= 1.85 ? shortS : longS, ladies = gents === A ? B : A;
+  const items = [];
+  const pack = (side, who, list) => {                       // from the wash-area end outwards; items that don't fit are skipped
+    const left = side === A; let u = left ? side[1] : side[0];
+    for (const [kind, w] of list) {
+      if (len(side) < 0.4 || (left ? u - w < side[0] - 0.001 : u + w > side[1] + 0.001)) continue;
+      const u0 = left ? u - w : u; items.push({ kind, u0, w, who }); u = left ? u - w : u + w;
+    }
+  };
+  pack(ladies, 'l', [['baby', 0.75], ['cub', 0.85], ['cub', 0.85], ['cub', 0.85]]);
+  pack(gents, 'g', [['uri', 0.5], ['uri', 0.5], ['cub', 0.85], ['uri', 0.5], ['cub', 0.85]]);
+  const vw = Math.min(1.95, len(wa) - 0.36), sinks = [-1, 0, 1].map((k) => s + k * vw / 3);
+  return { s, wa, A, B, gents, ladies, items, vw, sinks, fz: ctx.backZ + 1.45 };
+}
+function R2_toiletMats() {              // animated parts' materials, shared by every toilet (kept in R2_MAT so artSetTime dims them)
+  const M = (k, make) => R2_MAT[k] || (R2_MAT[k] = make());
+  return {
+    door: M('tl_door', () => new THREE.MeshStandardMaterial({ color: '#7FB2D0', roughness: 0.45, envMapIntensity: 0.7 })),
+    red: M('tl_red', () => new THREE.MeshBasicMaterial({ color: '#FF4A3A' })), green: M('tl_green', () => new THREE.MeshBasicMaterial({ color: '#45E07A' })),
+    shoe: M('tl_shoe', () => new THREE.MeshStandardMaterial({ color: '#3A3D42', roughness: 0.6, envMapIntensity: 0.5 })),
+    water: M('tl_water', () => new THREE.MeshBasicMaterial({ color: '#CFEFFF', transparent: true, opacity: 0.7, depthWrite: false })),
+    wet: M('tl_wet', () => new THREE.MeshStandardMaterial({ color: '#B8D2DE', roughness: 0.03, metalness: 0.55, transparent: true, opacity: 0, depthWrite: false,
+      polygonOffset: true, polygonOffsetFactor: -2, envMapIntensity: 1.2 })),
+    sign: M('tl_sign', () => new THREE.MeshStandardMaterial({ side: THREE.DoubleSide, roughness: 0.5, envMapIntensity: 0.6,
+      map: R2_canvas('wetsign', 64, 96, (g, w, h) => {             // yellow A-board: a person slipping (pictogram only)
+        g.fillStyle = '#F2C230'; g.fillRect(0, 0, w, h); g.strokeStyle = '#1D1D1D'; g.lineWidth = 4; g.lineJoin = 'round';
+        g.beginPath(); g.moveTo(32, 14); g.lineTo(58, 62); g.lineTo(6, 62); g.closePath(); g.stroke();
+        g.fillStyle = '#1D1D1D'; g.beginPath(); g.arc(36, 30, 4, 0, 7); g.fill(); g.lineWidth = 3.5; g.lineCap = 'round';
+        g.beginPath(); g.moveTo(34, 35); g.lineTo(28, 46); g.lineTo(38, 52); g.moveTo(28, 46); g.lineTo(18, 50); g.moveTo(33, 38); g.lineTo(24, 36); g.moveTo(33, 38); g.lineTo(42, 42); g.stroke();
+        g.beginPath(); g.moveTo(12, 56); g.lineTo(26, 56); g.stroke(); }) })),
+    lit: M('tl_lit', () => new THREE.MeshBasicMaterial({ color: '#7FD0FF' })),
+  };
+}
 function R2_toilets(P, ctx, wing) {
-  const bz = ctx.backZ, panel = '#7FB2D0', acc = '#5FB8A6';
-  const { W, CH } = R2_shell(P, ctx, { floor: 'floortile', floorCol: '#C8D0D2', wall: 'tile', wallCol: '#F4F2EC', skirt: '#8A9AA0', skirtMat: 'plasticNC', cornice: '#EEEEEA', stripe: panel, stripeY: 2.05 });
-  R2_ceilingServices(P, ctx, W, CH, { lights: [W * 0.25, W * 0.75], lightType: 'panel', duct: false });
-  const segs = R2_segs(ctx, W), cub = segs[0] || [0.1, W - 0.1], bas = segs[1] || null;
-  const cw = 0.85, n = Math.max(1, Math.min(4, Math.floor((cub[1] - cub[0]) / cw))), c0 = cub[0] + (cub[1] - cub[0] - n * cw) / 2, fz = bz + 1.45;
-  for (let k = 0; k <= n; k++) P(R2_box(0.035, 1.8, 1.45), 'plastic', panel, c0 + k * cw, 1.05, (bz + fz) / 2);
-  P(R2_box(n * cw + 0.04, 0.05, 0.05), 'metal', '#B7BCC1', c0 + n * cw / 2, 1.97, fz);
-  for (let k = 0; k < n; k++) {
-    const cx = c0 + (k + 0.5) * cw, open = k % 2 === 0 ? 0.95 : 0, dw = cw - 0.14;
-    for (const sx of [-1, 1]) P(R2_box(0.07, 1.8, 0.035), 'plastic', panel, cx + sx * (cw / 2 - 0.035), 1.05, fz);
-    const Dr = P.local(cx - dw / 2, 0, fz, open);                  // door hinged on its left, ajar ones swing inwards
-    Dr(R2_box(dw, 1.72, 0.03), 'plastic', panel, dw / 2, 1.04, 0); Dr(R2_box(0.04, 0.12, 0.03), 'metal', '#C9CCD0', dw - 0.06, 1.0, 0.03);
-    if (!open) P(R2_cyl(0.025, 0.025, 0.01, 10), 'glow', k % 4 === 1 ? '#FF5040' : '#5CFF8A', cx + dw / 2 - 0.1, 1.2, fz + 0.03, 0, { rx: Math.PI / 2 });
-    P(R2_cyl(0.17, 0.14, 0.38, 14), 'plastic', '#FBFBF8', cx, 0.19, bz + 0.5); P(R2_cyl(0.18, 0.18, 0.03, 14), 'plastic', '#F4F2EC', cx, 0.4, bz + 0.5);
-    P(R2_box(0.38, 0.42, 0.16), 'plastic', '#FBFBF8', cx, 0.62, bz + 0.1); P(R2_cyl(0.03, 0.03, 0.01, 8), 'metal', '#C9CCD0', cx, 0.835, bz + 0.1);
-    P(R2_cylX(0.05, 0.1, 10), 'plastic', '#FBFBF8', cx + cw / 2 - 0.1, 0.7, bz + 0.75);
+  const bz = ctx.backZ, W = ctx.x1 - ctx.x0, PI = Math.PI, panel = '#7FB2D0', panel2 = '#5F94B4', r = ctx.rng, X = (u) => ctx.x0 + u, y = ctx.y;
+  const { CH } = R2_shell(P, ctx, { floor: 'floortile', floorCol: '#C8D0D2', wall: 'tile', wallCol: '#F4F2EC', skirt: '#8A9AA0', skirtMat: 'plasticNC', cornice: '#EEEEEA', stripe: panel, stripeY: 2.05 });
+  R2_ceilingServices(P, ctx, W, CH, { lights: [W * 0.18, W * 0.5, W * 0.82], lightType: 'panel', duct: false });
+  const T = R2_toiletPlan(ctx, W), { s, wa, fz } = T, man = [640, 640, 43, 64], woman = [683, 640, 42, 64];
+  // partitions between the halves and the wash area, a pictogram sign on each one's front end
+  for (const [px, rect] of [[wa[0], T.ladies === T.A ? woman : man], [wa[1], T.ladies === T.B ? woman : man]]) {
+    if (px <= 0.15 || px >= W - 0.15) continue;
+    P(R2_box(0.08, 2.15, -bz - 1.6), 'plastic', panel2, px, 1.075, (bz - 2.9) / 2);
+    P(R2_box(0.1, 0.05, -bz - 1.58), 'metal', '#B7BCC1', px, 2.17, (bz - 2.9) / 2);
+    P(R2_pln(0.22, 0.32), 'sign', '#ffffff', px, 1.72, -2.89, 0, { rect });
   }
-  P(R2_pln(0.64, 0.32), 'sign', '#ffffff', c0 + n * cw / 2, 2.32, bz + 0.012, 0, { rect: R2_ATLAS.wc });
-  if (bas) {
-    const Ls = bas[1] - bas[0], nb = Math.max(1, Math.min(3, Math.floor((Ls - 0.45) / 0.65))), vw = nb * 0.65, vc = bas[0] + 0.1 + vw / 2;
-    P(R2_box(vw, 0.1, 0.5), 'plastic', '#DCD6CA', vc, 0.82, bz + 0.27); P(R2_box(vw, 0.7, 0.04), 'plasticNC', '#B9B2A6', vc, 0.42, bz + 0.48);
-    for (let k = 0; k < nb; k++) { const x = vc - vw / 2 + (k + 0.5) * 0.65;
-      P(R2_cyl(0.2, 0.15, 0.08, 14), 'plastic', '#FBFBF8', x, 0.88, bz + 0.28, 0, { sz: 0.75 });
-      P(R2_cyl(0.015, 0.015, 0.2, 8), 'metal', '#C9CCD0', x, 0.97, bz + 0.08); P(R2_cylZ(0.012, 0.13, 8), 'metal', '#C9CCD0', x, 1.06, bz + 0.14);
-      P(R2_box(0.5, 0.7, 0.02), 'metal', '#DCE6EC', x, 1.55, bz + 0.015);
-      P(R2_box(0.08, 0.14, 0.08), 'plastic', acc, x + 0.24, 1.15, bz + 0.05); }
-    const du = bas[0] + 0.1 + vw + 0.25;
-    if (du < bas[1] - 0.1) { P(R2_box(0.3, 0.36, 0.2), 'plastic', '#ECEBE6', du, 1.25, bz + 0.1); P(R2_box(0.12, 0.04, 0.1), 'plastic', '#3A3D42', du, 1.05, bz + 0.15);
-      P(R2_cyl(0.16, 0.14, 0.5, 12), 'metal', '#B9BEC3', du, 0.25, bz + 0.25); }
+  for (const it of T.items) {
+    const c = it.u0 + it.w / 2;
+    if (it.kind === 'cub') {                                      // cubicle walls raised off the floor, pilasters, toilet, paper roll
+      for (const ex of [it.u0, it.u0 + it.w]) P(R2_box(0.035, 1.8, 1.45), 'plastic', panel, ex, 1.05, (bz + fz) / 2);
+      for (const sx of [-1, 1]) P(R2_box(0.07, 1.8, 0.035), 'plastic', panel, c + sx * (it.w / 2 - 0.035), 1.05, fz);
+      P(R2_box(it.w, 0.05, 0.05), 'metal', '#B7BCC1', c, 1.97, fz);
+      P(R2_cyl(0.17, 0.14, 0.38, 14), 'plastic', '#FBFBF8', c, 0.19, bz + 0.5); P(R2_cyl(0.18, 0.18, 0.03, 14), 'plastic', '#F4F2EC', c, 0.4, bz + 0.5);
+      P(R2_box(0.38, 0.42, 0.16), 'plastic', '#FBFBF8', c, 0.62, bz + 0.1); P(R2_cyl(0.03, 0.03, 0.01, 8), 'metal', '#C9CCD0', c, 0.835, bz + 0.1);
+      P(R2_cylX(0.05, 0.1, 10), 'plastic', '#FBFBF8', c + it.w / 2 - 0.1, 0.7, bz + 0.75);
+    } else if (it.kind === 'uri') {                               // urinal, flush pipe, privacy dividers either side
+      P(R2_box(0.34, 0.55, 0.3), 'plastic', '#FBFBF8', c, 0.85, bz + 0.16); P(R2_box(0.26, 0.3, 0.2), 'plastic', '#E6E8E8', c, 0.82, bz + 0.22);
+      P(R2_cyl(0.015, 0.015, 0.45, 8), 'metal', '#C9CCD0', c, 1.35, bz + 0.05);
+      for (const ex of [it.u0, it.u0 + it.w]) P(R2_box(0.04, 0.8, 0.45), 'plastic', panel2, ex, 1.05, bz + 0.23);
+      P(R2_box(0.5, 0.42, 0.02), 'plasticNC', '#E4EEF2', c, 2.05, bz + 0.012);          // frosted window over the urinals
+      for (const [dx, dy, ww, hh] of [[0, 0.23, 0.54, 0.04], [0, -0.23, 0.54, 0.04], [-0.25, 0, 0.04, 0.5], [0.25, 0, 0.04, 0.5]]) P(R2_box(ww, hh, 0.04), 'plasticNC', '#E8E6E0', c + dx, 2.05 + dy, bz + 0.03);
+    } else {                                                      // fold-down baby-changing table with a soft mat
+      P(R2_box(0.7, 0.5, 0.06), 'plastic', '#ECEBE6', c, 1.05, bz + 0.03); P(R2_box(0.7, 0.06, 0.5), 'plastic', '#ECEBE6', c, 0.88, bz + 0.3);
+      P(R2_box(0.6, 0.04, 0.4), 'fabric', '#9FD0E8', c, 0.93, bz + 0.3); for (const sx of [-1, 1]) P(R2_box(0.03, 0.03, 0.42), 'metal', '#C9CCD0', c + sx * 0.33, 0.95, bz + 0.29, 0, { rx: 0.6 });
+    }
   }
-  const M = P.local(cub[0] + 1.15, 0, -2.2, 0);                      // mop cart: bucket, wringer, mop
-  M(R2_box(0.5, 0.04, 0.36), 'plastic', '#F2C230', 0, 0.12, 0); M(R2_box(0.32, 0.26, 0.3), 'plastic', '#F2C230', -0.06, 0.27, 0);
-  M(R2_box(0.3, 0.02, 0.28), 'plastic', '#5FB8E8', -0.06, 0.39, 0); M(R2_box(0.12, 0.16, 0.24), 'plastic', '#3A3D42', 0.16, 0.48, 0);
-  M(R2_cyl(0.014, 0.014, 1.25, 6), 'metal', '#C9CCD0', 0.02, 0.85, 0.05, 0, { rz: -0.25 });
-  for (const [x, z] of [[-0.22, -0.15], [0.22, -0.15], [-0.22, 0.15], [0.22, 0.15]]) M(R2_sph(0.035, 6, 4), 'plastic', '#222', x, 0.035, z);
-  for (const s of [-1, 1]) P(R2_box(0.3, 0.6, 0.02), 'plastic', '#F2C230', cub[0] + 0.35, 0.29, -1.75 + s * 0.06, 0, { rx: s * 0.2 });   // wet-floor sign
-  return {};
+  // wash area: vanity with 3 sinks and taps, a long mirror, soap, pictogram sign; dryer, towels and bin on the partitions
+  P(R2_box(T.vw + 0.1, 0.1, 0.5), 'plastic', '#DCD6CA', s, 0.82, bz + 0.27); P(R2_box(T.vw + 0.1, 0.7, 0.04), 'plasticNC', '#B9B2A6', s, 0.42, bz + 0.48);
+  P(R2_box(T.vw + 0.1, 0.78, 0.02), 'metal', '#DCE6EC', s, 1.58, bz + 0.015);
+  T.sinks.forEach((x, k) => {
+    P(R2_cyl(0.2, 0.15, 0.08, 14), 'plastic', '#FBFBF8', x, 0.88, bz + 0.28, 0, { sz: 0.75 });
+    P(R2_cyl(0.015, 0.015, 0.2, 8), 'metal', '#C9CCD0', x, 0.97, bz + 0.08); P(R2_cylZ(0.012, 0.13, 8), 'metal', '#C9CCD0', x, 1.06, bz + 0.14);
+    if (k < 2) P(R2_box(0.07, 0.15, 0.07), 'plastic', '#5FB8A6', x + T.vw / 6, 0.95, bz + 0.12);
+  });
+  P(R2_pln(0.6, 0.3), 'sign', '#ffffff', s, 2.25, bz + 0.012, 0, { rect: R2_ATLAS.wc });
+  const dryX = wa[0] + 0.14, towX = wa[1] - 0.11;
+  P(R2_box(0.2, 0.36, 0.3), 'plastic', '#ECEBE6', dryX, 1.25, -3.45); P(R2_box(0.1, 0.04, 0.12), 'plastic', '#3A3D42', dryX + 0.03, 1.05, -3.45);
+  P(R2_box(0.14, 0.4, 0.32), 'plastic', '#ECEBE6', towX, 1.35, -3.45); P(R2_box(0.02, 0.12, 0.2), 'plasticNC', '#FBFBF2', towX - 0.06, 1.12, -3.45);
+  P(R2_cyl(0.15, 0.13, 0.45, 12), 'metal', '#B9BEC3', towX - 0.12, 0.225, -3.0);
+  // ---- animated parts: own meshes in the room group (no sun shadows)
+  const g = ctx.group, Mt = R2_toiletMats(), mesh = (geo, mat, x, yy, z, parent = g) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, yy, z); m.castShadow = false; parent.add(m); return m; };
+  const cubs = T.items.filter((i) => i.kind === 'cub').map((it, k) => {
+    const dw = it.w - 0.14, hinge = new THREE.Group(); hinge.position.set(X(it.u0 + 0.07), y, fz); g.add(hinge);
+    mesh(R2_box(dw, 1.72, 0.03), Mt.door, dw / 2, 1.04, 0, hinge);
+    const lock = mesh(R2_cylZ(0.028, 0.012, 10), Mt.red, dw - 0.1, 1.2, 0.022, hinge);
+    const feet = new THREE.Group(); feet.position.set(X(it.u0 + it.w / 2), y, fz - 0.32); g.add(feet);
+    for (const sx of [-0.07, 0.07]) mesh(R2_box(0.08, 0.06, 0.2), Mt.shoe, sx, 0.03, 0.04, feet);
+    return { hinge, lock, feet, a: 0, busy: k % 2 === 0, t: 2 + k * 3.1 + r() * 4, set: null };
+  });
+  const water = T.sinks.map((x) => { const m = mesh(R2_cyl(0.012, 0.012, 0.16, 6), Mt.water, X(x), y + 0.98, bz + 0.205); m.visible = false; return m; });
+  const dryLit = mesh(R2_box(0.05, 0.02, 0.02), Mt.lit, X(dryX + 0.06), y + 1.4, -3.3); dryLit.visible = false;
+  const seed = (r() * 1e6) | 0;
+  const person = (kind, k, opts, pose, u, z, ry) => { const tk = artOccupant(g, kind, seed + k * 7919, opts, pose, X(u), y, z, ry); const h = tk.h; h.setOpacity(0); return { tk, h, a: 0, want: 0, shown: 0 }; };
+  const wA = person('adult', 1, { look: 'casual' }, 'wash', T.sinks[0], -3.55, PI), wB = person('kid', 2, null, 'wash', T.sinks[1], -3.6, PI);
+  const dry = person('adult', 3, { look: 'dress' }, 'wash', dryX + 0.42, -3.45, -PI / 2);
+  const cl = person('adult', 4, { look: 'casual', top: '#5FB8A6' }, 'push', s, -2.3, PI / 2);
+  // cleaner's cart and mop (R2 batch flushed into small groups), wet patch, wet-floor sign
+  const cart = new THREE.Group(), mop = new THREE.Group(); g.add(cart); g.add(mop); cart.visible = mop.visible = false;
+  { const CB = new R2_Batch(), Q = R2_placer(CB, { x0: 0, y: 0 });
+    Q(R2_box(0.5, 0.04, 0.36), 'plastic', '#F2C230', 0, 0.12, 0); Q(R2_box(0.32, 0.26, 0.3), 'plastic', '#F2C230', -0.06, 0.27, 0);
+    Q(R2_box(0.3, 0.02, 0.28), 'plastic', '#5FB8E8', -0.06, 0.39, 0); Q(R2_box(0.12, 0.16, 0.24), 'plastic', '#3A3D42', 0.16, 0.48, 0);
+    Q(R2_box(0.04, 0.6, 0.04), 'metal', '#C9CCD0', 0.22, 0.42, 0); Q(R2_cylZ(0.015, 0.36, 6), 'metal', '#C9CCD0', 0.22, 0.72, 0);
+    for (const [x, z] of [[-0.22, -0.15], [0.22, -0.15], [-0.22, 0.15], [0.22, 0.15]]) Q(R2_sph(0.035, 6, 4), 'plastic', '#222', x, 0.035, z);
+    CB.flush(cart);
+    const MB = new R2_Batch(), Qm = R2_placer(MB, { x0: 0, y: 0 });
+    Qm(R2_cyl(0.014, 0.014, 1.25, 6), 'metal', '#C9CCD0', 0, 0.62, 0); Qm(R2_box(0.32, 0.06, 0.12), 'fabric', '#ECEAE2', 0, 0.03, 0);
+    MB.flush(mop); }
+  const wet = mesh(R2_plnUp(1, 0.9), Mt.wet, 0, y + 0.012, -2.25); wet.visible = false;
+  const sign = new THREE.Group(); g.add(sign); sign.visible = false;
+  for (const sd of [-1, 1]) { const m = mesh(R2_pln(0.32, 0.48), Mt.sign, 0, 0.23, sd * 0.07, sign); m.rotation.x = sd * -0.25; }
+  const C = { ph: 'wait', t: 10 + r() * 25, x: X(s), z: -2.3, face: 1, side: 0, x0: 0, x1: 0, sx: 0, wet: 0 };
+  const fadeTo = (o, w) => { o.want = w; };
+  let wT = r() * 8, kT = 5 + r() * 10;
+  return { tick(t, dt) {
+    dt = Math.max(0, Math.min(0.1, dt || 0));
+    // cubicles: closed with a red lock and feet under the door for a while, then open with a green lock
+    for (const c of cubs) {
+      c.t -= dt; if (c.t <= 0) { c.busy = !c.busy; c.t = c.busy ? 6 + r() * 8 : 3 + r() * 6; }
+      c.a += ((c.busy ? 0 : 0.95) - c.a) * Math.min(1, dt * 4); c.hinge.rotation.y = c.a;
+      const lk = c.busy ? Mt.red : Mt.green; if (c.lock.material !== lk) c.lock.material = lk;
+      c.feet.visible = c.busy && c.a < 0.05;
+    }
+    // hand washing: an adult at an outer sink (then at the dryer), a child now and then at the middle sink
+    wT += dt; if (wT > 14) { wT = 0; const k = r() < 0.5 ? 0 : 2; wA.h.group.position.x = X(T.sinks[k]); }
+    fadeTo(wA, wT < 5 ? 1 : 0); fadeTo(dry, wT > 5.6 && wT < 9.5 ? 1 : 0);
+    kT -= dt; if (kT < -6) kT = 12 + r() * 14; fadeTo(wB, kT < 0 ? 1 : 0);
+    // the cleaner
+    const sp = 1.0, go = (tx, v) => { const d = tx - C.x; if (Math.abs(d) < 0.02) { C.x = tx; return true; } C.face = Math.sign(d); C.x += Math.sign(d) * Math.min(Math.abs(d), v * dt); return false; };
+    if (C.ph === 'wait') { C.t -= dt; fadeTo(cl, 0);
+      if (C.t <= 0 && cl.a < 0.02) { const seg = C.side ? T.gents : T.ladies; C.side ^= 1;
+        if (seg[1] - seg[0] < 0.8) { C.t = 20; } else {
+          const nearL = Math.abs(seg[0] - s) < Math.abs(seg[1] - s);
+          C.x0 = X(nearL ? seg[0] + 0.35 : seg[1] - 0.35); C.x1 = X(nearL ? seg[1] - 0.3 : seg[0] + 0.3); C.x = X(s); C.z = -2.3; C.ph = 'in'; } } }
+    else if (C.ph === 'in') { fadeTo(cl, 1); if (cl.a > 0.9 && go(C.x0, sp)) { C.ph = 'mop'; C.sx = C.x0 - Math.sign(C.x1 - C.x0) * 0.4; sign.position.set(C.sx, y, -2.25); sign.rotation.y = 0.4; sign.visible = true; C.wet = 0.55; } }
+    else if (C.ph === 'mop') { if (go(C.x1, 0.35)) { C.ph = 'dry'; C.t = 7; } }
+    else if (C.ph === 'dry') { C.t -= dt; C.wet = Math.max(0, 0.55 * C.t / 7); if (C.t <= 0) C.ph = 'back'; }
+    else if (C.ph === 'back') { if (go(C.sx + Math.sign(C.x1 - C.x0) * 0.4, sp)) { sign.visible = false; C.ph = 'out'; } }
+    else if (C.ph === 'out') { if (go(X(s), sp)) { fadeTo(cl, 0); C.ph = 'wait'; C.t = 30 + r() * 20; } }
+    const moving = C.ph === 'in' || C.ph === 'mop' || C.ph === 'back' || C.ph === 'out';
+    cl.h.group.position.set(C.x, y + (moving && cl.a > 0.9 ? Math.abs(Math.sin(t * 9)) * 0.02 : 0), C.z); cl.h.group.rotation.y = C.face * PI / 2;
+    cart.visible = mop.visible = cl.a > 0.3; cart.position.set(C.x + C.face * 0.6, y, C.z); cart.rotation.y = 0;
+    mop.position.set(C.x - C.face * 0.45, y, C.z); mop.rotation.z = C.face * (0.35 + (C.ph === 'mop' ? 0.15 * Math.sin(t * 5) : 0));
+    if (C.ph === 'mop' || C.ph === 'dry') { const a = Math.min(C.x0, C.x - C.face * 0.3), b = Math.max(C.x0, C.x - C.face * 0.3);
+      if (C.ph === 'mop') { wet.position.x = (a + b) / 2; wet.scale.x = Math.max(0.01, b - a); } }
+    wet.visible = C.wet > 0.01 && (C.ph === 'mop' || C.ph === 'dry'); Mt.wet.opacity = C.wet;
+    // fades and the occupants' own arm animation; water runs while someone washes, the dryer lamp while it's used
+    for (const o of [wA, wB, dry, cl]) {
+      o.a += (o.want - o.a) * Math.min(1, dt * 5); if (o.a < 0.01) o.a = o.want ? o.a : 0;
+      const q = Math.round(o.a * 50) / 50; if (q !== o.shown) { o.shown = q; o.h.setOpacity(q); }
+      if (o.a > 0.01) o.tk(t);
+    }
+    water.forEach((m, k) => { m.visible = (wA.a > 0.5 && Math.abs(wA.h.group.position.x - X(T.sinks[k])) < 0.05) || (k === 1 && wB.a > 0.5); });
+    dryLit.visible = dry.a > 0.5;
+  } };
 }
 
 /* basement wing for residents: a bike room (bikes in a floor rack, helmets, a pump, a scooter) or a laundry
@@ -3892,6 +4138,7 @@ function R2_playPlan(ctx, W) {          // shared by R2_playground and the playg
 function R2_buildRoom(themeId, wing, ctx) {
   const group = new THREE.Group(), B = ctx.sharedBatch || new R2_Batch();      // sharedBatch: merged and flushed by the building
   ctx = Object.assign({ slab: 0.3, laneZ: -0.8, backZ: -ctx.depth, frontZ: 0, doorX: null }, ctx); const Pc = R2_placer(B, ctx);
+  ctx.group = group;                                           // builders with animated parts (toilets) add their own meshes here
   let extra = {}, ticks = [];
   if (themeId === 'office') R2_office(Pc, ctx, wing);
   else if (themeId === 'hotel') R2_hotel(Pc, ctx, wing);
@@ -3906,8 +4153,8 @@ function R2_buildRoom(themeId, wing, ctx) {
   if (themeId === 'subway' && wing === 'L') tt = R2_tunnelAndTrain(group, ctx, B);
   const nTrain = group.children.length, meshes = ctx.sharedBatch ? [] : B.flush(group), h = { group, update: () => {}, meshes: meshes.length, tris: B.tris };
   if (extra.spawnPoints) h.spawnPoints = extra.spawnPoints;
-  if (extra.footXZ) h.footXZ = extra.footXZ;                // lower garage: where people walk in from its ramp
-  if (extra.bays) { h.bays = extra.bays; h.ramp = extra.ramp; h.decor = extra.decor; }
+  if (extra.tick) ticks.push(extra.tick);                    // a builder's own animation (toilets: doors, washing, cleaner)
+  if (extra.bays) { h.bays = extra.bays; h.ramp = extra.ramp; h.decor = extra.decor; if (extra.inner) h.inner = extra.inner; }
   if (extra.steamAt) {                                       // kitchen steam: one merged puff mesh that rises and fades
     const sm = new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.0, depthWrite: false });
     const puffs = [0, 1, 2].map((k) => { const m = new THREE.Mesh(R2_sph(0.09, 8, 6), sm.clone()); m.position.set(...extra.steamAt); group.add(m); return m; });
@@ -4215,7 +4462,7 @@ function spawnPerson(origin, dest, kind, from, startX, startZ) {
   else if (Math.abs(z0 - L.laneZ) > 0.01) { p.state = 'approach'; p.path = [[x, L.laneZ]]; }   // out of a door, then to the lane
   else joinQueue(p);
   G.people.push(p);
-  if (from === 'parking' && !parkH()) building?.floors[origin]?.carArrive?.(x);
+  if (from === 'parking' && !parkH(origin)) building?.floors[origin]?.carArrive?.(x);
   G.spawnCount[from]++;
   return p;
 }
@@ -4244,12 +4491,9 @@ function downDest(from) {
 // a spot inside one of the floor's two rooms: the art's clear spots if it has them, else anywhere in a wing
 function roomSpotX(f) { const sp = building?.floors?.[f]?.roomSpots; return sp && sp.length ? sp[rint(sp.length)].x : wingX(); }
 function wingX() { const L = G.layout, w = rint(2) ? L.roomR : L.roomL; return w[0] + 0.8 + rng() * Math.max(0.2, w[1] - w[0] - 1.6); }
-// where someone appears on a basement floor without its own car / train hooks: the lower garage's foot path from its
-// ramp (floor handle footXZ = [x, z]), else anywhere along a wing
+// where someone appears on a basement floor without its own car / train hooks: anywhere along a wing
 function basementStart(o) {
-  const L = G.layout, fp = building?.floors[o]?.footXZ, park = L.themes[o].kind === 'parking';
-  if (Array.isArray(fp) && fp.every(Number.isFinite)) return { from: 'parking', x: fp[0] + (rng() - 0.5) * 0.4, z: fp[1] };
-  return { from: park ? 'parking' : 'subway', x: wingX(), z: undefined };
+  return { from: G.layout.themes[o].kind === 'parking' ? 'parking' : 'subway', x: wingX(), z: undefined };
 }
 function spawnRandom() {
   const L = G.layout, g = L.groundIndex, park = floorIdx('parking'), park2 = floorIdx('parking2');
@@ -4258,11 +4502,8 @@ function spawnRandom() {
     const r = rng(); let o, d, from = 'room', x, z;
     if (park >= 0 && r < PARK_SHARE) {
       d = upper();
-      if (park2 >= 0 && rng() < LOWER_PARK_SHARE) { o = park2; ({ from, x, z } = basementStart(o)); }   // walks up from the lower garage
-      else {
-        o = park; from = 'parking'; x = wingX();
-        if (parkH()) { if (parkArrival(o, d)) return; continue; }
-      }
+      if (G.bays.length) { if (parkArrival(d)) return; continue; }               // drives in and parks (either garage)
+      o = park2 >= 0 && rng() < LOWER_PARK_SHARE ? park2 : park; ({ from, x, z } = basementStart(o));   // no car hooks: walks in
     }
     else if (r < TRIP_MIX[0]) { o = g; d = upper(); from = 'street'; }
     else if (r < TRIP_MIX[0] + TRIP_MIX[1] || L.nFloors - g < 3) { o = upper(undefined, true); d = downDest(o); }
@@ -4311,10 +4552,12 @@ function streetH() {
   const s = building?.street;
   return s && [s.leftX, s.rightX, s.entranceX, s.walkZ].every(Number.isFinite) ? s : null;
 }
-function parkH() {
-  const f = floorIdx('parking'), h = f >= 0 ? building?.floors[f] : null;
+// a garage floor's handle when it has drivable bays (default: the -1 garage); with two garages each has its own
+function parkH(f = floorIdx('parking')) {
+  const h = f >= 0 ? building?.floors[f] : null;
   return h && Array.isArray(h.bays) && h.bays.length && typeof h.carIn === 'function' && typeof h.carOut === 'function' ? h : null;
 }
+function parkFloors() { return G.layout.themes.map((t, f) => (t.kind === 'parking' && parkH(f) ? f : -1)).filter((f) => f >= 0); }
 function trainH() {
   const f = floorIdx('subway'), h = f >= 0 ? building?.floors[f] : null, t = h?.train;
   return t && typeof t.come === 'function' && typeof t.doors === 'function' && typeof t.go === 'function'
@@ -4335,31 +4578,33 @@ function installMockHooks(L) {
   }
   if (building && !building.street) building.street = { y: 0, walkZ: 1.2, leftX: L.x0 - 10, rightX: L.x1 + 10, entranceX: L.x0 + 0.4 };
 }
+// G.bays: every drivable bay of every garage floor, { f: floor, k: bay index on that floor's handle, car, reserved, coming }
 function setupParking() {
-  const h = parkH(); G.bays = h ? h.bays.map(() => ({ car: null, reserved: false, coming: false })) : [];
-  if (!h) return;
+  G.bays = [];
+  for (const f of parkFloors()) parkH(f).bays.forEach((_, k) => G.bays.push({ f, k, car: null, reserved: false, coming: false }));
   const n = PARKED_AT_START[0] + rint(PARKED_AT_START[1] - PARKED_AT_START[0] + 1);
   for (let k = 0; k < n && k < G.bays.length; k++) {
-    const b = rint(G.bays.length); if (G.bays[b].car) continue;
-    G.bays[b].car = 1 + rint(1e6); try { h.setParked?.(b, G.bays[b].car); } catch (e) { console.error(e); }
+    const bay = G.bays[rint(G.bays.length)]; if (bay.car) continue;
+    bay.car = 1 + rint(1e6); try { parkH(bay.f).setParked?.(bay.k, bay.car); } catch (e) { console.error(e); }
   }
 }
-function callCar(h, b, then) {   // a car drives in and parks in bay b
-  const bay = G.bays[b]; bay.coming = true; const seed = 1 + rint(1e6);
+function callCar(b, then) {   // a car drives in and parks in G.bays[b]
+  const bay = G.bays[b], h = parkH(bay.f); bay.coming = true; const seed = 1 + rint(1e6);
   G.debugLife.carIn++;
-  later(num(h.carIn(b, seed), 3), () => { bay.car = seed; bay.coming = false; then?.(); });
+  later(num(h.carIn(bay.k, seed), 3), () => { bay.car = seed; bay.coming = false; then?.(); });
 }
-function parkArrival(o, d) {
-  const h = parkH(), free = G.bays.map((b, i) => i).filter((i) => !G.bays[i].car && !G.bays[i].reserved && !G.bays[i].coming);
+// someone drives in, parks in a free bay on any garage floor and gets out there
+function parkArrival(d) {
+  const free = G.bays.map((b, i) => i).filter((i) => !G.bays[i].car && !G.bays[i].reserved && !G.bays[i].coming);
   if (!free.length) return false;
-  const b = free[rint(free.length)];
-  G.bays[b].reserved = true;
-  callCar(h, b, () => {
-    G.bays[b].reserved = false;
+  const b = free[rint(free.length)], bay = G.bays[b], h = parkH(bay.f), o = bay.f;
+  bay.reserved = true;
+  callCar(b, () => {
+    bay.reserved = false;
     if (G.phase !== 'play') return;
-    h.carDoor?.(b, 1);
-    if (spawnPerson(o, d, null, 'parking', h.bays[b].doorX, doorZ(o, 'carDoorZ', PARK_DOOR_Z))) G.debugLife.carAlight++;
-    later(CAR_DOOR_TIME, () => h.carDoor?.(b, 0));
+    h.carDoor?.(bay.k, 1);
+    if (spawnPerson(o, d, null, 'parking', h.bays[bay.k].doorX, doorZ(o, 'carDoorZ', PARK_DOOR_Z))) G.debugLife.carAlight++;
+    later(CAR_DOOR_TIME, () => h.carDoor?.(bay.k, 0));
   });
   return true;
 }
@@ -4372,15 +4617,15 @@ function planDeparture(p) {
     p.path = [[st.entranceX, L.laneZ], [st.entranceX, paveZ(st)], [rng() < 0.5 ? st.leftX : st.rightX, paveZ(st)]];
     G.debugLife.streetOut++; return;
   }
-  const ph = id === 'parking' ? parkH() : null;
+  const ph = L.themes[p.floor].kind === 'parking' ? parkH(p.floor) : null;   // a garage floor: back to a car on this floor
   if (ph) {
     let best = -1, bd = Infinity;
-    G.bays.forEach((b, i) => { if (b.car && !b.reserved) { const d = Math.abs(ph.bays[i].doorX - p.x); if (d < bd) { bd = d; best = i; } } });
+    G.bays.forEach((b, i) => { if (b.f === p.floor && b.car && !b.reserved) { const d = Math.abs(ph.bays[b.k].doorX - p.x); if (d < bd) { bd = d; best = i; } } });
     if (best < 0) {
-      const free = G.bays.map((b, i) => i).filter((i) => !G.bays[i].car && !G.bays[i].reserved && !G.bays[i].coming);
-      if (free.length) { best = free[rint(free.length)]; callCar(ph, best); }
+      const free = G.bays.map((b, i) => i).filter((i) => G.bays[i].f === p.floor && !G.bays[i].car && !G.bays[i].reserved && !G.bays[i].coming);
+      if (free.length) { best = free[rint(free.length)]; callCar(best); }
     }
-    if (best >= 0) { G.bays[best].reserved = true; p.bay = best; const bx = ph.bays[best].doorX; p.path = [[bx, L.laneZ], [bx, doorZ(p.floor, 'carDoorZ', PARK_DOOR_Z)]]; p.end = 'car'; return; }
+    if (best >= 0) { G.bays[best].reserved = true; p.bay = best; const bx = ph.bays[G.bays[best].k].doorX; p.path = [[bx, L.laneZ], [bx, doorZ(p.floor, 'carDoorZ', PARK_DOOR_Z)]]; p.end = 'car'; return; }
   }
   const th = id === 'subway' ? trainH() : null;
   if (th) {
@@ -4395,8 +4640,6 @@ function planDeparture(p) {
     const x = roomSpotX(p.floor);
     p.roomDoor = false; p.path = [[x, L.laneZ], [x, ROOM_SPOT_Z]]; return;
   }
-  const fp = L.themes[p.floor].basement ? building?.floors[p.floor]?.footXZ : null;   // lower garage: walk off up its ramp
-  if (Array.isArray(fp) && fp.every(Number.isFinite)) { p.path = [[fp[0], L.laneZ], [fp[0], fp[1]]]; return; }
   // old art without street / parking / train hooks: out through the lobby entrance, or into a basement wing
   const x = p.floor === L.groundIndex ? L.streetX : wingX();
   p.path = [[x, L.laneZ]];
@@ -4552,12 +4795,12 @@ function updatePerson(p, dt) {
       setAnim(p, 'idle');
       if (p.end === 'fade') { if (p.roomDoor) fl.roomHold[p.roomDoor] = 0.6; p.fade = 0; if (p.alpha <= 0) removePerson(p); }
       else if (p.end === 'car') {
-        const ph = parkH(), bay = G.bays[p.bay];
+        const bay = G.bays[p.bay], ph = bay ? parkH(bay.f) : null;
         if (!ph || !bay) { p.end = 'fade'; break; }
         if (!bay.car) { p.rot = Math.PI; break; }       // the car is still on its way: wait by the bay, happy
-        if (p.fade !== 0) { ph.carDoor?.(p.bay, 1); p.fade = 0; }
+        if (p.fade !== 0) { ph.carDoor?.(bay.k, 1); p.fade = 0; }
         if (p.alpha <= 0) {
-          const b = p.bay; ph.carDoor?.(b, 0); later(0.3, () => { ph.carOut(b); });
+          const b = bay.k; ph.carDoor?.(b, 0); later(0.3, () => { ph.carOut(b); });
           bay.reserved = true; G.debugLife.carBoard++; G.debugLife.carOut++;
           later(0.3 + 0.1, () => { bay.car = null; bay.reserved = false; });
           removePerson(p);
