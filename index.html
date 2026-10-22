@@ -215,7 +215,9 @@ const HOME_TO_BASEMENT = 0.7;     // by day, people leaving a home floor head fo
 const LOWER_PARK_SHARE = 0.5;     // with two garages and no drivable bays (old art), this share of car-park arrivals use the lower one
 // door points (z) people walk to before fading through them; the art may override with floor handle fields
 const ROOM_DOOR_Z = -4.1;              // (old: in front of a back-wall room door; rooms have no doors now)
-const ROOM_SPOT_Z = -2.3;              // where people stand when they come out of / go into a room (no doors: the back wall is the outside wall)
+const ROOM_SPOT_Z = -1.9;              // where people stand when they come out of / go into a room: just in front of the furniture
+                                        // (no doors: the back wall is the outside wall), so they step sideways, not towards the back wall
+const ROOM_LINGER = 2.2;               // s a person stands at the spot, facing out, before fading into the room
 const STAIR_DOOR_Z = -2.6;              // just in front of the stair door (stair column, door at z -2.95)
 const PARK_DOOR_Z = -2.3;               // between two parked cars, beside the driver's door
 const TRAIN_EDGE_Z = -0.15;             // platform edge in front of the train doors (the train runs at z > 0)
@@ -3562,7 +3564,7 @@ function artChef(parent, seed, y, S, x0, z0, flameAt) {
   const pose = (W, s, u, e) => {
     const [aL, aR] = W.arms, up = W.upper, a = s.a, sn = Math.sin;
     ladle.visible = a === 'stir'; panG.visible = flame.visible = a === 'flip'; knife.visible = a === 'chop';
-    if (a === 'stir') { up.rotation.x = 0.28 * e; aR.rotation.set((-1.25 + 0.1 * sn(u * 4)) * e, 0, -0.1 + (-0.15 + 0.2 * Math.cos(u * 4)) * e); aL.rotation.set(-0.85 * e, 0, 0.1 + 0.15 * e); }
+    if (a === 'stir') { up.rotation.x = 0.25 * e; aR.rotation.set((-1.45 + 0.1 * sn(u * 4)) * e, 0, -0.1 + (-0.15 + 0.2 * Math.cos(u * 4)) * e); aL.rotation.set(-0.85 * e, 0, 0.1 + 0.15 * e); }
     else if (a === 'flip') {                                    // toss: the food jumps and turns over, the flame flares
       const q = (u % 1.3) / 1.3, toss = q < 0.22 ? Math.sin(q / 0.22 * Math.PI) : 0, f = Math.min(1, Math.max(0, (q - 0.1) / 0.45));
       up.rotation.x = 0.15 * e; aR.rotation.set((-1.2 - 0.3 * toss) * e, 0, -0.1 - 0.1 * e); aL.rotation.set(-0.8 * e, 0, 0.1 + 0.1 * e);
@@ -3577,8 +3579,8 @@ function artChef(parent, seed, y, S, x0, z0, flameAt) {
   ladle = artPropMesh(aR, p.owned, [[artCyl(0.012, 0.012, 0.34, 6), '#C9CCD0', 0, hy - 0.02, -0.15, Math.PI / 2], [artSph(0.045, 8, 6), '#C9CCD0', 0, hy - 0.02, -0.32]]);
   knife = artPropMesh(aR, p.owned, [[artBox(0.02, 0.03, 0.09), '#2B2B3A', 0, hy - 0.02, -0.03], [artBox(0.006, 0.045, 0.16), '#D0D4D8', 0, hy - 0.02, -0.15]]);
   panG = new THREE.Group(); panG.position.set(0, hy, 0); aR.add(panG);
-  artPropMesh(panG, p.owned, [[artCyl(0.13, 0.11, 0.035, 14), '#2A2A2A', 0, 0, 0.25], [artBox(0.03, 0.02, 0.18), '#2A2A2A', 0, 0.005, 0.08]]);
-  food = artPropMesh(panG, p.owned, [[artCyl(0.085, 0.085, 0.02, 12), '#E8C84A', 0, 0, 0]]); food.position.set(0, 0.035, 0.25);
+  artPropMesh(panG, p.owned, [[artCyl(0.11, 0.095, 0.035, 14), '#2A2A2A', 0, 0, 0.1], [artBox(0.03, 0.02, 0.12), '#2A2A2A', 0, 0.005, -0.04]]);   // pan in front of the hand
+  food = artPropMesh(panG, p.owned, [[artCyl(0.075, 0.075, 0.02, 12), '#E8C84A', 0, 0, 0]]); food.position.set(0, 0.035, 0.1);
   flame = artPropMesh(parent, p.owned, [[artCone(0.07, 0.16, 8), '#FF7A1A', 0, 0.08, 0], [artCone(0.04, 0.1, 8), '#FFD84A', 0, 0.06, 0]], artFlameMat());
   flame.position.set(flameAt[0], flameAt[1], flameAt[2]);
   ladle.visible = knife.visible = panG.visible = flame.visible = false;
@@ -3588,8 +3590,8 @@ function artChef(parent, seed, y, S, x0, z0, flameAt) {
 function artKitchen(ctx, parent, sd) {
   const W = ctx.x1 - ctx.x0, X = (u) => ctx.x0 + u, PI = Math.PI, bz = ctx.backZ;
   const rc = (R2_fit(ctx, W * 0.42 - 0.6, 1.2, W) ?? 0.2) + 0.6, pw = Math.min(2.6, W * 0.45), pu = R2_fit(ctx, 0.3, pw, W), bu = R2_fit(ctx, W * 0.72, 0.5, W);   // as R2_restaurant
-  const sz = -3.55, S = [{ a: 'stir', d: 4.5, ry: PI }, { a: 'flip', d: 3.9, ry: PI }];
-  if (bu != null) S.push({ a: 'walk', x: X(bu + 0.45), z: sz }, { a: 'chop', d: 3.6, ry: PI });
+  const sz = -3.3, S = [{ a: 'stir', d: 4.5, ry: PI }, { a: 'flip', d: 3.9, ry: PI }];   // at the range: half a step back (the hood)
+  if (bu != null) S.push({ a: 'walk', x: X(bu + 0.45), z: -3.55 }, { a: 'chop', d: 3.6, ry: PI });
   if (pu != null) S.push({ a: 'walk', x: X(pu + pw / 2), z: -2.62 }, { a: 'plate', d: 4.0, ry: 0 });
   S.push({ a: 'walk', x: X(rc - 0.1), z: sz });
   return [artChef(parent, 42 + sd * 17, ctx.y, S, X(rc - 0.1), sz, [X(rc - 0.3), ctx.y + 0.97, bz + 0.53])];
@@ -5515,7 +5517,7 @@ function planDeparture(p) {
   }
   if (p.floor !== L.groundIndex && !L.themes[p.floor].basement) {   // into a room: along the lane, then to a spot inside it (fades there)
     const x = roomSpotX(p.floor);
-    p.roomDoor = false; p.path = [[x, L.laneZ], [x, ROOM_SPOT_Z]]; return;
+    p.roomDoor = false; p.intoRoom = true; p.linger = ROOM_LINGER; p.path = [[x, L.laneZ], [x, ROOM_SPOT_Z]]; return;
   }
   // old art without street / parking / train hooks: out through the lobby entrance, or into a basement wing
   const x = p.floor === L.groundIndex ? L.streetX : wingX();
@@ -5670,6 +5672,7 @@ function updatePerson(p, dt) {
     case 'leaving': {
       if (!followPath(p, dt)) break;
       setAnim(p, 'idle');
+      if (p.intoRoom && p.linger > 0) { p.linger -= dt; p.rot = 0; break; }   // arrived in the room: stand facing out a moment, then fade
       if (p.end === 'fade') { if (p.roomDoor) fl.roomHold[p.roomDoor] = 0.6; p.fade = 0; if (p.alpha <= 0) removePerson(p); }
       else if (p.end === 'car') {
         const bay = G.bays[p.bay], ph = bay ? parkH(bay.f) : null;
