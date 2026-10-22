@@ -75,6 +75,9 @@ Play it at <https://tb-x.github.io/going-up/> (once published).
   gets smaller as they eat, and the empty plates go back to the kitchen to be washed and racked.
 - In the pool a child swims lengths (front crawl, splashes, turning at each end) while the lifeguard watches, and in the
   paddling pool a child sits and splashes next to a bobbing rubber ring.
+- Little animals live around the building: a mole digs through the soil under the street and pushes up molehills, a cat
+  roams the pavement (onto the bench, a bin, over the zebra to a window ledge), a dog sniffs the trees on its walk,
+  crows hop on the roof railing and pigeons sit on the street lamps, and a squirrel runs up and down a street tree.
 - In a building with a hotel, the lobby desk is a hotel reception (a rack of keys, a key sign, a luggage trolley).
   Hotel guests come in from the street with a little suitcase, wait at the desk for their key, then queue for the lift.
 - The two hotel floors are full of life. The first has a guest room (big bed, wardrobe, desk with a TV, armchair, a guest

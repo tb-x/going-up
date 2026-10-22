@@ -1292,6 +1292,8 @@ function buildSky(scene) {
   // shop with striped awning on the left neighbour's ground floor
   for (let s = 0; s < 8; s++) put(artBox(0.7, 0.06, 1.0), s % 2 ? '#F1EBDD' : '#B5453A', -17.9 + s * 0.7, 2.6, -12.75, -0.35);
   box(5.2, 1.7, 0.08, '#C8D7DD', -15.4, 1.35, -13.2, shiny); box(5.4, 0.25, 0.12, '#2E3236', -15.4, 2.3, -13.18);
+  // stone ledges on the plinth under the ground-floor windows of the stone block right of the crossing (the cat sits there)
+  for (const lx of ART_CAT.sills) box(0.95, 0.06, 0.3, '#D8D0C2', lx, 1.13, ART_CAT.ledgeZ, conc);
   // ground: grass, pavement slabs, kerbs, asphalt, markings, crossing, manholes
   // SPEC4: nothing in front of the cut (z > 0) but the ground section; the street runs BEHIND the tower.
   // y = 0 is the lobby floor = both pavements; the road surface is at -0.12. Grass sits 5 mm low so it never z-fights.
@@ -1393,9 +1395,11 @@ function buildSky(scene) {
       if (lv !== c.lv) { c.lv = lv; c.h.setLights(lv); }
     }
   };
-  // strollers on the far pavement (not game people)
-  const strollers = [['adult', 11, 1, 0.9], ['grandma', 23, -1, 0.5], ['kid', 37, 1, 1.0], ['dogwalker', 52, -1, 0.85]].map(([kind, seed, dir, v], k) => {
-    const h = buildPerson(kind, seed); h.group.rotation.y = dir > 0 ? Math.PI / 2 : -Math.PI / 2; group.add(h.group); return { h, dir, v: v * 1.3, off: k * 37, z: -11.5 - (k % 2) * 0.5 }; });
+  // strollers on the far pavement (not game people): one lane by the kerb, all at one pace and spread out, so they never
+  // meet; the inner lane belongs to the dog walker (artStreetLife: cat, dog walker, birds, squirrel)
+  const strollers = [['adult', 11], ['grandma', 23], ['kid', 37]].map(([kind, seed], k) => {
+    const h = buildPerson(kind, seed); h.group.rotation.y = Math.PI / 2; group.add(h.group); return { h, dir: 1, v: 1.05, off: k * 110 / 3, z: -11.3, x: 0 }; });
+  const life = artStreetLife(group, owned, { traffic, strollers, lampXs, LZ });
   // moon and stars (night)
   const moon = new THREE.Group(); moon.position.set(48, 62, -190); group.add(moon);
   moon.add(new THREE.Mesh(artSph(6, 20, 12), new THREE.MeshBasicMaterial({ color: '#F4F0DC', fog: false, toneMapped: false })));
@@ -1431,7 +1435,8 @@ function buildSky(scene) {
     const dt = lastT == null ? 0 : Math.max(0, Math.min(0.1, t - lastT)); lastT = t;
     const midHidden = artStreetMid && !artStreetMid.visible;
     streetTick(dt);
-    for (const s of strollers) { const x = ((s.off + t * s.v) % 110) - 55; s.h.group.position.set(s.dir > 0 ? x : -x, 0, s.z); s.h.setAnim('walk', t + s.off); }
+    for (const s of strollers) { s.x = s.dir * (((s.off + t * s.v) % 110) - 55); s.h.group.position.set(s.x, 0, s.z); s.h.setAnim('walk', t + s.off); }
+    life.update(t, dt);
     if (stars.visible) starMat.opacity = (artMode === 'night' ? 0.85 : 0.35) * (0.85 + 0.15 * Math.sin(t * 1.7));
     for (const c of clouds) { let x = c.position.x + c.userData.speed * 0.016; if (x > 130) x -= 260; c.position.x = x; }
     for (const b of birds) { const u = b.userData, ph = ((t + u.o) % u.p) / u.p; b.position.set(-70 + ph * 140, u.y + Math.sin(t * 0.7 + u.o) * 1.2, u.z); b.scale.y = 0.8 * (0.35 + 0.65 * Math.abs(Math.sin(t * 6 + u.o))); }
@@ -1627,12 +1632,15 @@ function buildBuilding(scene, layout) {
   const blinkHalo = new THREE.Sprite(new THREE.SpriteMaterial({ map: artRadialTex(), color: '#FF5040', blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
   blinkHalo.position.y = 2.45; blinkHalo.scale.set(0.8, 0.8, 1); ant.add(blinkHalo);
   ticks.push((t) => { const on = (t % 1) < 0.5; blinkMat.color.set(on ? '#FF4040' : '#4A1A1A'); blinkHalo.visible = on; });
+  const roofId = ++artRoofId;                                // crows (artStreetLife): the railing's top rail and the parapet top
+  artRoofPerch = { x0: x0 + 0.35, x1: x1 - 0.35, rail: H + 1.1975, ledge: H + 0.3, id: roofId };
   // ---- underground section (rooms2)
   if (typeof R2_buildUnderground === 'function') {
     const subI = layout.themes ? layout.themes.findIndex((t) => t.id === 'subway') : -1;
     const ug = R2_buildUnderground({ buildingX0: x0 - T, buildingX1: x1 + T, nBasement: nB, subwayY: subI >= 0 ? fY(subI) : null,
       rng: artRng(5150 + nB), floorH: FH, slab: SL, depth: D, frontZ: 0, ramp: artRampOf(layout), treeXs: [].filter((tx) => (tx < x0 - T - 2.6 || tx > x1 + T + 2.6) && !(artRampOf(layout) && tx > x1 + T - 0.5 && tx < x1 + T + ART_PARK.rampLen + 1.5)) });
     group.add(ug.group); ticks.push((t, dt) => ug.update && ug.update(t, dt));
+    ticks.push(artMole(group, owned, { x0: x0 - T - 16, x1: x0 - T - 9.6, minY: subI >= 0 ? fY(subI) + 1.47 : yB - 2, seed: 7100 + nB }));
   }
   { const rb = new ArtBatch(), bot = yB - 2;                  // deep rock below the soil section
     rb.add(artPln(200, 60), conc, artXf(0, bot - 30, -0.02), '#6E6A64', [40, 12]); rb.flush(group, owned, false, false); }
@@ -1688,6 +1696,7 @@ function buildBuilding(scene, layout) {
   const street = { y: 0, walkZ: -5.6, clearZ: -5.6, leftX: x0 - 34, rightX: x1 + 34, entranceX: artEntranceX };   // SPEC4: back pavement strip, back door
   return { group, floors, shafts, street, dispose() {
     if (disposed) return; disposed = true; artLive.delete(live);
+    if (artRoofPerch && artRoofPerch.id === roofId) artRoofPerch = null;
     if (group.parent) group.parent.remove(group);
     for (const g of owned) g.dispose();
     for (const h of occ) h.dispose();
@@ -3957,6 +3966,532 @@ function artPaddler(parent, seed, x, z, y, wy) {
   };
   f.h = tk.h; return f;
 }
+/* ======== art: critters ======== */
+// Ambient life (no game API): a mole digging through the soil section, a cat and a dog walker on the street, crows on
+// the roof railing and pigeons on the street lamps, a squirrel on a street tree. Each critter is one merged mesh plus
+// 1-3 moving parts (a pose change swaps the body geometry: walk frames, sitting); birds and contact blobs are instanced.
+// Seeded (artRng), no allocations per frame (ART_CR / per-system temporaries), no sun shadows (contact blobs instead).
+// Extra draw calls: mole 4 (body, paws, tunnel trail, molehill), cat 3-4 (+1 glowing eyes after dark), dog 3 + lead 1
+// (its owner replaced the old dog-walker stroller, so 2 meshes fewer there), birds 2-3 (wings only while one flies),
+// squirrel 2, blobs 1: about 16 extra by day, 17 at night.
+let artRoofPerch = null, artRoofId = 0;   // { x0, x1, rail, ledge, id }: perches on the current tower's roof (buildBuilding)
+const ART_CR = { m: new THREE.Matrix4(), q: new THREE.Quaternion(), e: new THREE.Euler(0, 0, 0, 'YXZ'), p: new THREE.Vector3(),
+  s: new THREE.Vector3(), c: new THREE.Color(), ax: new THREE.Vector3(), ay: new THREE.Vector3(), az: new THREE.Vector3(),
+  up: new THREE.Vector3(0, 1, 0), zero: new THREE.Matrix4().makeScale(0, 0, 0) };
+const artFurM = () => artMk('fur', { roughness: 0.9, metalness: 0, envMapIntensity: 0.45 }, 'fabric', 0.25);
+const artFeatherM = () => artMk('feather', { roughness: 0.65, metalness: 0, envMapIntensity: 0.6 }, 'paint', 0.2);
+function artBake(parts, mat) {          // [geo, hex, x, y, z, rx, ry, rz, sx, sy, sz] or [geo, hex, Matrix4] -> one merged geometry
+  const b = new ArtBatch(), m = mat || artFurM();
+  for (const p of parts) b.add(p[0], m, p[2] && p[2].isMatrix4 ? p[2] : artXf(...p.slice(2)), p[1]);
+  return b.flush(new THREE.Group(), [])[0].geometry;
+}
+function artTube(pts, r0, r1, cols) {   // a bent tail: a cylinder per segment and a ball per joint, radius r0 -> r1, banded colours
+  const out = [], n = pts.length - 1, rad = (i) => r0 + (r1 - r0) * i / n;
+  for (let i = 0; i <= n; i++) {
+    out.push([artSph(rad(i), 8, 6), cols[i % cols.length], ...pts[i]]);
+    if (i < n) out.push([artCyl(1, 1, 1, 8), cols[i % cols.length], artXfLine(new THREE.Vector3(...pts[i]), new THREE.Vector3(...pts[i + 1]), (rad(i) + rad(i + 1)) / 2)]);
+  }
+  return out;
+}
+const artTurn = (a, b, k) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * Math.min(1, k);   // ease angle a towards b
+function artInst(geo, mat, n) {         // instanced mesh, every instance hidden (zero scale) and white until set
+  const im = new THREE.InstancedMesh(geo, mat, n); im.frustumCulled = false; im.castShadow = false;
+  for (let i = 0; i < n; i++) { im.setMatrixAt(i, ART_CR.zero); im.setColorAt(i, ART_WHITE); }
+  return im;
+}
+const artCritMesh = (geo, mat, parent) => { const m = new THREE.Mesh(geo, mat); m.castShadow = false; m.receiveShadow = true; if (parent) parent.add(m); return m; };
+
+/* -------- critters: the mole (soil section left of the tower, built per building) -------- */
+const ART_MOLE = { size: 1.25, v: 0.11, z: 0.045, hillZ: -0.22, trailN: 30, step: 0.09, life: 80, trip: [24, 44] };
+// o: { x0, x1 } soil under the grass (left of the paved apron), minY: lowest y with soil (subway tunnel or section bottom), seed
+function artMole(parent, owned, o) {
+  const M = ART_MOLE, S = M.size, r = artRng(o.seed), fur = artFurM(), C = ART_CR;
+  // the water main (y -0.95) and the gas pipe (-0.7) cross the whole section: the mole digs above them (band 0) or below
+  // them (band 1, when there is soil enough) and passes them hidden behind the cut face
+  const PIPE_LO = -1.27, PIPE_HI = -0.47, TOP = -0.2;
+  const bands = [[-0.5, -0.21], [Math.max(o.minY + 0.12, -2.6), -1.14]], deep = bands[1][1] - bands[1][0] > 0.25;
+  const soilCols = ['#8E8A82', '#5E4632', '#8A6440', '#B58E5E'].map((h) => new THREE.Color(h));   // R2_soilTex layers
+  const soilAt = (y) => soilCols[-y < 0.45 ? 0 : -y < 1.3 ? 1 : -y < 2.6 ? 2 : 3];
+  const BLACK = '#3A3436', PINK = '#E2A2A4';
+  const bodyG = artBake([                                     // head towards +x, seen from +z
+    [artSph(1, 12, 8), BLACK, 0, 0, 0, 0, 0, 0, 0.085, 0.052, 0.056], [artSph(1, 10, 7), BLACK, -0.06, -0.004, 0, 0, 0, 0, 0.05, 0.046, 0.05],
+    [artSph(1, 10, 7), '#453E40', 0.072, 0.002, 0, 0, 0, 0, 0.045, 0.037, 0.04], [artCone(0.013, 0.046, 8), PINK, 0.118, -0.004, 0, 0, 0, -Math.PI / 2],
+    [artSph(0.009, 6, 5), '#C97E84', 0.142, -0.004, 0], [artCyl(0.005, 0.004, 0.035, 5), PINK, -0.112, 0.012, 0, 0, 0, 1.1],
+    ...[-1, 1].flatMap((sd) => [[artSph(0.004, 5, 4), '#111111', 0.093, 0.014, sd * 0.03], [artSph(1, 6, 5), PINK, -0.065, -0.044, sd * 0.034, 0, 0, 0, 0.02, 0.008, 0.013]])]);
+  const pawG = artBake([-1, 1].flatMap((sd) => [[artSph(1, 8, 6), PINK, 0.02, -0.012, sd * 0.05, sd * 0.6, 0, 0.3, 0.03, 0.011, 0.027],
+    [artBox(0.012, 0.004, 0.03), '#F2E6DA', 0.048, -0.016, sd * 0.05, 0, 0, 0.3]]));
+  const hillG = artBake([[artSph(1, 14, 7, 0, Math.PI * 2, 0, Math.PI / 2), '#5A4330', 0, 0, 0, 0, 0, 0, 0.2, 0.11, 0.18],
+    ...[[0.09, 0.05], [-0.12, 0.03], [0.02, -0.11], [-0.05, 0.1], [0.14, -0.06]].map(([dx, dz], k) =>
+      [artSph(0.02 + k * 0.004, 6, 4), k % 2 ? '#6B5038' : '#4E3A2A', dx, 0.105 * Math.sqrt(Math.max(0, 1 - (dx / 0.2) ** 2 - (dz / 0.18) ** 2)), dz])]);
+  owned.push(bodyG, pawG, hillG);
+  const g = new THREE.Group(), body = artCritMesh(bodyG, fur, g), paws = new THREE.Group();
+  paws.position.set(0.06, -0.026, 0); artCritMesh(pawG, fur, paws); g.add(paws); parent.add(g);
+  const hill = artCritMesh(hillG, fur, parent); hill.visible = false;
+  const trailM = artMatC('moleTrail', () => new THREE.MeshStandardMaterial({ roughness: 1, metalness: 0, envMapIntensity: 0.3, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -4 }));
+  const trail = artInst(artGeo('moleSeg', () => new THREE.CircleGeometry(1, 14)), trailM, M.trailN); trail.receiveShadow = true; parent.add(trail); owned.push(trail);
+  const segs = Array.from({ length: M.trailN }, () => ({ x: 0, y: 0, a: 0, age: 0, on: false, dark: new THREE.Color(), soil: new THREE.Color() }));
+  // state: position (x, y) on the face, heading a, depth z (M.z on the face, -0.25 hidden behind it), facing f (+1 right)
+  let band = deep ? 1 : 0, x = (o.x0 + o.x1) / 2 + (r() - 0.5) * 2, y = (bands[band][0] + bands[band][1]) / 2, a = r() < 0.5 ? 0 : Math.PI;
+  let z = M.z, zT = M.z, f = Math.cos(a) < 0 ? -1 : 1, fs = f, tx = x, ty = y, mode = 'dig', mt = 0, clock = 0, rest = 0, dist = 0, segI = 0;
+  let next = 8 + r() * 10, diveDir = 1, colNext = 'dig', hx = x, hillX = x, hillH = 0, hillWant = 0, hillAge = 0, pitch = 0, peekF = 1;
+  const ph = r() * 6;
+  const pick = () => { const b = bands[band]; tx = Math.min(o.x1, Math.max(o.x0, x + (r() - 0.5) * 3.2)); ty = b[0] + r() * (b[1] - b[0]); };
+  const go = (m) => { mode = m; mt = 0; };
+  const toCol = (x2, y2, then) => { tx = x2; ty = y2; colNext = then; go('col'); };
+  const decide = () => {
+    if (clock > next) {                                       // up to the grass: push up a molehill and look out
+      hx = Math.min(o.x1 - 0.3, Math.max(o.x0 + 0.3, x + (r() - 0.5) * 1.6)); hillWant = 0;
+      if (band === 1) { diveDir = 1; toCol(hx, PIPE_LO, 'dive'); } else toCol(hx, TOP, 'under');
+      return;
+    }
+    if (deep && r() < 0.22) { diveDir = band ? 1 : -1; toCol(x, band ? PIPE_LO : PIPE_HI, 'dive'); return; }   // to the other band
+    pick(); go('dig');
+  };
+  pick();
+  const steer = (sp, wb, dt) => {                             // head for (tx, ty), wobbling a little; true on arrival
+    const dx = tx - x, dy = ty - y, d = Math.hypot(dx, dy);
+    if (d < 0.05) return true;
+    const want = Math.atan2(dy, dx) + (d > 0.3 ? wb * Math.sin(clock * 0.9 + ph) : 0);
+    a = artTurn(a, want, dt * (d < 0.3 ? 5 : 1.6)); const s = Math.min(d, sp * dt);
+    x += Math.cos(a) * s; y += Math.sin(a) * s; return false;
+  };
+  return (t, dt) => {
+    dt = dt > 0 ? dt : 0; clock += dt; mt += dt;
+    let v = 0, trailOn = false;
+    if (rest > 0) { rest -= dt; if (rest <= 0) decide(); }
+    else if (mode === 'dig') {
+      if (steer(M.v, 0.45, dt)) rest = 0.6 + r() * 1.6; else { v = M.v; trailOn = true; }
+      const b = bands[band]; y = Math.min(b[1], Math.max(b[0], y)); x = Math.min(o.x1, Math.max(o.x0, x));
+    } else if (mode === 'col') {                              // to the foot of the pipe crossing / up the column under the hill
+      if (steer(M.v * 1.2, 0.2, dt)) go(colNext); else { v = M.v * 1.2; trailOn = true; }
+    } else if (mode === 'dive') {                             // sink behind the face, pass the pipes, come back out
+      zT = -0.25;
+      if (mt > 0.4) { const goal = diveDir > 0 ? PIPE_HI : PIPE_LO; a = artTurn(a, diveDir * Math.PI / 2, dt * 6); y += diveDir * Math.min(Math.abs(goal - y), 0.22 * dt);
+        if (Math.abs(goal - y) < 0.005) { band = diveDir > 0 ? 0 : 1; zT = M.z; if (diveDir > 0 && clock > next) decide(); else { pick(); go('dig'); } } }
+    } else if (mode === 'under') {                            // behind the face at the top: the molehill rises
+      zT = -0.25;
+      if (mt > 0.5) { if (hillH < 0.02) { hillX = hx; hillWant = 1; hillAge = 0; } if (hillWant === 1 && hillH >= 1) { peekF = f; go('peek'); } }
+    } else if (mode === 'peek') {                             // nose out of the molehill, a look round, back down
+      const u = mt < 0.6 ? mt / 0.6 : mt < 3.6 ? 1 : Math.max(0, 1 - (mt - 3.6) / 0.6);
+      x = hx; y = -0.14 + 0.13 * u * u * (3 - 2 * u); z = M.hillZ; zT = M.hillZ;
+      f = mt > 1.4 && mt < 2.7 ? -peekF : peekF;              // looks one way, the other, and back
+      if (mt > 4.2) { x = hx; y = TOP; z = zT = -0.25; go('back'); }
+    } else if (mode === 'back') {
+      zT = M.z;
+      if (mt > 0.5) { a = -Math.PI / 2; band = 0; next = clock + M.trip[0] + r() * (M.trip[1] - M.trip[0]); tx = x + (r() - 0.5) * 0.8; ty = bands[0][0] + 0.05; go('dig'); }
+    }
+    // hill: grows while the mole pushes up, stands a minute, then settles (fast when the next one is due)
+    hillAge += dt; if (hillWant === 1 && hillAge > 60 && mode !== 'under' && mode !== 'peek') hillWant = 0;
+    if (hillH < hillWant) hillH = Math.min(hillWant, hillH + dt * 0.6); else if (hillH > hillWant) hillH = Math.max(0, hillH - dt * (mode === 'col' || mode === 'under' ? 1.2 : 0.15));
+    hill.visible = hillH > 0.01;
+    if (hill.visible) { const k = 0.55 + 0.45 * hillH; hill.position.set(hillX, -0.005, M.hillZ); hill.scale.set(k, hillH, k); }
+    // body: depth, facing (mirrored, turns through edge-on), pitch along the heading, scooping paws
+    z += (zT - z) * Math.min(1, dt * 5);
+    if (mode !== 'peek') { const ca = Math.cos(a); if (ca > 0.25) f = 1; else if (ca < -0.25) f = -1; }
+    fs += Math.sign(f - fs) * Math.min(Math.abs(f - fs), dt * 4);
+    pitch = mode === 'peek' ? f * 1.25 : Math.max(-1.35, Math.min(1.35, f * Math.atan2(Math.sin(a), f * Math.cos(a))));
+    const dig = v > 0 || mode === 'dive', lunge = dig ? 0.012 * Math.sin(clock * 9) : 0;
+    g.position.set(x + Math.cos(a) * lunge, y + Math.sin(a) * lunge, z); g.rotation.z = pitch;
+    g.scale.set(S * (Math.abs(fs) < 0.15 ? (fs < 0 ? -0.15 : 0.15) : fs), S * (1 + (dig ? 0 : 0.02 * Math.sin(clock * 2.2))), S);
+    paws.rotation.z = dig ? -0.25 + 0.6 * Math.sin(clock * 9) : mode === 'peek' ? 0.6 : 0.15;
+    // tunnel trail: pooled segments laid behind the mole, fading to the soil colour
+    if (trailOn && z > 0) { dist += v * dt;
+      if (dist >= M.step) { dist = 0; const s = segs[segI]; segI = (segI + 1) % M.trailN;
+        s.on = true; s.age = 0; s.x = x - Math.cos(a) * 0.04; s.y = y - Math.sin(a) * 0.04; s.a = a;
+        s.soil.copy(soilAt(s.y)); s.dark.copy(s.soil).multiplyScalar(0.36); s.soil.multiplyScalar(0.92); } }
+    for (let i = 0; i < M.trailN; i++) { const s = segs[i]; if (!s.on) continue; s.age += dt;
+      if (s.age > M.life) { s.on = false; trail.setMatrixAt(i, C.zero); continue; }
+      const k = s.age / M.life, kk = k * k * (3 - 2 * k);
+      trail.setColorAt(i, C.c.copy(s.dark).lerp(s.soil, kk));
+      C.q.setFromEuler(C.e.set(0, 0, s.a)); C.p.set(s.x, s.y, 0.006); C.s.set(0.085 * S, 0.062 * S * (1 - 0.3 * kk), 1);
+      trail.setMatrixAt(i, C.m.compose(C.p, C.q, C.s)); }
+    trail.instanceMatrix.needsUpdate = true; trail.instanceColor.needsUpdate = true;
+  };
+}
+
+/* -------- critters: street life (cat, dog walker, crows and pigeons, squirrel), built once by buildSky -------- */
+const ART_CAT = { size: 1.12, lane: -6.1, cross: 7.6, kerbN: -6.88, roadN: -6.98, roadS: -11.02, far: -12.85, x0: -28, x1: -10.6,
+  bench: [-15.05, -15.5, -14.45, 0.48, -6.56],              // jump-on x, sitting x, ground x at the bench end, seat top, seat z
+  bins: [-11.4, -24], binY: 0.795, binZ: -6.7, sills: [21.8, 24.8], sillY: 1.16, sillZ: -13.0, ledgeZ: -13.05 };   // ledge 0.3 deep
+const ART_DOG = { v: 0.95, lead: 1.05, zO: -11.84, zD: -11.72, trees: [-9, 11], tz: -12.2 };
+const ART_SQ = { x: -12.9, z: -6.65, size: 1.2 };
+// env: { traffic, strollers (x, dir, v), lampXs, LZ } from buildSky
+function artStreetLife(group, owned, env) {
+  const { traffic, strollers, lampXs, LZ } = env, PK = ART_PARK, L = ART_CAT, D = ART_DOG, fur = artFurM(), C = ART_CR, PI = Math.PI;
+  const bake = (parts, mat) => { const geo = artBake(parts, mat); owned.push(geo); return geo; };
+  // contact blobs: 0 cat, 1 dog, 2 squirrel
+  const blobs = artInst(artPln(1, 1), artBlobM(), 3); blobs.renderOrder = 1; group.add(blobs); owned.push(blobs);
+  const qFlat = new THREE.Quaternion().setFromEuler(new THREE.Euler(-PI / 2, 0, 0)), bp = new THREE.Vector3(), bsc = new THREE.Vector3(), bm = new THREE.Matrix4();
+  const setBlob = (i, x, y, z, s) => { if (s <= 0) { blobs.setMatrixAt(i, C.zero); return; } bp.set(x, y + 0.012, z); bsc.set(s, s, 1); blobs.setMatrixAt(i, bm.compose(bp, qFlat, bsc)); };
+  const FR = [0, 1, 0, -1];                                   // walk cycle: stride frames by quarter step
+
+  /* ---- the dog walker on the far pavement: the dog leads, stops to sniff a tree or the pavement, wags; the owner waits */
+  const DC = { base: '#B98348', light: '#F2EADF', dark: '#3B302A' };
+  const dogLeg = (x, pz, th) => { const h = 0.12, py = 0.25; return [[artCap(0.03, 0.18, 2, 7), DC.base, x, py - h * Math.cos(th), pz - h * Math.sin(th), th],
+    [artSph(0.032, 7, 5), DC.light, x, py - 2 * h * Math.cos(th) + 0.012, pz - 2 * h * Math.sin(th) + 0.015, 0, 0, 0, 1, 0.55, 1.25]]; };
+  const dogG = [-1, 0, 1].map((st) => bake([
+    [artCap(0.088, 0.3, 3, 10), DC.base, 0, 0.32, -0.01, PI / 2], [artSph(1, 10, 7), DC.dark, 0, 0.36, -0.05, 0, 0, 0, 0.083, 0.06, 0.17],
+    [artSph(1, 10, 7), DC.light, 0, 0.29, 0.13, 0, 0, 0, 0.075, 0.08, 0.07], [artSph(1, 9, 6), DC.light, 0, 0.255, 0, 0, 0, 0, 0.06, 0.04, 0.17],
+    [artSph(0.06, 9, 6), DC.base, 0, 0.37, 0.18], [artTor(0.058, 0.012, 4, 14), '#C0392B', 0, 0.37, 0.19, PI / 2 - 0.5],
+    ...dogLeg(-0.055, 0.15, st * 0.35), ...dogLeg(0.055, 0.15, -st * 0.35), ...dogLeg(-0.055, -0.16, -st * 0.35), ...dogLeg(0.055, -0.16, st * 0.35)]));
+  const dogHeadG = bake([[artSph(0.075, 12, 9), DC.base, 0, 0.06, 0.04], [artSph(1, 9, 7), DC.light, 0, 0.035, 0.115, 0, 0, 0, 0.042, 0.038, 0.06],
+    [artSph(0.017, 7, 5), '#1E1A18', 0, 0.05, 0.172], [artSph(1, 8, 6), DC.light, 0, 0.1, 0.09, 0, 0, 0, 0.02, 0.03, 0.02],
+    ...[-1, 1].flatMap((sd) => [[artSph(0.012, 6, 5), '#1E1A18', sd * 0.035, 0.085, 0.1], [artSph(1, 8, 6), DC.dark, sd * 0.07, 0.03, 0.03, 0, 0, sd * 0.2, 0.016, 0.065, 0.042]])]);
+  const dogTailG = bake([[artCap(0.022, 0.13, 2, 7), DC.base, 0, 0.065, -0.035, -0.55], [artSph(0.024, 7, 5), DC.light, 0, 0.135, -0.075]]);
+  const dog = new THREE.Group(), dogBody = artCritMesh(dogG[1], fur, dog), dogHead = new THREE.Group(), dogTail = new THREE.Group();
+  dogHead.rotation.order = 'YXZ'; dogHead.position.set(0, 0.38, 0.2); artCritMesh(dogHeadG, fur, dogHead);
+  dogTail.position.set(0, 0.37, -0.23); artCritMesh(dogTailG, fur, dogTail); dog.add(dogHead, dogTail); group.add(dog);
+  const owner = buildPerson('adult', 52, { look: 'casual', top: '#4F6E8C' }), op = owner._p;
+  owner.group.rotation.y = -PI / 2; group.add(owner.group);
+  const hand = [op.tor * 0.95 + op.armR * 0.5, op.shY - op.arm * 0.92, op.arm * 0.39];   // right hand, arm 0.4 forward (local)
+  const leash = artCritMesh(artCyl(1, 1, 1, 5), artMatC('leash', () => new THREE.MeshStandardMaterial({ color: '#B03A2E', roughness: 0.6 })), group);
+  const la = new THREE.Vector3(), lb = new THREE.Vector3();
+  const dr = artRng(5252), A = { dx: 18 + dr() * 20, dz: D.zD, ox: 0, yaw: -PI / 2, yawT: -PI / 2, mode: 'walk', t: 0, tx: 0, tz: 0, tree: 0,
+    done: [false, false], want: [true, true], nextG: 0, ph: 0, wc: 0 };
+  A.ox = A.dx + D.lead; A.nextG = A.dx - 4 - dr() * 8;
+  const pairW = [{ x: A.dx, dir: -1, v: 0 }, { x: A.ox, dir: -1, v: 0 }];   // for the cat's crossing check
+  const dogTick = (t, dt) => {
+    let mv = 0, sniff = 0;
+    if (A.mode === 'walk') {
+      A.dx -= D.v * dt; mv = D.v; A.dz += (D.zD - A.dz) * Math.min(1, dt * 3); A.yawT = -PI / 2;
+      for (let k = 0; k < 2; k++) { const tx = D.trees[k];
+        if (A.want[k] && !A.done[k] && A.dx < tx + 1.5 && A.dx > tx + 0.6) { A.done[k] = true; A.mode = 'toTree'; A.tree = k; A.tx = tx + 0.446; A.tz = D.tz + 0.267; } }
+      if (A.mode === 'walk' && A.dx < A.nextG) {
+        if (Math.abs(A.dx - D.trees[0]) > 2 && Math.abs(A.dx - D.trees[1]) > 2) { A.mode = 'ground'; A.t = 1.4 + dr(); }
+        A.nextG = A.dx - 6 - dr() * 10; }
+    } else if (A.mode === 'toTree' || A.mode === 'leave') {
+      const ex = A.tx - A.dx, ez = A.tz - A.dz, d = Math.hypot(ex, ez);
+      if (d < 0.02) { if (A.mode === 'toTree') { A.mode = 'sniff'; A.t = 3 + dr() * 2.5; } else A.mode = 'walk'; }
+      else { const s = Math.min(d, 0.75 * dt); A.dx += ex / d * s; A.dz += ez / d * s; mv = 0.75; A.yawT = Math.atan2(ex, ez); }
+    } else {                                                  // sniffing a tree trunk or the pavement
+      A.t -= dt; sniff = 1;
+      if (A.mode === 'sniff') A.yawT = Math.atan2(D.trees[A.tree] - A.dx, D.tz - A.dz);
+      if (A.t <= 0) { if (A.mode === 'sniff') { A.mode = 'leave'; A.tx = D.trees[A.tree] - 0.35; A.tz = D.zD; } else A.mode = 'walk'; }
+    }
+    if (A.dx < -56) { A.dx += 112; A.ox += 112; A.done[0] = A.done[1] = false; A.want[0] = dr() < 0.85; A.want[1] = dr() < 0.85; A.nextG = A.dx - 4 - dr() * 8; }
+    A.yaw = artTurn(A.yaw, A.yawT, dt * 7); A.ph += mv * dt / 0.13;
+    dogBody.geometry = dogG[FR[Math.floor(A.ph) & 3] + 1];
+    const bob = mv ? Math.abs(Math.sin(A.ph * PI / 2)) * 0.012 : 0;
+    dog.position.set(A.dx, bob, A.dz); dog.rotation.y = A.yaw;
+    if (sniff) dogHead.rotation.set(0.85 + 0.06 * Math.sin(t * 17), 0.22 * Math.sin(t * 1.6), 0); else dogHead.rotation.set(0.04 * Math.sin(A.ph * PI), 0, 0);
+    dogTail.rotation.set(sniff ? -0.25 : 0, Math.sin(t * (sniff ? 19 : 12)) * (sniff ? 0.75 : 0.45), 0);
+    setBlob(1, A.dx, 0, A.dz, 0.62);
+    // owner: keeps the lead's length behind the dog (in x), stands and looks about while it sniffs
+    const gap = A.ox - (A.dx + D.lead), s = gap > 0.03 ? Math.min(gap, 1.1 * dt) : 0;
+    A.ox -= s; const om = dt > 0 ? s / dt : 0;
+    let oz = D.zO; for (let k = 0; k < 2; k++) { const e = Math.abs(A.ox - D.trees[k]); if (e < 0.8) oz += 0.06 * (1 - e / 0.8); }   // a step aside past a trunk
+    owner.group.position.set(A.ox, 0, oz);
+    if (om > 0.05) { A.wc += dt; owner.setAnim('walk', A.wc); op.headG.rotation.y = 0; }
+    else { owner.setAnim('walk', A.wc); op.legs[0].rotation.x = op.legs[1].rotation.x = 0; op.arms[0].rotation.set(0, 0, 0.1); op.rig.position.y = 0; op.headG.rotation.y = 0.35 * Math.sin(t * 0.5); }
+    op.arms[1].rotation.set(-0.4, 0, -0.1);                   // lead hand
+    // lead: owner's hand (owner faces -x: local x -> world z, local z -> world -x) to the collar
+    la.set(A.ox - hand[2], hand[1] + op.rig.position.y, oz + hand[0]);
+    lb.set(A.dx + 0.2 * Math.sin(A.yaw), 0.37 + bob, A.dz + 0.2 * Math.cos(A.yaw));
+    leash.position.addVectors(la, lb).multiplyScalar(0.5); lb.sub(la); const len = lb.length();
+    leash.quaternion.setFromUnitVectors(C.up, lb.multiplyScalar(1 / Math.max(1e-4, len))); leash.scale.set(0.008, len, 0.008);
+    pairW[0].x = A.dx; pairW[0].v = mv; pairW[1].x = A.ox; pairW[1].v = om;
+  };
+
+  /* ---- the cat: back pavement (behind the people's strip), bench, bin lids; now and then over the zebra crossing to a
+     window ledge of the stone block across the road. Sits, licks a paw, looks left-right-left at the kerb. */
+  const CC = { base: '#C67C3E', light: '#F1E0C8', stripe: '#97582A', pink: '#D98C8C' };
+  const catLeg = (x, pz, th) => { const h = 0.087, py = 0.18; return [[artCap(0.022, 0.13, 2, 7), CC.base, x, py - h * Math.cos(th), pz - h * Math.sin(th), th],
+    [artSph(0.024, 7, 5), CC.light, x, py - 2 * h * Math.cos(th), pz - 2 * h * Math.sin(th) + 0.01, 0, 0, 0, 1, 0.6, 1.3]]; };
+  const catStandG = [-1, 0, 1].map((st) => bake([
+    [artCap(0.07, 0.2, 3, 10), CC.base, 0, 0.21, -0.01, PI / 2], [artSph(1, 10, 7), CC.light, 0, 0.175, 0, 0, 0, 0, 0.058, 0.04, 0.15],
+    [artSph(1, 10, 7), CC.light, 0, 0.2, 0.12, 0, 0, 0, 0.062, 0.062, 0.055], [artSph(0.052, 9, 6), CC.base, 0, 0.245, 0.135],
+    ...[-0.075, -0.015, 0.045].map((zz) => [artTor(0.0715, 0.009, 3, 10, PI), CC.stripe, 0, 0.21, zz]),
+    ...[-1, 1].map((sd) => [artSph(1, 8, 6), CC.base, sd * 0.04, 0.19, -0.1, 0, 0, 0, 0.038, 0.062, 0.062]),
+    ...catLeg(-0.042, 0.1, st * 0.35), ...catLeg(0.042, 0.1, -st * 0.35), ...catLeg(-0.045, -0.11, -st * 0.35), ...catLeg(0.045, -0.11, st * 0.35)]));
+  const catSitG = bake([
+    [artSph(1, 10, 8), CC.base, 0, 0.075, -0.04, 0, 0, 0, 0.075, 0.075, 0.085], ...[-1, 1].map((sd) => [artSph(1, 8, 6), CC.base, sd * 0.052, 0.065, -0.005, 0, 0, 0, 0.035, 0.06, 0.07]),
+    [artCap(0.06, 0.1, 3, 10), CC.base, 0, 0.165, 0.005, 0.45], [artSph(1, 9, 6), CC.light, 0, 0.17, 0.06, 0, 0, 0, 0.05, 0.07, 0.04],
+    [artTor(0.061, 0.008, 3, 10, PI), CC.stripe, 0, 0.19, 0.012, 0.45 - PI / 2], [artTor(0.076, 0.009, 3, 10, PI), CC.stripe, 0, 0.09, -0.05, -PI / 2],
+    [artCap(0.02, 0.13, 2, 7), CC.base, -0.03, 0.085, 0.085], [artSph(0.023, 7, 5), CC.light, -0.03, 0.012, 0.095, 0, 0, 0, 1, 0.6, 1.3],
+    ...[-1, 1].map((sd) => [artSph(1, 7, 5), CC.light, sd * 0.06, 0.012, 0.035, 0, 0, 0, 0.022, 0.012, 0.035])]);
+  const catPawG = bake([[artCap(0.02, 0.13, 2, 7), CC.base, 0, -0.085, 0], [artSph(0.023, 7, 5), CC.light, 0, -0.155, 0.01, 0, 0, 0, 1, 0.6, 1.3]]);
+  const catHeadG = bake([[artSph(0.062, 12, 9), CC.base, 0, 0.02, 0.03, 0, 0, 0, 1, 0.9, 0.95], [artSph(0.009, 6, 5), CC.pink, 0, 0.012, 0.094],
+    ...[-1, 1].flatMap((sd) => [[artSph(1, 8, 6), CC.light, sd * 0.016, -0.004, 0.08, 0, 0, 0, 0.026, 0.021, 0.022],
+      [artSph(0.011, 7, 5), '#8FA03A', sd * 0.026, 0.03, 0.079], [artSph(1, 6, 5), '#141414', sd * 0.026, 0.03, 0.089, 0, 0, 0, 0.004, 0.009, 0.003],
+      [artCone(0.026, 0.052, 4), CC.base, sd * 0.035, 0.077, 0.022, 0, PI / 4, -sd * 0.28], [artCone(0.015, 0.032, 4), '#E3A9A0', sd * 0.035, 0.073, 0.03, 0, PI / 4, -sd * 0.28],
+      [artBox(0.012, 0.004, 0.03), CC.stripe, sd * 0.011, 0.068, 0.045]])]);
+  const tailStandG = bake(artTube([[0, 0, 0], [0, 0.03, -0.07], [0, 0.1, -0.12], [0, 0.19, -0.13], [0, 0.26, -0.1]], 0.02, 0.014, [CC.base, CC.stripe]));
+  const tailSitG = bake(artTube([[0, 0, 0], [0.07, -0.012, -0.02], [0.11, -0.015, 0.05], [0.1, -0.015, 0.13], [0.055, -0.012, 0.19]], 0.019, 0.014, [CC.base, CC.stripe]));
+  const eyeMat = artMatC('catEyes', () => new THREE.MeshBasicMaterial({ color: '#B8F060', toneMapped: false }));
+  const eyeG = bake([-1, 1].map((sd) => [artSph(0.0115, 7, 5), '#ffffff', sd * 0.026, 0.03, 0.081]), eyeMat);
+  const cat = new THREE.Group(); cat.rotation.order = 'YXZ'; cat.scale.setScalar(L.size); group.add(cat);
+  const catBody = artCritMesh(catStandG[1], fur, cat), catHead = new THREE.Group(), tailPiv = new THREE.Group(), catPaw = new THREE.Group();
+  catHead.rotation.order = 'YXZ'; artCritMesh(catHeadG, fur, catHead); const catTail = artCritMesh(tailStandG, fur, tailPiv);
+  catPaw.position.set(0.03, 0.165, 0.08); artCritMesh(catPawG, fur, catPaw); cat.add(catHead, tailPiv, catPaw);
+  const catEyes = artCritMesh(eyeG, eyeMat, catHead); catEyes.receiveShadow = false; catEyes.visible = false;
+  const cr = artRng(3131), cq = [], catGuest = { x: L.cross, z: 0, L: 0.5 };   // on the road the cat is an obstacle cars stop for
+  let onRoad = false;
+  const rampCarNear = () => { for (const g of artGuests) if (g !== catGuest && Math.abs(g.x - L.cross) < 18) return true; return false; };
+  const walkers = strollers.concat(pairW);
+  let cx = -18 + cr() * 6, cy = 0, cz = L.lane, cyaw = PI / 2, cyawT = cyaw, act = null, cph = 0, cpose = -9, nextTrip = 35 + cr() * 40;
+  const Q = (k, o) => { o.k = k; cq.push(o); };
+  const rest = () => { const p = cr(); if (p < 0.4) Q('sit', { d: 3 + cr() * 4 }); else if (p < 0.75) Q('lick', { d: 3 + cr() * 3 }); else Q('look', { d: 2.5 + cr() * 3 }); };
+  const catPlan = (t) => {
+    const p = cr();
+    if (cx > L.x1 + 0.5 || cz < L.lane - 0.05) {             // after a trip (or an abandoned one): back along the lane
+      Q('walk', { x: cx, z: L.lane, v: 0.45 }); Q('walk', { x: L.x1 - cr() * 6, z: L.lane, v: 0.7 }); rest(); return; }
+    if (t > nextTrip && p < 0.35) {                           // across the zebra to a window ledge and back
+      nextTrip = t + 70 + cr() * 60; const X = L.cross, sx = L.sills[cr() < 0.5 ? 0 : 1];
+      Q('walk', { x: X, z: L.lane, v: 0.75 }); Q('walk', { x: X, z: L.kerbN, v: 0.45 }); Q('turn', { yaw: PI });
+      Q('wait', { south: true, ok: 0 }); Q('road', { on: true }); Q('walk', { x: X, z: L.roadS, v: 1.05 }); Q('road', { on: false });
+      Q('walk', { x: X, z: L.far, v: 0.9 }); Q('walk', { x: sx, z: L.far, v: 0.5 }); Q('turn', { yaw: PI });
+      Q('jump', { x: sx, y: L.sillY, z: L.sillZ, d: 0.55 }); Q('turn', { yaw: 0 });
+      Q('sit', { d: 4 + cr() * 4 }); Q('lick', { d: 3 + cr() * 3 }); Q('look', { d: 3 + cr() * 3 }); Q('sit', { d: 3 + cr() * 4 });
+      Q('jump', { x: sx, y: 0, z: -12.72, d: 0.5 }); Q('walk', { x: X, z: L.far, v: 0.5 }); Q('turn', { yaw: 0 });
+      Q('wait', { south: false, ok: 0 }); Q('walk', { x: X, z: L.roadS, v: 1.05 }); Q('road', { on: true }); Q('walk', { x: X, z: L.roadN, v: 1.05 }); Q('road', { on: false });
+      Q('walk', { x: X, z: L.lane, v: 0.5 }); return;
+    }
+    if (p < 0.4) { Q('walk', { x: Math.min(L.x1, Math.max(L.x0, cx + (cr() - 0.5) * 9)), z: L.lane, v: 0.45 }); rest(); }
+    else if (p < 0.6) {                                       // up on the bench from its end, along the seat, a sit, back down
+      const [jx, sx, ex, by, bz] = L.bench;
+      Q('walk', { x: ex, z: L.lane, v: 0.45 }); Q('walk', { x: ex, z: bz, v: 0.35 }); Q('turn', { yaw: -PI / 2 }); Q('jump', { x: jx, y: by, z: bz, d: 0.45 });
+      Q('walk', { x: sx, z: bz, v: 0.3 }); Q('sit', { d: 3 + cr() * 3 }); rest(); Q('look', { d: 2 + cr() * 2 });
+      Q('turn', { yaw: PI / 2 }); Q('walk', { x: jx, z: bz, v: 0.3 }); Q('jump', { x: ex, y: 0, z: bz, d: 0.45 }); Q('walk', { x: ex, z: L.lane, v: 0.4 });
+    } else if (p < 0.8) {                                     // onto a bin lid
+      const bx = L.bins[Math.abs(cx - L.bins[0]) < Math.abs(cx - L.bins[1]) ? 0 : 1];
+      Q('walk', { x: bx, z: L.lane, v: 0.45 }); Q('walk', { x: bx, z: -6.24, v: 0.3 }); Q('turn', { yaw: PI }); Q('jump', { x: bx, y: L.binY, z: L.binZ, d: 0.5 });
+      Q('turn', { yaw: 0 }); Q('look', { d: 2 + cr() * 2 }); rest(); Q('jump', { x: bx, y: 0, z: -6.24, d: 0.45 }); Q('walk', { x: bx, z: L.lane, v: 0.4 });
+    } else rest();
+  };
+  const crossClear = (south) => {                             // traffic, ramp cars and pavement walkers far enough from the zebra
+    const X = L.cross, first = south ? PK.laneNear : PK.laneFar;
+    if (ART_RAMP.busy) return false;
+    for (const c of traffic) { const d = (X - c.x) * c.dir; if (d > -(c.L / 2 + 1.2) && d < (Math.abs(c.z - first) < 0.5 ? 14 : 30) + c.L / 2) return false; }
+    for (const g of artGuests) if (g !== catGuest && Math.abs(g.x - X) < 16) return false;
+    for (const w of walkers) { const d = (X - w.x) * w.dir; if (d > -1.2 && d < 7.5) return false; }
+    return true;
+  };
+  const catPose = (sit, fr) => {
+    const key = sit ? 9 : fr; if (key === cpose) return; cpose = key;
+    catBody.geometry = sit ? catSitG : catStandG[fr + 1]; catTail.geometry = sit ? tailSitG : tailStandG; catPaw.visible = sit;
+    if (sit) { catHead.position.set(0, 0.27, 0.075); tailPiv.position.set(0, 0.03, -0.12); } else { catHead.position.set(0, 0.27, 0.17); tailPiv.position.set(0, 0.23, -0.17); }
+  };
+  const catTick = (t, dt) => {
+    let sit = false, moving = 0, jumpU = -1, jumpUp = false, look = 0, lick = 0, lookT = 0;
+    for (let n = 0; n < 4 && !act; n++) {
+      act = cq.shift(); if (!act) { catPlan(t); act = cq.shift(); }
+      act.t = 0; act.sx = cx; act.sy = cy; act.sz = cz;
+      if (act.k === 'road') { onRoad = act.on; if (act.on) artGuests.add(catGuest); else artGuests.delete(catGuest); act = null; }
+      else if (act.k === 'jump') { const hx = act.x - cx, hz = act.z - cz; if (hx * hx + hz * hz > 0.002) cyawT = Math.atan2(hx, hz); }
+    }
+    if (act) { act.t += dt; switch (act.k) {
+      case 'walk': { const hx = act.x - cx, hz = act.z - cz, d = Math.hypot(hx, hz);
+        if (d < 0.01) { act = null; break; }
+        const v = onRoad && rampCarNear() ? 3 : act.v;        // garage cars keep to their paths: dash across
+        const s = Math.min(d, v * dt); cx += hx / d * s; cz += hz / d * s; cyawT = Math.atan2(hx, hz); moving = v; break; }
+      case 'jump': { const u = Math.min(1, act.t / act.d), dy = act.y - act.sy; jumpU = u; jumpUp = dy > 0.1;
+        cx = act.sx + (act.x - act.sx) * u; cz = act.sz + (act.z - act.sz) * u; cy = act.sy + dy * (dy > 0 ? Math.sin(u * PI / 2) : u * u) + Math.sin(u * PI) * 0.12;
+        if (u >= 1) { cy = act.y; act = null; } break; }
+      case 'turn': cyawT = act.yaw; if (Math.abs(Math.atan2(Math.sin(cyaw - act.yaw), Math.cos(cyaw - act.yaw))) < 0.05 || act.t > 1.5) act = null; break;
+      case 'wait': sit = true; look = 1; lookT = act.t; act.ok = crossClear(act.south) ? act.ok + dt : 0;
+        if (act.ok > 0.8) act = null; else if (act.south && act.t > 40) { cq.length = 0; act = null; } break;   // gives up, goes home
+      default: sit = true; lick = act.k === 'lick' ? 1 : 0; look = act.k === 'look' ? 1 : 0; lookT = act.t; if (act.t > act.d) act = null;
+    } }
+    catGuest.z = cz;
+    cyaw = artTurn(cyaw, cyawT, dt * 8);
+    if (moving) cph += moving * dt / 0.075;
+    catPose(sit, jumpU >= 0 ? 1 : moving ? FR[Math.floor(cph) & 3] : 0);
+    cat.position.set(cx, cy + (moving ? Math.abs(Math.sin(cph * PI / 2)) * 0.008 : 0), cz); cat.rotation.y = cyaw;
+    cat.rotation.x = jumpU < 0 ? 0 : jumpUp ? -0.4 * Math.cos(jumpU * PI) : 0.3 * Math.sin(jumpU * PI);
+    if (lick) { catHead.rotation.set(0.25 + 0.12 * Math.sin(t * 9), 0.2, 0.12); catPaw.rotation.set(-2.1 + 0.08 * Math.sin(t * 9), 0, 0); }
+    else { catPaw.rotation.set(0, 0, 0);
+      if (look) catHead.rotation.set(-0.05, 1.0 * Math.sin(lookT * 1.3), 0);               // left, right, left
+      else if (sit) catHead.rotation.set(0, 0.5 * Math.sin(t * 0.33) * Math.max(0, Math.sin(t * 0.21)), 0);
+      else catHead.rotation.set(moving ? 0.06 + 0.03 * Math.sin(cph * PI) : 0, 0, 0); }
+    if (sit) tailPiv.rotation.set(0, 0.12 * Math.sin(t * 2.3), 0);
+    else tailPiv.rotation.set(moving ? 0.1 : 0.05 * Math.sin(t * 1.1), 0, 0.22 * Math.sin(t * (moving ? 2.4 : 1.2)));
+    const ek = artMode === 'night' ? 1 : artMode === 'dusk' ? 0.5 : 0;             // eyes catch the light after dark
+    catEyes.visible = ek > 0; if (ek) eyeMat.color.setRGB(0.7 * ek, 0.95 * ek, 0.35 * ek);
+    setBlob(0, cx, cy, cz, jumpU >= 0 ? 0 : 0.46 * L.size);
+  };
+
+  /* ---- the squirrel on the street tree left of the tower: up and down the trunk (head first going down), sits up on
+     the ground nibbling, dashes up when the cat comes close, sleeps in the crown at night */
+  const SQC = { base: '#B4602E', dark: '#9A4E24', light: '#EADBC0' };
+  const sqBodyG = bake([[artSph(1, 10, 7), SQC.base, 0, 0.045, 0, 0, 0, 0, 0.038, 0.04, 0.072], [artSph(1, 9, 6), SQC.light, 0, 0.03, 0.012, 0, 0, 0, 0.028, 0.026, 0.058],
+    [artSph(0.031, 10, 7), SQC.base, 0, 0.07, 0.076], [artSph(1, 8, 6), SQC.light, 0, 0.058, 0.098, 0, 0, 0, 0.017, 0.015, 0.016], [artSph(0.0055, 5, 4), '#2A1E1A', 0, 0.064, 0.114],
+    ...[-1, 1].flatMap((sd) => [[artSph(1, 8, 6), SQC.dark, sd * 0.024, 0.04, -0.042, 0, 0, 0, 0.022, 0.036, 0.038],
+      [artSph(1, 6, 4), SQC.dark, sd * 0.026, 0.006, -0.03, 0, 0, 0, 0.012, 0.007, 0.024], [artSph(1, 6, 4), SQC.base, sd * 0.022, 0.008, 0.05, 0, 0, 0, 0.008, 0.007, 0.012],
+      [artSph(0.0065, 6, 4), '#141010', sd * 0.019, 0.08, 0.097], [artCone(0.009, 0.026, 5), SQC.dark, sd * 0.016, 0.106, 0.068, -0.2, 0, -sd * 0.25]])]);
+  const sqTailG = bake([[0, 0.02, -0.025, 0.026], [0, 0.065, -0.055, 0.036], [0, 0.12, -0.06, 0.042], [0, 0.17, -0.04, 0.038], [0, 0.195, -0.005, 0.03]]
+    .map(([x, y, z, rr], k) => [artSph(1, 9, 7), k > 2 ? '#C27A45' : SQC.dark, x, y, z, 0, 0, 0, rr * 0.85, rr, rr]));
+  const sq = new THREE.Group(), sqTail = new THREE.Group(); sq.scale.setScalar(ART_SQ.size); artCritMesh(sqBodyG, fur, sq);
+  sqTail.position.set(0, 0.045, -0.065); artCritMesh(sqTailG, fur, sqTail); sq.add(sqTail); group.add(sq);
+  // ground spots in front of the tree (dx, dz; dz >= 0.3), trunk feet at radius 0.24 and angle 1.1..2.0 (front), so a
+  // straight hop between any two never crosses the trunk; the cat's lane (z -6.1) stays clear
+  const SQS = [[-0.5, 0.3], [0.45, 0.3], [0.12, 0.32], [-0.2, 0.34]], SQ_FOOT = 0.24;
+  const sr = artRng(6262), Sq = { mode: 'trunk', task: 'cling', h: 1.3, phi: 1.6, hT: 1.3, phiT: 1.6, vH: 0.8, head: 1, gx: 0, gz: 0, hx: 0, hz: 1,
+    gxT: 0, gzT: 0, v: 0.7, toTrunk: false, wantGround: false, wait: 2, scared: 0, ph: 0, init: false };
+  const trunkR = (h) => 0.146 - 0.06 * Math.min(1, Math.max(0, h) / 2.2);
+  const sqDecide = (night) => {
+    const p = sr();
+    if (Sq.mode === 'trunk') {
+      Sq.task = 'climb'; Sq.vH = 0.8; Sq.wantGround = false; Sq.phiT = Sq.phi;
+      if (night) Sq.hT = 2.18;
+      else if (p < 0.35 && Sq.scared <= 0) { Sq.hT = 0; Sq.vH = 0.7; Sq.wantGround = true; Sq.phiT = 1.1 + sr() * 0.9; }
+      else if (p < 0.55) Sq.hT = 2.15;
+      else { Sq.hT = 0.8 + sr() * 1.2; Sq.phiT = 0.5 + sr() * 2.1; }
+    } else if (night || p < 0.25) { const ph = 1.1 + sr() * 0.9; Sq.task = 'hop'; Sq.toTrunk = true; Sq.v = 0.7; Sq.gxT = ART_SQ.x + Math.cos(ph) * SQ_FOOT; Sq.gzT = ART_SQ.z + Math.sin(ph) * SQ_FOOT; }
+    else if (p < 0.6) { Sq.task = 'sit'; Sq.wait = 2 + sr() * 3; }
+    else { const s = SQS[Math.floor(sr() * SQS.length) % SQS.length]; Sq.task = 'hop'; Sq.toTrunk = false; Sq.v = 0.7; Sq.gxT = ART_SQ.x + s[0]; Sq.gzT = ART_SQ.z + s[1]; }
+  };
+  const sqTick = (t, dt, catX, catZ) => {
+    const night = artMode === 'night', TX = ART_SQ.x, TZ = ART_SQ.z;
+    const catNear = (catX - TX) ** 2 + (catZ - TZ) ** 2 < 2.2 * 2.2;
+    Sq.scared = catNear ? 3 : Math.max(0, Sq.scared - dt);
+    if (catNear && Sq.task !== 'flee') {                       // dash up out of reach
+      if (Sq.mode === 'ground') { const ph = Math.atan2(Sq.gz - TZ, Sq.gx - TX); Sq.task = 'hop'; Sq.toTrunk = true; Sq.v = 1.6; Sq.gxT = TX + Math.cos(ph) * SQ_FOOT; Sq.gzT = TZ + Math.sin(ph) * SQ_FOOT; }
+      else if (Sq.h < 1.4 || Sq.wantGround) { Sq.task = 'flee'; Sq.hT = 1.9; Sq.vH = 1.6; Sq.wantGround = false; Sq.phiT = Sq.phi; }
+    }
+    let moving = false, sitUp = false;
+    if (Sq.mode === 'trunk') {
+      if (Sq.task === 'climb' || Sq.task === 'flee') {
+        const dh = Sq.hT - Sq.h; Sq.h += Math.sign(dh) * Math.min(Math.abs(dh), Sq.vH * dt); Sq.phi = artTurn(Sq.phi, Sq.phiT, dt * 1.2);
+        if (Math.abs(dh) > 0.004) { Sq.head = dh > 0 ? 1 : -1; moving = true; }
+        else if (Math.abs(Math.atan2(Math.sin(Sq.phiT - Sq.phi), Math.cos(Sq.phiT - Sq.phi))) < 0.02) {
+          if (Sq.wantGround && Sq.h <= 0.01) {                 // down: step off the trunk, away from it
+            Sq.mode = 'ground'; Sq.gx = TX + Math.cos(Sq.phi) * SQ_FOOT; Sq.gz = TZ + Math.sin(Sq.phi) * SQ_FOOT; Sq.hx = Math.cos(Sq.phi); Sq.hz = Math.sin(Sq.phi);
+            const s = SQS[Math.floor(sr() * SQS.length) % SQS.length]; Sq.task = 'hop'; Sq.toTrunk = false; Sq.v = 0.7; Sq.gxT = TX + s[0]; Sq.gzT = TZ + s[1];
+          } else { if (Sq.task === 'flee') Sq.head = -1; Sq.task = 'cling'; Sq.wait = Sq.h > 2.1 ? 4 + sr() * 6 : 1.5 + sr() * 3; }
+        } else moving = true;
+      } else { Sq.wait -= dt; if (Sq.wait <= 0 && !(Sq.scared > 0 && Sq.h < 2.1)) sqDecide(night); }
+    } else if (Sq.task === 'hop') {
+      const ex = Sq.gxT - Sq.gx, ez = Sq.gzT - Sq.gz, d = Math.hypot(ex, ez);
+      if (d < 0.01) {
+        if (Sq.toTrunk) { const flee = Sq.v > 1; Sq.mode = 'trunk'; Sq.h = 0; Sq.phi = Sq.phiT = Math.atan2(Sq.gz - TZ, Sq.gx - TX); Sq.task = flee ? 'flee' : 'climb';
+          Sq.hT = flee ? 1.9 : night ? 2.18 : 0.8 + sr() * 1.1; Sq.vH = flee ? 1.5 : 0.8; Sq.wantGround = false; }
+        else { Sq.task = 'sit'; Sq.wait = 2 + sr() * 3; }
+      } else { const s = Math.min(d, Sq.v * dt); Sq.gx += ex / d * s; Sq.gz += ez / d * s; Sq.hx = ex / d; Sq.hz = ez / d; moving = true; }
+    } else { sitUp = true; Sq.wait -= dt; if (Sq.wait <= 0 || night) sqDecide(night); }
+    if (moving) Sq.ph += dt * (Sq.task === 'flee' || Sq.v > 1 ? 18 : 12);
+    const bound = moving ? Math.abs(Math.sin(Sq.ph)) : 0;
+    // orientation from a basis: on the trunk back = outward normal, head up (or down); on the ground back = up
+    if (Sq.mode === 'trunk') { const c = Math.cos(Sq.phi), s = Math.sin(Sq.phi), R = trunkR(Sq.h) + 0.006;
+      C.p.set(TX + c * R, Sq.h, TZ + s * R); C.ay.set(c, 0, s); C.az.set(0, Sq.head, 0); }
+    else { C.p.set(Sq.gx, bound * 0.035, Sq.gz);
+      if (sitUp) { const sp = Math.sin(1.1), cp = Math.cos(1.1); C.az.set(Sq.hx * cp, sp, Sq.hz * cp); C.ay.set(-Sq.hx * sp, cp, -Sq.hz * sp); }
+      else { C.ay.set(0, 1, 0); C.az.set(Sq.hx, 0, Sq.hz); } }
+    C.ax.crossVectors(C.ay, C.az); C.m.makeBasis(C.ax, C.ay, C.az); C.q.setFromRotationMatrix(C.m);
+    if (Sq.init) sq.quaternion.slerp(C.q, 1 - Math.exp(-dt * 14)); else { sq.quaternion.copy(C.q); Sq.init = true; }
+    sq.position.copy(C.p);
+    sq.scale.set(ART_SQ.size, ART_SQ.size * (1 - 0.08 * bound), ART_SQ.size * (1 + 0.12 * bound));
+    const chatter = Sq.scared > 0 && Sq.mode === 'trunk';
+    sqTail.rotation.x = (Sq.mode === 'trunk' ? 0.3 : sitUp ? -0.2 : 0) + (chatter ? 0.4 * Math.max(0, Math.sin(t * 16)) : Math.sin(t * 0.8) > 0.93 ? 0.3 * Math.sin(t * 14) : 0);
+    sq.visible = !(night && Sq.mode === 'trunk' && Sq.h > 2.1);   // asleep in its drey
+    setBlob(2, Sq.gx, 0, Sq.gz, Sq.mode === 'ground' ? 0.22 : 0);
+  };
+
+  /* ---- birds (instanced): three crows on the roof railing / parapet, three pigeons on the street lamps. They look
+     round, peck, sidle along the rail, turn, caw, preen; now and then one flies off in an arc and lands elsewhere in
+     its group. At night they roost still, heads tucked. */
+  const featherM = artFeatherM();
+  const birdBodyG = bake([[artSph(1, 12, 8), '#FFFFFF', 0, 0.12, -0.01, -0.35, 0, 0, 0.068, 0.07, 0.13], [artSph(1, 10, 7), '#F4F4F4', 0, 0.115, 0.055, 0, 0, 0, 0.058, 0.063, 0.065],
+    [artSph(0.045, 9, 6), '#FFFFFF', 0, 0.162, 0.075], [artBox(0.07, 0.012, 0.13), '#E2E2E6', 0, 0.09, -0.165, -0.3],
+    ...[-1, 1].flatMap((sd) => [[artSph(1, 9, 6), '#D2D2D6', sd * 0.058, 0.13, -0.04, -0.3, 0, 0, 0.02, 0.055, 0.125],
+      [artCyl(0.006, 0.006, 0.07, 5), '#8A8A8A', sd * 0.022, 0.035, 0.005], [artBox(0.03, 0.006, 0.05), '#8A8A8A', sd * 0.022, 0.003, 0.015]])], featherM);
+  const birdHeadG = bake([[artSph(0.045, 10, 8), '#FFFFFF', 0, 0.025, 0.02], [artCone(0.016, 0.06, 6), '#6E6E6E', 0, 0.018, 0.078, PI / 2],
+    ...[-1, 1].map((sd) => [artSph(0.007, 5, 4), '#5A5A5A', sd * 0.03, 0.035, 0.045])], featherM);
+  const birdWingG = bake([-1, 1].flatMap((sd) => [[artBox(0.2, 0.008, 0.12), '#D8D8DC', sd * 0.1, 0.034, 0, 0, 0, sd * 0.33],
+    [artBox(0.16, 0.006, 0.09), '#C4C4CA', sd * 0.27, 0.12, -0.02, 0, 0, sd * 0.6]]), featherM);
+  const NB = 6, bodies = artInst(birdBodyG, featherM, NB), heads = artInst(birdHeadG, featherM, NB), wings = artInst(birdWingG, featherM, NB);
+  for (const im of [bodies, heads, wings]) { im.receiveShadow = true; group.add(im); owned.push(im); }
+  const NECK = new THREE.Vector3(0, 0.17, 0.085), SHOULDER = new THREE.Vector3(0, 0.14, -0.01), bq = new THREE.Quaternion(), hq = new THREE.Quaternion(), bpos = new THREE.Vector3();
+  const lampSpots = (xs) => xs.flatMap((x) => [{ x, y: 4.35, z: LZ - 0.85, surf: 'head' }, { x, y: 4.38, z: LZ - 0.3, surf: 'arm' }]);
+  const spots = { L: lampSpots(lampXs.filter((x) => x < 0)), R: lampSpots(lampXs.filter((x) => x > 0)) };
+  const YAWS = { rail: [0, 0, 0.5, -0.5, PI], ledge: [PI / 2, -PI / 2, 0], head: [0, PI, 0.6, -0.6], arm: [PI / 2, -PI / 2] };
+  const br = artRng(8181), birds = [];
+  const crowC = new THREE.Color('#2B2C33'), crowH = new THREE.Color('#25262C'), pigC = new THREE.Color('#9AA2AD'), pigH = new THREE.Color('#6F7A88');
+  [['roof', 0], ['roof', 0], ['roof', 0], ['L', 0], ['L', 2], ['R', 1]].forEach(([grp, spot], i) => {
+    const crow = grp === 'roof', b = { grp, crow, sc: crow ? 1 : 0.72, spot: crow ? -1 : spot, dest: -1, surf: 'rail', x: 0, y: 0, z: 0, yaw: 0, yawT: 0, pitch: 0,
+      hy: 0, hp: 0, hyT: 0, hpT: 0, act: 'still', at: 0, ad: br() * 2, hx0: 0, hx1: 0, fly: false, ft: 0, fT: 1, destSurf: 'rail', f0: new THREE.Vector3(), f1: new THREE.Vector3(), fc: new THREE.Vector3() };
+    if (!crow) { const s = spots[grp][spot]; b.x = s.x; b.y = s.y; b.z = s.z; b.surf = s.surf; b.yaw = b.yawT = YAWS[s.surf][0]; }
+    bodies.setColorAt(i, crow ? crowC : pigC); wings.setColorAt(i, crow ? crowC : pigC); heads.setColorAt(i, crow ? crowH : pigH); birds.push(b);
+  });
+  let roofSeen = -1;
+  const roofY = (R, surf) => (surf === 'rail' ? R.rail : R.ledge), roofZ = (surf) => (surf === 'rail' ? -0.12 : -0.02);
+  const roofFree = (b, x, gap) => birds.every((o) => o === b || o.grp !== 'roof' || (Math.abs(o.x - x) > gap && (!o.fly || Math.abs(o.f1.x - x) > gap)));
+  const spotFree = (b, k) => birds.every((o) => o === b || o.grp !== b.grp || (o.spot !== k && o.dest !== k));
+  const startFlight = (b, R) => {
+    b.f0.set(b.x, b.y, b.z);
+    if (b.grp === 'roof') {
+      let x = 0, ok = false, surf = 'rail';
+      for (let k = 0; k < 4 && !ok; k++) { surf = br() < 0.65 ? 'rail' : 'ledge'; x = R.x0 + br() * (R.x1 - R.x0); ok = Math.abs(x - b.x) > 1.2 && roofFree(b, x, 0.6); }
+      if (!ok) return false;
+      b.dest = -1; b.destSurf = surf; b.f1.set(x, roofY(R, surf), roofZ(surf));
+      const dx = Math.abs(x - b.x); b.fc.set((b.x + x) / 2, Math.max(b.y, b.f1.y) + 0.55 + Math.min(0.5, 0.04 * dx), 1.6 + Math.min(1.2, 0.08 * dx));
+    } else {
+      const list = spots[b.grp], k = Math.floor(br() * list.length) % list.length;
+      if (k === b.spot || !spotFree(b, k)) return false;
+      const s = list[k]; b.dest = k; b.destSurf = s.surf; b.f1.set(s.x, s.y, s.z);
+      b.fc.set((b.x + s.x) / 2, Math.max(b.y, s.y) + 2.4, (b.z + s.z) / 2 + 0.9);
+    }
+    b.fT = 0.9 + b.f0.distanceTo(b.f1) * 0.13; b.ft = 0; b.fly = true; b.spot = -1; b.hyT = b.hpT = 0; return true;
+  };
+  const nextAct = (b, night, R) => {
+    b.at = 0; b.hpT = 0; b.act = 'still';
+    if (night) { b.ad = 3; return; }
+    const p = br(), flat = b.surf === 'ledge' || b.surf === 'head';
+    if (p < 0.1 && (b.grp !== 'roof' || R) && startFlight(b, R)) return;
+    if (p < 0.45) { b.act = 'look'; b.ad = 0.4 + br() * 1.4; b.hyT = (br() - 0.5) * 2.4; b.hpT = (br() - 0.5) * 0.4; }
+    else if (p < 0.6 && flat) { b.act = 'peck'; b.ad = 0.75 + br() * 0.8; b.hyT = 0; }
+    else if (p < 0.72 && b.grp === 'roof') {                  // sidle along the rail / hop along the parapet
+      const x = Math.min(R.x1, Math.max(R.x0, b.x + (br() < 0.5 ? -1 : 1) * (0.18 + br() * 0.15)));
+      if (roofFree(b, x, 0.5)) { b.act = 'hop'; b.ad = 0.3; b.hx0 = b.x; b.hx1 = x; if (b.surf === 'ledge') b.yawT = x > b.x ? PI / 2 : -PI / 2; } else b.ad = 0.5;
+    } else if (p < 0.8) { const ys = YAWS[b.surf]; b.act = 'turn'; b.ad = 0.6; b.yawT = ys[Math.floor(br() * ys.length) % ys.length]; }
+    else if (p < 0.88 && b.crow) { b.act = 'caw'; b.ad = 0.9; b.hyT = 0; }
+    else if (p < 0.94) { b.act = 'preen'; b.ad = 1.2 + br(); b.hyT = (br() < 0.5 ? -1 : 1) * 2.3; b.hpT = 0.5; }
+    else b.ad = 1 + br() * 2;
+  };
+  const birdTick = (t, dt) => {
+    const R = artRoofPerch, night = artMode === 'night';
+    if (R && R.id !== roofSeen) { roofSeen = R.id; let k = 0;     // a new tower: spread the crows along its roof
+      for (const b of birds) if (b.grp === 'roof') { b.surf = k === 1 ? 'ledge' : 'rail'; b.x = R.x0 + (k + 0.5) * (R.x1 - R.x0) / 3 + (br() - 0.5) * 0.6;
+        b.y = roofY(R, b.surf); b.z = roofZ(b.surf); b.yaw = b.yawT = YAWS[b.surf][0]; b.fly = false; b.pitch = 0; b.at = 0; b.ad = br() * 2; b.act = 'still'; k++; } }
+    let flying = false;
+    for (let i = 0; i < NB; i++) {
+      const b = birds[i];
+      if (b.grp === 'roof' && !R) { bodies.setMatrixAt(i, C.zero); heads.setMatrixAt(i, C.zero); wings.setMatrixAt(i, C.zero); continue; }
+      b.at += dt; let bob = 0, flap = 0;
+      if (b.fly) {
+        b.ft += dt; const u = Math.min(1, b.ft / b.fT), us = u * u * (3 - 2 * u), w = 1 - us, f0 = b.f0, f1 = b.f1, fc = b.fc;
+        b.x = w * w * f0.x + 2 * w * us * fc.x + us * us * f1.x; b.y = w * w * f0.y + 2 * w * us * fc.y + us * us * f1.y; b.z = w * w * f0.z + 2 * w * us * fc.z + us * us * f1.z;
+        const vx = w * (fc.x - f0.x) + us * (f1.x - fc.x), vy = w * (fc.y - f0.y) + us * (f1.y - fc.y), vz = w * (fc.z - f0.z) + us * (f1.z - fc.z), vh = Math.hypot(vx, vz);
+        if (vh > 1e-4) b.yaw = Math.atan2(vx, vz);
+        b.pitch = Math.max(-0.6, Math.min(0.6, -Math.atan2(vy, vh) * 0.6));
+        flap = Math.sin(t * (b.crow ? 15 : 22) + i * 1.7) * (b.crow && u > 0.35 && u < 0.7 ? 0.3 : 1);
+        if (u >= 1) { b.fly = false; b.pitch = 0; b.surf = b.destSurf; b.spot = b.dest; b.dest = -1; b.yawT = YAWS[b.surf][0]; b.at = 0; b.ad = 0.6; b.act = 'still'; }
+        else flying = true;
+      } else {
+        if (b.at >= b.ad) nextAct(b, night, R);
+        if (b.act === 'peck') b.hpT = 0.95 * Math.max(0, Math.sin(b.at * 13)) - 0.05;
+        else if (b.act === 'caw') { b.hpT = -0.45; bob = 0.012 * Math.max(0, Math.sin(b.at * 9)); }
+        else if (b.act === 'hop') { const u = Math.min(1, b.at / b.ad); b.x = b.hx0 + (b.hx1 - b.hx0) * u; bob = Math.sin(u * PI) * 0.07; }
+        if (night) { b.hpT = 0.55; b.hyT = 0; }
+        b.hy = artTurn(b.hy, b.hyT, dt * 16); b.hp += (b.hpT - b.hp) * Math.min(1, dt * 16); b.yaw = artTurn(b.yaw, b.yawT, dt * 6); b.pitch *= Math.max(0, 1 - dt * 8);
+      }
+      const sc = b.sc * (night && !b.fly ? 1.08 : 1);                // fluffed up to roost
+      bq.setFromEuler(C.e.set(b.pitch, b.yaw, 0)); bpos.set(b.x, b.y + bob, b.z); C.s.set(sc, sc, sc);
+      bodies.setMatrixAt(i, C.m.compose(bpos, bq, C.s));
+      C.p.copy(NECK).multiplyScalar(sc).applyQuaternion(bq).add(bpos); if (night && !b.fly) C.p.y -= 0.025 * sc;
+      hq.setFromEuler(C.e.set(b.hp, b.hy, 0)).premultiply(bq); heads.setMatrixAt(i, C.m.compose(C.p, hq, C.s));
+      if (b.fly) { C.p.copy(SHOULDER).multiplyScalar(sc).applyQuaternion(bq).add(bpos); C.s.set(sc, sc * flap, sc); wings.setMatrixAt(i, C.m.compose(C.p, bq, C.s)); }
+      else wings.setMatrixAt(i, C.zero);
+    }
+    wings.visible = flying;
+    bodies.instanceMatrix.needsUpdate = true; heads.instanceMatrix.needsUpdate = true; wings.instanceMatrix.needsUpdate = true;
+  };
+  return { update(t, dt) {
+    dt = dt > 0 ? dt : 0;
+    dogTick(t, dt); catTick(t, dt); sqTick(t, dt, cat.position.x, cat.position.z); birdTick(t, dt);
+    blobs.instanceMatrix.needsUpdate = true;
+  } };
+}
+
 /* ======== art: time of day ======== */
 // artSetTime('day' | 'dusk' | 'night'): sky, sun/moon, fill, fog, lit windows, lamps; no rebuild. Bubbles, glow
 // materials and signs are toneMapped false, so they stay as bright and readable as by day.
