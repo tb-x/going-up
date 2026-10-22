@@ -1220,9 +1220,12 @@ const ART_PARK = { street: 0.72, laneNear: -8.0, laneFar: -10.0, roadY: -0.12, b
   // two garages, right wing (u from the core): S-curve start uS (radius rS) on -1, flight A uA -> u0 in the back band
   // (centre zA, width wA), landing at u < u0 half a storey (land) above -2, flight B u0 -> uB in the front band
   // (centre zB, width wB, U-turn radius rL on the landing); the -1 floor is open over flight A (z < holeZ); bays bay1 (-1), bay2 (-2)
-  in2: { uS: 6.6, rS: 1.25, uA: 4.1, u0: 1.6, uB: 4.4, zA: -3.65, wA: 1.6, zB: -2.05, wB: 1.4, rL: 0.8, land: 1.5, holeZ: -2.75, bay1: 0.85, bay2: 6.1 } };
+  in2: { uS: 6.6, rS: 1.25, uA: 4.1, u0: 1.6, uB: 4.4, zA: -3.65, wA: 1.6, zB: -1.975, wB: 1.75, rL: 0.84, land: 1.5, holeZ: -2.75, bay1: 0.85, bay2: 6.1 } };
 let artVehNight = 0;                  // 0 day .. 1 night: vehicle head/tail lights (artSetTime)
 const artGuests = new Set();          // { x, z, L } of parking cars while they are on the road
+// one car at a time on the garage ramps (street ramp and the internal one, both directions): later cars wait their turn
+const ART_RAMP = { busy: null, queue: [] };
+function artRampRelease(c) { if (ART_RAMP.busy !== c) return; ART_RAMP.busy = null; const n = ART_RAMP.queue.shift(); if (n) { ART_RAMP.busy = n.c; n.start(); } }
 // two garages (parking -1 over parking2 -2): the lower one's cars reach it by an internal ramp at the far end of the
 // right wing: a split-level ramp from -1 down to -2 (ART_PARK.in2, R2_parkInner), the -1 floor open over its upper flight
 const artLowerPark = (layout) => !!(layout && layout.ids && layout.ids.includes('parking2') && layout.ids.includes('parking'));
@@ -1890,7 +1893,7 @@ function artParkingLife(bays, ramp, y, parent, owned, decor, inner) {
     h.group.traverse((o) => { if (o.isMesh) o.castShadow = false; });   // parked cars: contact shadow only (no sun shadow through the slabs)
     return { h, sc: parkSc(h), path: null, t: 0, wd: 0, lastS: 0, g: { x: 0, z: 0, L: 0 }, lv: -1, br: -1 }; };
   const place = (c, b) => { c.h.group.position.set(b.x, y, b.z); c.h.group.rotation.set(0, PI / 2, 0); c.h.group.scale.setScalar(c.sc); c.h.setLights(0); c.h.setBrake(0); };
-  const drop = (c) => { if (!c) return; moving.delete(c); artGuests.delete(c.g); c.h.dispose(); };
+  const drop = (c) => { if (!c) return; moving.delete(c); artGuests.delete(c.g); ART_RAMP.queue = ART_RAMP.queue.filter((n) => n.c !== c); artRampRelease(c); c.h.dispose(); };
   for (const d of decor || []) { const c = mk(d.seed); place(c, d); still.push(c); }
   const xw = ramp ? ramp.wall : inner ? inner.wall : (B[B.length - 1]?.x ?? 0) + 3, xi = ramp ? ramp.inner : xw, yR = inner ? inner.yU : y, top = xw + P.rampLen, zR = P.rampZ, zA = P.aisleZ, r1 = 2.0, r2 = 1.6, rb = 0.9;
   const inPath = (b, sc) => {
@@ -1925,11 +1928,18 @@ function artParkingLife(bays, ramp, y, parent, owned, decor, inner) {
       .arc(xd - r1, -6.0, r1, 0, -PI / 2, ry, 4.5, st).to(xd - r1 - 40, ry, P.laneNear, P.vStreet, st);   // join the near lane
     return pb.done();
   };
-  const go = (c, path, done) => { c.path = path; c.t = 0; c.lastS = 0; c.done = done; moving.add(c); };
+  const go = (c, path, done) => {
+    c.path = path; c.t = 0; c.lastS = 0; c.done = done;
+    const start = () => { c.h.group.visible = true; moving.add(c); };
+    if (!ART_RAMP.busy) { ART_RAMP.busy = c; start(); return; }
+    if (done === 'in') c.h.group.visible = false;             // arriving: out of sight until it's its turn; leaving: waits in its bay
+    ART_RAMP.queue.push({ c, start });
+  };
   const api = {
     bays: B.map((b) => ({ x: b.x, z: b.z, doorX: b.doorX ?? b.x + P.bayW / 2 })),
     carDoorZ: -2.45,
-    carIn(k, seed) { const b = B[k]; if (!b) return 0; drop(cars[k]); const c = cars[k] = mk(seed); go(c, inPath(b, c.sc), 'in'); api._tick(0); return c.path.T; },
+    // onParked (optional): called once the car is in its bay (it may have to wait for the ramp); then carIn returns -1
+    carIn(k, seed, onParked) { const b = B[k]; if (!b) return 0; drop(cars[k]); const c = cars[k] = mk(seed); c.onParked = onParked; go(c, inPath(b, c.sc), 'in'); api._tick(0); return onParked ? -1 : c.path.T; },
     carOut(k) {
       const c = cars[k]; if (!c) return 0; cars[k] = null; c.h.setDoor(0); go(c, outPath(B[k], c.sc), 'out');
       const cu = c.path.cusps[0] ?? 0, i = c.path.S.findIndex((s) => s >= cu); return Math.max(0.5, (i < 0 ? c.path.S.length : i) / 30);
@@ -1944,15 +1954,15 @@ function artParkingLife(bays, ramp, y, parent, owned, decor, inner) {
         const lv = artVehNight; if (lv !== c.lv) { c.lv = lv; c.h.setLights(lv); }
         const br = p.BR[Math.max(0, f)] || (c.t * 30 >= p.S.length - 1 ? 1 : 0); if (br !== c.br) { c.br = br; c.h.setBrake(br); }
         const pos = c.h.group.position;
-        if (pos.z < -7.0) { c.g.x = pos.x; c.g.z = pos.z; c.g.L = c.h.info.L * sc; artGuests.add(c.g); } else artGuests.delete(c.g);
+        if (pos.z < -7.0) { c.g.x = pos.x; c.g.z = pos.z; c.g.L = c.h.info.L * sc; artGuests.add(c.g); if (c.done === 'out') artRampRelease(c); } else artGuests.delete(c.g);
         if (c.t * 30 >= p.S.length) {
-          if (c.done === 'in') { moving.delete(c); const k = cars.indexOf(c); if (k >= 0) place(c, B[k]); else drop(c); c.lv = c.br = -1; }
+          if (c.done === 'in') { moving.delete(c); artRampRelease(c); const k = cars.indexOf(c); if (k >= 0) place(c, B[k]); else drop(c); c.lv = c.br = -1; const cb = c.onParked; c.onParked = null; cb?.(); }
           else drop(c);
         }
       }
     },
   };
-  owned.push({ dispose() { for (const c of cars) drop(c); for (const c of [...moving]) drop(c); for (const c of still) c.h.dispose(); } });
+  owned.push({ dispose() { for (const c of cars) drop(c); for (const c of [...moving]) drop(c); for (const c of still) c.h.dispose(); ART_RAMP.busy = null; ART_RAMP.queue.length = 0; } });
   const tick = (t, dt) => api._tick(Math.max(0, Math.min(0.1, dt || 0)));
   const pub = Object.assign({}, api); delete pub._tick;
   return { api: pub, tick };
@@ -4591,7 +4601,8 @@ function setupParking() {
 function callCar(b, then) {   // a car drives in and parks in G.bays[b]
   const bay = G.bays[b], h = parkH(bay.f); bay.coming = true; const seed = 1 + rint(1e6);
   G.debugLife.carIn++;
-  later(num(h.carIn(bay.k, seed), 3), () => { bay.car = seed; bay.coming = false; then?.(); });
+  let parked = false; const done = () => { if (parked) return; parked = true; bay.car = seed; bay.coming = false; then?.(); };
+  const t = h.carIn(bay.k, seed, done); if (t !== -1) later(num(t, 3), done);   // -1: the art calls done once the car has parked (it may wait for the ramp)
 }
 // someone drives in, parks in a free bay on any garage floor and gets out there
 function parkArrival(d) {
