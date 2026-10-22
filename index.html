@@ -531,7 +531,7 @@ let artLabels = null;                 // layout.labels when the game provides th
 const artLabelOf = (fi) => (artLabels && artLabels[fi] != null ? String(artLabels[fi]) : String(fi + 1));
 const artThemeKey = (fi) => { const th = FLOOR_THEMES[fi % FLOOR_THEMES.length]; return `${th.id}|${artLabelOf(fi)}`; };
 const artGlow = () => artMatC('glow', () => new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }));
-const artFrostM = () => artMatC('frost', () => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, metalness: 0, transparent: true, opacity: 0.62, depthWrite: false }));
+const artFrostM = () => artMatC('frost', () => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, metalness: 0, transparent: true, opacity: 0.4, depthWrite: false }));
 const artGlass = () => artMatC('glass', () => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.05, metalness: 0.1,
   transparent: true, opacity: 0.3, depthWrite: false, envMapIntensity: 1.0 }));
 const artPoolM = () => artMatC('pool', () => new THREE.MeshBasicMaterial({ vertexColors: true, map: artRadialTex(), transparent: true,
@@ -1835,7 +1835,7 @@ function artBuildFloor(i, layout, parent, owned, ticks, SB, PB, R2B) {
     db.add(artBox(0.84, 0.05, 0.055), shiny, artXf(0.42, 0.1, 0.002), '#2ECC71');
     db.flush(stairDoor, owned, false, true); }
   // lift landings: steel jambs and sill. Zoned lifts: a zone-colour stripe on both jambs; on a floor the lift doesn't
-  // stop at, no sill but a frosted full-height screen with the zone band and a picture: clearly no lift door there
+  // stop at, no sill but a solid wall with a glass slot (the car glimpsed passing), the zone band and a picture
   const nFl = (artThemes || FLOOR_THEMES).length;
   artThinNow = nFloors > 12 && i > (layout.nBasement || 0) && (i - (layout.nBasement || 0)) % 2 === 1;
   for (let s = 0; s < layout.nShafts; s++) {
@@ -1845,15 +1845,21 @@ function artBuildFloor(i, layout, parent, owned, ticks, SB, PB, R2B) {
       if (z) Ps(artBox(0.05, CH, 0.012), z.color, sx + dx, CH / 2, -1.172, 0, 0, 0, 1, 1, 1, clay);
     }
     if (stop) { Ps(artBox(2 * hw - 0.2, 0.02, 0.12), '#8E949A', sx, 0.01, -1.16, 0, 0, 0, 1, 1, 1, shiny); continue; }
-    const pw = 2 * jx - 0.07;                                 // frosted full-height screen: no way in on this floor, the car still glimpsed
-    S.add(artPln(pw, CH - 0.04), artFrostM(), artXf(sx, y + CH / 2, -1.235), '#E4E8EA');
+    // a solid painted wall with one tall glass slot: no way in on this floor, the car is only glimpsed through the slot
+    const pw = 2 * jx - 0.07, l0 = sx - pw / 2, r1 = sx + pw / 2, w0 = sx + pw * 0.18, w1 = w0 + 0.46, wb = 0.85, wt = 2.15;
+    const wall = (a0, a1, b0, b1) => { if (a1 - a0 > 0.01 && b1 - b0 > 0.01) Ps(artBox(a1 - a0, b1 - b0, 0.08), '#D9D4CA', (a0 + a1) / 2, (b0 + b1) / 2, -1.24, 0, 0, 0, 1, 1, 1, clay); };
+    wall(l0, w0, 0, CH); wall(w1, r1, 0, CH); wall(w0, w1, 0, wb); wall(w0, w1, wt, CH);
+    S.add(artPln(w1 - w0, wt - wb), artFrostM(), artXf((w0 + w1) / 2, y + (wb + wt) / 2, -1.235), '#DCE6EC');   // the slot's glass
+    for (const xx of [w0, w1]) Ps(artBox(0.035, wt - wb + 0.04, 0.1), '#8E949A', xx, (wb + wt) / 2, -1.22, 0, 0, 0, 1, 1, 1, shiny);
+    for (const yy of [wb, wt]) Ps(artBox(w1 - w0 + 0.04, 0.035, 0.1), '#8E949A', (w0 + w1) / 2, yy, -1.22, 0, 0, 0, 1, 1, 1, shiny);
     Ps(artBox(pw, 0.05, 0.08), '#8E949A', sx, 0.025, -1.24, 0, 0, 0, 1, 1, 1, shiny); Ps(artBox(pw, 0.05, 0.08), '#8E949A', sx, CH - 0.025, -1.24, 0, 0, 0, 1, 1, 1, shiny);
     Ps(artBox(pw, 0.1, 0.012), z.color, sx, 2.2, -1.2, 0, 0, 0, 1, 1, 1, clay);        // zone band
     { const k = (i * 7 + s * 3) % 4, pal = [['#C96A4A', '#E8C66A', '#5E8CB8'], ['#6F9A6A', '#D9D2B8', '#3F5E7A'], ['#E3A0A8', '#7FA8C9', '#F2E0B6'], ['#8A6FB0', '#E8B35A', '#5FA09A']][k];
-      Ps(artBox(0.66, 0.5, 0.03), '#3A2F28', sx, 1.45, -1.19, 0, 0, 0, 1, 1, 1, wood);  // a framed picture on the screen
-      Ps(artBox(0.58, 0.42, 0.006), pal[0], sx, 1.45, -1.172, 0, 0, 0, 1, 1, 1, clay);
-      Ps(artBox(0.3, 0.18, 0.006), pal[1], sx - 0.1, 1.38, -1.168, 0, 0, 0, 1, 1, 1, clay);
-      Ps(artCyl(0.08, 0.08, 0.006, 14), pal[2], sx + 0.14, 1.53, -1.166, Math.PI / 2, 0, 0, 1, 1, 1, clay); }
+      const px = (l0 + w0) / 2;                                 // a framed picture on the solid part of the wall
+      Ps(artBox(0.6, 0.46, 0.03), '#3A2F28', px, 1.45, -1.19, 0, 0, 0, 1, 1, 1, wood);
+      Ps(artBox(0.52, 0.38, 0.006), pal[0], px, 1.45, -1.172, 0, 0, 0, 1, 1, 1, clay);
+      Ps(artBox(0.27, 0.16, 0.006), pal[1], px - 0.09, 1.39, -1.168, 0, 0, 0, 1, 1, 1, clay);
+      Ps(artCyl(0.07, 0.07, 0.006, 14), pal[2], px + 0.13, 1.53, -1.166, Math.PI / 2, 0, 0, 1, 1, 1, clay); }
   }
   // the one floor marker: a big self-lit plaque at the left edge of the building, in front of the soil and kerb cut faces
   S.add(artAtlasQuad(nFl, i, 'plaque', 1.7, 1.7), artAtlasMat(nFl), artXf(x0 - ART_WALL_T - 0.5, y + 1.4, 0.35), '#ffffff');
