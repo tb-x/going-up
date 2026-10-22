@@ -6196,7 +6196,7 @@ function R2_tunnelAndTrain(group, ctx, B) {
   const stopX = (ctx.buildingX0 + ctx.buildingX1) / 2, farR = X1 + total / 2 + 2, farL = X0 - total / 2 - 2;
   // the game owns the cycle (SPEC3): come() -> stopped, doors(true/false), go() -> closes and leaves; no own timer
   const st = { phase: 'idle', t: 0, open: 0, want: 0 };
-  const ARR = 6.0, OPEN = 0.8, DEP = 5.0;
+  const ARR = 7.0, OPEN = 0.8, DEP = 6.0;
   const handle = {
     train: T, doorXs: doorXs.map((x) => new THREE.Vector3(stopX + x, y, ctx.laneZ)),
     come() { if (st.phase === 'idle') { st.phase = 'arrive'; st.t = 0; st.want = 0; T.visible = true; T.position.x = farR; } return st.phase === 'arrive' ? Math.max(0, ARR - st.t) : 0; },
@@ -6206,7 +6206,7 @@ function R2_tunnelAndTrain(group, ctx, B) {
     get trainState() { return st.phase; },
     update(t, dt) {
       if (st.phase === 'idle') return; st.t += dt;
-      const ez = (k) => 1 - Math.pow(1 - k, 3), ei = (k) => k * k * k, step = dt / OPEN;
+      const ez = (k) => 1 - (1 - k) * (1 - k), ei = (k) => k * k, step = dt / OPEN;   // gentle: no full-speed burst
       st.open = st.want > st.open ? Math.min(st.want, st.open + step) : Math.max(st.want, st.open - step);
       if (st.phase === 'arrive') { const k = Math.min(1, st.t / ARR); T.position.x = farR + (stopX - farR) * ez(k); if (k >= 1) { st.phase = 'stopped'; st.t = 0; } }
       else if (st.phase === 'closing') { if (st.open <= 0) { st.phase = 'depart'; st.t = 0; } }
@@ -6955,19 +6955,21 @@ window.__tbxRenderer = renderer;
 renderer.shadowMap.autoUpdate = false; let shadowT = 0;   // read by the local telemetry collector (draw calls); nothing on Pages
 // pixel density: phones (short side under 500 css px) render at 1.5x at most, the rest at 2x: far fewer pixels to fill
 const MAX_DPR_PHONE = 1.5, MAX_DPR = 2;
-const SHADOW_REFRESH = 0.5;            // s between sun shadow map redraws
+const SHADOW_REFRESH = 5;              // s between sun shadow map redraws (each one is a heavy frame; nothing casting moves)
 const dprCap = () => Math.min(window.devicePixelRatio || 1, Math.min(innerWidth, innerHeight) < 500 ? MAX_DPR_PHONE : MAX_DPR);
 renderer.setPixelRatio(dprCap());
 // adaptive sharpness: if frames run slow the pixel density steps down (to DPR_MIN), and back up when there's room
 const DPR_MIN = 1, DPR_STEP = 0.25, SLOW_FRAME_MS = 24, FAST_FRAME_MS = 15;
-let dprDyn = dprCap(); const frameMs = [];
+let dprDyn = dprCap(), fastRuns = 0, lastDrop = -1e9; const frameMs = [];
 function setDpr(d) { d = Math.max(Math.min(DPR_MIN, dprCap()), Math.min(dprCap(), d)); dprDyn = d; if (renderer.getPixelRatio() !== d) renderer.setPixelRatio(d); }
 function adaptDpr(ms) {
   if (!(ms > 0 && ms < 200)) return;                         // ignore hidden-tab gaps
   frameMs.push(ms); if (frameMs.length < 90) return;
   frameMs.sort((a, b) => a - b); const med = frameMs[frameMs.length >> 1]; frameMs.length = 0;
-  if (med > SLOW_FRAME_MS && dprDyn > DPR_MIN) setDpr(dprDyn - DPR_STEP);
-  else if (med < FAST_FRAME_MS && dprDyn < dprCap()) setDpr(dprDyn + DPR_STEP);
+  const now = performance.now();
+  if (med > SLOW_FRAME_MS && dprDyn > DPR_MIN) { setDpr(dprDyn - DPR_STEP); lastDrop = now; fastRuns = 0; }
+  else if (med < FAST_FRAME_MS && dprDyn < dprCap()) { if (++fastRuns >= 6 && now - lastDrop > 20000) { setDpr(dprDyn + DPR_STEP); fastRuns = 0; } }   // no see-saw
+  else fastRuns = 0;
 }
 addEventListener('resize', () => setDpr(Math.min(dprDyn, dprCap())));
 const scene = new THREE.Scene();
