@@ -752,46 +752,48 @@ function artExitTex() {
   });
 }
 /* Floor badge: number (+ icon, or + up/down arrow for the car sign). fi null = dark blank sign. */
-function artFaceTex(stage, blink) {
-  return artCachedTex(`face|${stage}|${blink ? 1 : 0}`, 256, 256, (g) => {
-    const ink = '#2B2B3A', eyes = [[88, 122], [168, 122]];
-    g.lineCap = 'round'; g.lineJoin = 'round';
-    if (stage <= 1) {                                    // rosy cheeks
-      g.fillStyle = 'rgba(255,120,130,0.42)';
-      for (const [x] of eyes) { g.beginPath(); g.ellipse(x + (x < 128 ? -26 : 26), 160, 19, 12, 0, 0, 7); g.fill(); }
-    }
-    eyes.forEach(([x, y], k) => {
-      const side = k ? 1 : -1;
-      if (blink) { g.strokeStyle = ink; g.lineWidth = 12; g.beginPath(); g.moveTo(x - 15, y); g.quadraticCurveTo(x, y + 9, x + 15, y); g.stroke(); }
-      else {
-        g.save();
-        if (stage >= 2) {                                  // lids: flat or slanted top
-          const lift = stage === 2 ? 6 : 2, slant = stage === 2 ? 4 : 10;
-          g.beginPath(); g.moveTo(x - 30, y - lift - slant * -side); g.lineTo(x + 30, y - lift - slant * side); g.lineTo(x + 30, y + 60); g.lineTo(x - 30, y + 60); g.closePath(); g.clip();
-        }
-        g.fillStyle = ink; g.beginPath(); g.ellipse(x, y, 24, stage === 0 ? 33 : 30, 0, 0, 7); g.fill();
-        g.fillStyle = '#ffffff'; g.beginPath(); g.arc(x - 8, y - 11, 8, 0, 7); g.fill();
-        g.beginPath(); g.arc(x + 5, y + 6, 2.8, 0, 7); g.fill();
-        g.restore();
-      }
-      g.strokeStyle = artMixHex(ink, '#5A3825', 0.3); g.lineWidth = stage === 3 ? 15 : 12; g.beginPath();   // brows
-      if (stage === 0) { g.moveTo(x - 17, y - 36); g.quadraticCurveTo(x, y - 50, x + 17, y - 38); }
-      else if (stage === 1) { g.moveTo(x - 16, y - 38); g.lineTo(x + 16, y - 38); }
-      else if (stage === 2) { g.moveTo(x - 18 * side * -1, y - 44); g.lineTo(x + 18 * side * -1, y - 34); }
-      else { g.moveTo(x - 20 * -side, y - 50); g.lineTo(x + 18 * -side, y - 28); }
-      g.stroke();
-    });
-    g.strokeStyle = '#7A2A33'; g.fillStyle = '#7A2A33'; g.lineWidth = 18;
-    if (stage === 0) {
-      g.beginPath(); g.moveTo(98, 166); g.quadraticCurveTo(128, 214, 158, 166); g.closePath(); g.fill();
-      g.fillStyle = '#FF8A9A'; g.beginPath(); g.ellipse(128, 186, 13, 7, 0, 0, 7); g.fill();
-    } else if (stage === 1) { g.beginPath(); g.moveTo(108, 172); g.quadraticCurveTo(128, 186, 148, 172); g.stroke(); }
-    else if (stage === 2) { g.beginPath(); g.moveTo(108, 184); g.quadraticCurveTo(128, 170, 148, 184); g.stroke(); }
+function artFaceTex(stage, blink) {   // one face per texture (the ?legacyFigures path); pools use artFaceAtlas
+  const t = artCachedTex(`face|${stage}|${blink ? 1 : 0}`, 256, 256, (g) => artFaceDraw(g, stage, blink));
+  t.userData.figCell = artFaceCell(stage, blink); return t;
+}
+function artFaceDraw(g, stage, blink) {   // a 256 x 256 face at the canvas origin
+  const ink = '#2B2B3A', eyes = [[88, 122], [168, 122]];
+  g.lineCap = 'round'; g.lineJoin = 'round';
+  if (stage <= 1) {                                    // rosy cheeks
+    g.fillStyle = 'rgba(255,120,130,0.42)';
+    for (const [x] of eyes) { g.beginPath(); g.ellipse(x + (x < 128 ? -26 : 26), 160, 19, 12, 0, 0, 7); g.fill(); }
+  }
+  eyes.forEach(([x, y], k) => {
+    const side = k ? 1 : -1;
+    if (blink) { g.strokeStyle = ink; g.lineWidth = 12; g.beginPath(); g.moveTo(x - 15, y); g.quadraticCurveTo(x, y + 9, x + 15, y); g.stroke(); }
     else {
-      g.beginPath(); g.moveTo(100, 192); g.quadraticCurveTo(128, 158, 156, 192); g.quadraticCurveTo(128, 180, 100, 192); g.fill();
-      g.fillStyle = '#ffffff'; g.fillRect(114, 176, 28, 5);
+      g.save();
+      if (stage >= 2) {                                  // lids: flat or slanted top
+        const lift = stage === 2 ? 6 : 2, slant = stage === 2 ? 4 : 10;
+        g.beginPath(); g.moveTo(x - 30, y - lift - slant * -side); g.lineTo(x + 30, y - lift - slant * side); g.lineTo(x + 30, y + 60); g.lineTo(x - 30, y + 60); g.closePath(); g.clip();
+      }
+      g.fillStyle = ink; g.beginPath(); g.ellipse(x, y, 24, stage === 0 ? 33 : 30, 0, 0, 7); g.fill();
+      g.fillStyle = '#ffffff'; g.beginPath(); g.arc(x - 8, y - 11, 8, 0, 7); g.fill();
+      g.beginPath(); g.arc(x + 5, y + 6, 2.8, 0, 7); g.fill();
+      g.restore();
     }
+    g.strokeStyle = artMixHex(ink, '#5A3825', 0.3); g.lineWidth = stage === 3 ? 15 : 12; g.beginPath();   // brows
+    if (stage === 0) { g.moveTo(x - 17, y - 36); g.quadraticCurveTo(x, y - 50, x + 17, y - 38); }
+    else if (stage === 1) { g.moveTo(x - 16, y - 38); g.lineTo(x + 16, y - 38); }
+    else if (stage === 2) { g.moveTo(x - 18 * side * -1, y - 44); g.lineTo(x + 18 * side * -1, y - 34); }
+    else { g.moveTo(x - 20 * -side, y - 50); g.lineTo(x + 18 * -side, y - 28); }
+    g.stroke();
   });
+  g.strokeStyle = '#7A2A33'; g.fillStyle = '#7A2A33'; g.lineWidth = 18;
+  if (stage === 0) {
+    g.beginPath(); g.moveTo(98, 166); g.quadraticCurveTo(128, 214, 158, 166); g.closePath(); g.fill();
+    g.fillStyle = '#FF8A9A'; g.beginPath(); g.ellipse(128, 186, 13, 7, 0, 0, 7); g.fill();
+  } else if (stage === 1) { g.beginPath(); g.moveTo(108, 172); g.quadraticCurveTo(128, 186, 148, 172); g.stroke(); }
+  else if (stage === 2) { g.beginPath(); g.moveTo(108, 184); g.quadraticCurveTo(128, 170, 148, 184); g.stroke(); }
+  else {
+    g.beginPath(); g.moveTo(100, 192); g.quadraticCurveTo(128, 158, 156, 192); g.quadraticCurveTo(128, 180, 100, 192); g.fill();
+    g.fillStyle = '#ffffff'; g.fillRect(114, 176, 28, 5);
+  }
 }
 function artRippleTex() {
   return artCachedTex('ripple', 128, 128, (g) => {
@@ -1324,7 +1326,7 @@ function artRampOf(layout) {          // the car park ramp outside the right wal
 
 /* ======== art: sky, street & lights ======== */
 function buildSky(scene) {
-  artBlobPools(scene);
+  artBlobPools(scene); artFigPools(scene);
   scene.background = artCachedTex('skybg2', 4, 256, (g) => {
     const gr = g.createLinearGradient(0, 0, 0, 256);
     gr.addColorStop(0, '#7FA9CF'); gr.addColorStop(0.55, '#B9CFE0'); gr.addColorStop(1, '#E7EAE6');
@@ -3189,6 +3191,279 @@ function buildCar(shaftIndex, capacity, opts) {
   h.setLoad(0, capacity);
   return h;
 }
+/* ======== art: figure pools ======== */
+// Every person, room occupant, member of staff and their dog is drawn by a handful of shared meshes instead of 5-9 draws
+// each. Figures keep their whole Object3D rig (group -> rig -> legs, torso, arms, head, props) for posing and animation,
+// but their meshes are virtual: they sit on a layer the camera doesn't draw (ART_FIG_LAYER), and their vertices are
+// copied once into a pool per material kind (body, head, prop, face), each vertex tagged with its part's slot. Every
+// frame artFigSync (end of animateArt) writes each slot's matrixWorld, tint (the head's red when angry), opacity and face
+// cell into one float texture; the pool shaders move the vertices there (a rigid skin with one bone per part). Hidden or
+// detached parts collapse to a point. Fading figures draw in a second, transparent pass of the same pool (only while
+// something fades), so fades look as before. Faces use one atlas (mood x blink). ?legacyFigures = the old per-mesh path.
+/* ---- figpure: pure helpers (node-tested by handoff/figtest.mjs) ---- */
+const ART_FACE_GRID = { cols: 4, rows: 2, px: 256 };            // face atlas: mood stage 0-3 across, eyes open | blinking down
+function artFaceCell(stage, blink) { return (blink ? ART_FACE_GRID.cols : 0) + Math.max(0, Math.min(3, stage | 0)); }
+function artFaceCellRect(cell) {      // canvas pixel origin of a cell + its uv offset/scale (textures flip y: v 0 = canvas bottom)
+  const { cols, rows, px } = ART_FACE_GRID, c = cell % cols, r = Math.floor(cell / cols);
+  return { x: c * px, y: r * px, u0: c / cols, v0: (rows - 1 - r) / rows, su: 1 / cols, sv: 1 / rows };
+}
+class ArtRange {                       // first-fit allocator over [0, top): alloc(n) -> offset, release(off, n)
+  constructor() { this.holes = []; this.top = 0; this.used = 0; }
+  alloc(n) {
+    const H = this.holes;
+    for (let i = 0; i < H.length; i++) if (H[i][1] >= n) { const off = H[i][0]; H[i][0] += n; H[i][1] -= n; if (!H[i][1]) H.splice(i, 1); this.used += n; return off; }
+    const off = this.top; this.top += n; this.used += n; return off;
+  }
+  release(off, n) {
+    if (!(n > 0)) return; this.used -= n;
+    const H = this.holes; let i = 0; while (i < H.length && H[i][0] < off) i++;
+    H.splice(i, 0, [off, n]);
+    if (i + 1 < H.length && off + n === H[i + 1][0]) { H[i][1] += H[i + 1][1]; H.splice(i + 1, 1); }
+    if (i > 0 && H[i - 1][0] + H[i - 1][1] === H[i][0]) { H[i - 1][1] += H[i][1]; H.splice(i, 1); }
+    const last = H[H.length - 1]; if (last && last[0] + last[1] === this.top) { this.top = last[0]; H.pop(); }
+  }
+  reset(top) { this.holes = []; this.top = this.used = top; }
+}
+// compaction: pack live parts { v0, nv, i0, ni } to the front of a pool's buffers. Vertex data (attrs: [{ array, size }])
+// and index ranges move down; indices are rebased by how far their vertices moved. Returns the new { vTop, iTop }.
+function artPackParts(parts, attrs, index) {
+  let v = 0;
+  for (const p of [...parts].sort((a, b) => a.v0 - b.v0)) {
+    if (p.v0 !== v) for (const a of attrs) a.array.copyWithin(v * a.size, p.v0 * a.size, (p.v0 + p.nv) * a.size);
+    p.dv = v - p.v0; p.v0 = v; v += p.nv;
+  }
+  let k = 0;
+  for (const p of [...parts].sort((a, b) => a.i0 - b.i0)) {      // ascending and k <= i0: safe in place
+    for (let j = 0; j < p.ni; j++) index[k + j] = index[p.i0 + j] + p.dv;
+    p.i0 = k; k += p.ni; delete p.dv;
+  }
+  return { vTop: v, iTop: k };
+}
+// a slot is 4 RGBA float texels: the matrix's 3 rows (column-major Matrix4 elements e in) + (tint rgb | face cell, alpha)
+function artSlotWrite(d, s, e, r, g, b, a) {
+  const o = s * 16;
+  d[o] = e[0]; d[o + 1] = e[4]; d[o + 2] = e[8]; d[o + 3] = e[12];
+  d[o + 4] = e[1]; d[o + 5] = e[5]; d[o + 6] = e[9]; d[o + 7] = e[13];
+  d[o + 8] = e[2]; d[o + 9] = e[6]; d[o + 10] = e[10]; d[o + 11] = e[14];
+  d[o + 12] = r; d[o + 13] = g; d[o + 14] = b; d[o + 15] = a;
+}
+function artSlotZero(d, s) { d.fill(0, s * 16, s * 16 + 16); }
+/* ---- figpure end ---- */
+const ART_FIG_LAYER = 31, ART_FIG_W = 1024;                      // hidden layer of virtual meshes | texels per texture row
+// the person materials (buildPerson and the pools share these, so the pools look the same)
+const ART_FIG_MATS = {
+  body: { vertexColors: true, roughness: 0.88, envMapIntensity: 0.5 },
+  head: { vertexColors: true, roughness: 0.6, envMapIntensity: 0.5 },
+  face: { transparent: true, roughness: 0.6, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 },
+};
+const ART_FIG = {
+  on: !(typeof location !== 'undefined' && /[?&]legacyFigures(?:[=&]|$)/.test(location.search)),
+  figs: new Set(), pools: null, slots: new ArtRange(), data: null, tex: null, uTex: { value: null }, stamp: 0, ready: false,
+};
+function artFaceAtlas() {
+  return artCachedTex('faceAtlas', ART_FACE_GRID.cols * ART_FACE_GRID.px, ART_FACE_GRID.rows * ART_FACE_GRID.px, (g) => {
+    for (let c = 0; c < ART_FACE_GRID.cols * ART_FACE_GRID.rows; c++) {
+      const R = artFaceCellRect(c); g.save(); g.translate(R.x, R.y); artFaceDraw(g, c % ART_FACE_GRID.cols, c >= ART_FACE_GRID.cols); g.restore();
+    }
+  });
+}
+function artFigAdd(group) { const f = { group, slots: new Set(), off: false }; ART_FIG.figs.add(f); return f; }
+function artFigRemove(f) { if (!f) return; for (const s of [...f.slots]) artFigFree(s); ART_FIG.figs.delete(f); }
+// the pool shader: mode 0 opaque, 1 fading (transparent pass), 2 face (atlas cell per slot)
+function artFigPatch(mat, mode) {
+  mat.defines = Object.assign(mat.defines || {}, { FIG_MODE: mode, FIG_W: ART_FIG_W, FIG_COLS: ART_FACE_GRID.cols.toFixed(1), FIG_ROWS: ART_FACE_GRID.rows.toFixed(1) });
+  mat.onBeforeCompile = (sh) => {
+    sh.uniforms.figTex = ART_FIG.uTex;
+    sh.vertexShader = 'uniform highp sampler2D figTex;\nattribute float aSlot;\nvarying float vFigA;\nvarying vec3 vFigTint;\n' + sh.vertexShader
+      .replace('#include <uv_vertex>', `int figI = int(aSlot + 0.5) * 4; ivec2 figC = ivec2(figI % FIG_W, figI / FIG_W);
+  vec4 figR0 = texelFetch(figTex, figC, 0), figR1 = texelFetch(figTex, figC + ivec2(1, 0), 0);
+  vec4 figR2 = texelFetch(figTex, figC + ivec2(2, 0), 0), figR3 = texelFetch(figTex, figC + ivec2(3, 0), 0);
+  mat4 figM = mat4(figR0.x, figR1.x, figR2.x, 0.0, figR0.y, figR1.y, figR2.y, 0.0, figR0.z, figR1.z, figR2.z, 0.0, figR0.w, figR1.w, figR2.w, 1.0);
+  vFigA = figR3.w; vFigTint = figR3.rgb;
+#if FIG_MODE == 0
+  bool figOff = figR3.w < 0.999;
+#elif FIG_MODE == 1
+  bool figOff = figR3.w >= 0.999 || figR3.w < 0.004;
+#else
+  bool figOff = figR3.w < 0.004;
+#endif
+#include <uv_vertex>
+#if FIG_MODE == 2 && defined( USE_MAP )
+  vMapUv = (vec2(mod(figR3.r, FIG_COLS), FIG_ROWS - 1.0 - floor(figR3.r / FIG_COLS)) + vMapUv) / vec2(FIG_COLS, FIG_ROWS);
+#endif`)
+      .replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>
+  if (!figOff) objectNormal = transpose(inverse(mat3(figM))) * objectNormal;   // exact, like a mesh's normalMatrix`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+  transformed = figOff ? vec3(0.0) : (figM * vec4(transformed, 1.0)).xyz;`);
+    sh.fragmentShader = 'varying float vFigA;\nvarying vec3 vFigTint;\n' + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
+#if FIG_MODE != 2
+  diffuseColor.rgb *= vFigTint;
+#endif
+#if FIG_MODE != 0
+  diffuseColor.a *= vFigA;
+#endif`);
+  };
+  mat.customProgramCacheKey = () => 'artFig' + mode;
+  return mat;
+}
+// pools: one geometry per kind, an opaque mesh + a fading mesh (the face pool only has its transparent one)
+function artFigPools(scene) {
+  if (!ART_FIG.on) return;
+  if (ART_FIG.pools) { for (const P of Object.values(ART_FIG.pools)) for (const m of P.meshes) scene.add(m); return; }
+  const kinds = {
+    body: { color: true, env: null, mk: () => ART_FIG_MATS.body },
+    head: { color: true, env: null, mk: () => ART_FIG_MATS.head },
+    prop: { color: true, env: () => artPropMat().envMapIntensity, mk: () => ({ vertexColors: true, roughness: artPropMat().roughness, envMapIntensity: artPropMat().envMapIntensity }) },
+    face: { color: false, env: null, mk: () => Object.assign({ map: artFaceAtlas() }, ART_FIG_MATS.face) },
+  };
+  ART_FIG.pools = {};
+  for (const [kind, K] of Object.entries(kinds)) {
+    const P = { kind, color: K.color, env: K.env, cap: 0, icap: 0, geo: null, meshes: [], va: new ArtRange(), ia: new ArtRange(), parts: new Set(), fading: 0, dv: null, di: null, full: false };
+    const modes = kind === 'face' ? [2] : [0, 1];
+    for (const mode of modes) {
+      const mat = artFigPatch(new THREE.MeshStandardMaterial(K.mk()), mode);
+      if (mode === 1) mat.transparent = true;                    // fading figures: as the old materials did (depthWrite on)
+      const mesh = new THREE.Mesh(new THREE.BufferGeometry(), mat);
+      mesh.frustumCulled = false; mesh.castShadow = mesh.receiveShadow = false; mesh.matrixAutoUpdate = false; mesh.visible = false;
+      mesh.renderOrder = kind === 'face' ? 1 : 0; mesh.userData.figPool = kind + (mode === 1 ? '~' : ''); mesh.name = 'artFig:' + mesh.userData.figPool;
+      P.meshes.push(mesh); scene.add(mesh);
+    }
+    ART_FIG.pools[kind] = P;
+  }
+}
+function artFigTexFit(nSlots) {
+  let rows = 4; while (rows * ART_FIG_W < nSlots * 4) rows *= 2;
+  if (ART_FIG.tex && ART_FIG.tex.image.height >= rows) return;
+  const data = new Float32Array(ART_FIG_W * rows * 4); if (ART_FIG.data) data.set(ART_FIG.data);
+  const tex = new THREE.DataTexture(data, ART_FIG_W, rows, THREE.RGBAFormat, THREE.FloatType);
+  tex.magFilter = tex.minFilter = THREE.NearestFilter; tex.generateMipmaps = false; tex.needsUpdate = true;
+  if (ART_FIG.tex) ART_FIG.tex.dispose();
+  ART_FIG.tex = tex; ART_FIG.data = data; ART_FIG.uTex.value = tex;
+}
+function artFigGrow(P) {                                         // make room for va.top vertices / ia.top indices
+  if (P.va.top <= P.cap && P.ia.top <= P.icap && P.geo) return;
+  let cap = Math.max(16384, P.cap), icap = Math.max(49152, P.icap);
+  while (cap < P.va.top) cap *= 2; while (icap < P.ia.top) icap *= 2;
+  const old = P.geo, geo = new THREE.BufferGeometry();
+  const mk = (name, size) => { const a = new Float32Array(cap * size), o = old && old.attributes[name]; if (o) a.set(o.array); geo.setAttribute(name, new THREE.BufferAttribute(a, size)); };
+  mk('position', 3); mk('normal', 3); mk('uv', 2); if (P.color) mk('color', 3); mk('aSlot', 1);
+  const idx = new Uint32Array(icap); if (old && old.index) idx.set(old.index.array); geo.setIndex(new THREE.BufferAttribute(idx, 1));
+  geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6); geo.boundingBox = new THREE.Box3(new THREE.Vector3(-1e6, -1e6, -1e6), new THREE.Vector3(1e6, 1e6, 1e6));
+  P.geo = geo; P.cap = cap; P.icap = icap; P.full = true;
+  for (const m of P.meshes) m.geometry = geo;
+  if (old) old.dispose();
+}
+const artFigSpan = (r, a, n) => { if (!r) return [a, a + n]; if (a < r[0]) r[0] = a; if (a + n > r[1]) r[1] = a + n; return r; };
+function artFigClaim(mesh, fig, kind) {                         // copy a mesh's vertices into its pool; the mesh stops drawing
+  const P = ART_FIG.pools && ART_FIG.pools[kind], g = mesh.geometry, pa = g && g.attributes.position;
+  if (!P || !pa || !pa.count) return null;
+  const nv = pa.count, ix = g.index, ni = ix ? ix.count : nv;
+  const s = { mesh, fig, P, geo: g, slot: ART_FIG.slots.alloc(1), v0: P.va.alloc(nv), nv, i0: P.ia.alloc(ni), ni, seen: 0 };
+  artFigTexFit(ART_FIG.slots.top); artFigGrow(P);
+  const A = P.geo.attributes, na = g.attributes.normal, ua = g.attributes.uv, ca = g.attributes.color, v0 = s.v0;
+  const pos = A.position.array, nor = A.normal.array, uv = A.uv.array, sl = A.aSlot.array, col = P.color ? A.color.array : null;
+  for (let i = 0; i < nv; i++) {
+    const j = (v0 + i) * 3;
+    pos[j] = pa.getX(i); pos[j + 1] = pa.getY(i); pos[j + 2] = pa.getZ(i);
+    if (na) { nor[j] = na.getX(i); nor[j + 1] = na.getY(i); nor[j + 2] = na.getZ(i); } else { nor[j] = 0; nor[j + 1] = 1; nor[j + 2] = 0; }
+    if (ua) { uv[(v0 + i) * 2] = ua.getX(i); uv[(v0 + i) * 2 + 1] = ua.getY(i); } else uv[(v0 + i) * 2] = uv[(v0 + i) * 2 + 1] = 0;
+    if (col) { if (ca) { col[j] = ca.getX(i); col[j + 1] = ca.getY(i); col[j + 2] = ca.getZ(i); } else col[j] = col[j + 1] = col[j + 2] = 1; }
+    sl[v0 + i] = s.slot;
+  }
+  const idx = P.geo.index.array;
+  for (let k = 0; k < ni; k++) idx[s.i0 + k] = (ix ? ix.getX(k) : k) + v0;
+  P.dv = artFigSpan(P.dv, s.v0, nv); P.di = artFigSpan(P.di, s.i0, ni);
+  mesh.layers.set(ART_FIG_LAYER); mesh.userData.figSlot = s; fig.slots.add(s); P.parts.add(s);
+  return s;
+}
+function artFigFree(s) {
+  const P = s.P, F = ART_FIG;
+  if (P.geo) { P.geo.index.array.fill(0, s.i0, s.i0 + s.ni); P.di = artFigSpan(P.di, s.i0, s.ni); }   // degenerate until reused
+  P.ia.release(s.i0, s.ni); P.va.release(s.v0, s.nv); P.parts.delete(s);
+  if (F.data) artSlotZero(F.data, s.slot); F.slots.release(s.slot, 1); s.fig.slots.delete(s);
+  if (s.mesh.userData.figSlot === s) { delete s.mesh.userData.figSlot; s.mesh.layers.set(0); }
+}
+function artFigCompact(P) {
+  const A = P.geo.attributes, attrs = [{ array: A.position.array, size: 3 }, { array: A.normal.array, size: 3 }, { array: A.uv.array, size: 2 }, { array: A.aSlot.array, size: 1 }];
+  if (P.color) attrs.push({ array: A.color.array, size: 3 });
+  const oldTop = P.ia.top, r = artPackParts([...P.parts], attrs, P.geo.index.array);
+  P.geo.index.array.fill(0, r.iTop, oldTop); P.va.reset(r.vTop); P.ia.reset(r.iTop); P.full = true;
+}
+function artFigFlush(P) {
+  const geo = P.geo; if (!geo) return;
+  const list = [geo.index, ...Object.values(geo.attributes)];
+  const dirty = (a, r, size) => {                               // r null: the whole buffer
+    if (a.addUpdateRange) { a.clearUpdateRanges(); if (r) a.addUpdateRange(r[0] * size, (r[1] - r[0]) * size); }
+    else if (a.updateRange) { a.updateRange.offset = r ? r[0] * size : 0; a.updateRange.count = r ? (r[1] - r[0]) * size : -1; }
+    a.needsUpdate = true;
+  };
+  if (P.full) for (const a of list) dirty(a, null, a.itemSize);
+  else {
+    if (P.dv) for (const a of Object.values(geo.attributes)) dirty(a, P.dv, a.itemSize);
+    if (P.di) dirty(geo.index, P.di, 1);
+  }
+  P.full = false; P.dv = P.di = null;
+  geo.setDrawRange(0, P.ia.top);
+}
+function artFigVisit(fig, o, vis, stamp) {
+  vis = vis && o.visible;
+  if (o.isMesh && !o.isInstancedMesh) {
+    const m = o.material, kind = m && m.userData && m.userData.fig;
+    if (kind) {
+      let s = o.userData.figSlot;
+      if (s && (s.geo !== o.geometry || s.fig !== fig)) { artFigFree(s); s = null; }   // geometry swapped (a fork merged in)
+      if (!s) s = artFigClaim(o, fig, kind);
+      if (s) {
+        s.seen = stamp;
+        const a = kind === 'face' || m.transparent ? m.opacity : 1;
+        if (!vis || a < 0.004) artSlotZero(ART_FIG.data, s.slot);
+        else {
+          if (a < 0.999 && kind !== 'face') s.P.fading++;
+          const c = m.color, cell = kind === 'face' ? (m.map && m.map.userData.figCell) || 0 : -1;
+          if (cell >= 0) artSlotWrite(ART_FIG.data, s.slot, o.matrixWorld.elements, cell, 0, 0, a);
+          else artSlotWrite(ART_FIG.data, s.slot, o.matrixWorld.elements, c.r, c.g, c.b, a);
+        }
+      }
+    }
+  }
+  const ch = o.children; for (let i = 0; i < ch.length; i++) artFigVisit(fig, ch[i], vis, stamp);
+}
+// once a frame, after every animation and before the render
+function artFigSync() {
+  const F = ART_FIG;
+  if (F.on && F.pools && !F.ready) { F.ready = !!(artRenderer && artRenderer.capabilities && artRenderer.capabilities.isWebGL2); if (!F.ready && artRenderer) F.on = false; }
+  if (!F.on || !F.ready) {
+    if (!F.on && F.pools) for (const P of Object.values(F.pools)) for (const m of P.meshes) m.visible = false;
+    if (typeof window !== 'undefined') window.__figStats = { figures: F.figs.size, pools: 0, instances: 0, legacy: true };
+    return;
+  }
+  const stamp = ++F.stamp;
+  for (const P of Object.values(F.pools)) P.fading = 0;
+  for (const fig of F.figs) {
+    let o = fig.group, vis = true;
+    while (o) { if (!o.visible) vis = false; if (o.isScene || !o.parent) break; o = o.parent; }
+    if (!vis || !o || !o.isScene) {                               // hidden or not in the scene: its parts collapse
+      if (!fig.off && F.data) { for (const s of fig.slots) artSlotZero(F.data, s.slot); fig.off = true; }
+      continue;
+    }
+    fig.off = false;
+    fig.group.updateWorldMatrix(true, true);
+    artFigVisit(fig, fig.group, true, stamp);
+    for (const s of fig.slots) if (s.seen !== stamp) artFigFree(s);   // taken out of the rig (frozen into a merged body)
+  }
+  let draws = 0, verts = 0;
+  for (const P of Object.values(F.pools)) {
+    if (P.geo && P.ia.top > 49152 && P.ia.used < P.ia.top * 0.5) artFigCompact(P);
+    artFigFlush(P);
+    if (P.env) { const e = P.env(); for (const m of P.meshes) m.material.envMapIntensity = e; }
+    const any = P.ia.used > 0;
+    P.meshes.forEach((m, k) => { m.visible = any && (P.kind === 'face' || k === 0 || P.fading > 0); if (m.visible) draws++; });
+    verts += P.va.used;
+  }
+  if (F.tex && F.slots.top) F.tex.needsUpdate = true;
+  if (typeof window !== 'undefined') window.__figStats = { figures: F.figs.size, pools: draws, instances: F.slots.used, verts };
+}
+
 /* ======== art: people ======== */
 const ART_BODY = {
   adult:   { hip: 0.66, legR: 0.075, tor: 0.2,  torLen: 0.32, head: 0.26, arm: 0.56, armR: 0.06 },
@@ -3223,10 +3498,11 @@ function buildPerson(kind, seed, opts) {
   const torH = torLen + tor * 2, torC = hip + torH / 2 - 0.06, torTop = torC + torH / 2, shY = torTop - tor * 0.85;
   const HS = 1.0, headY = torTop + hr * HS * 0.6, height = headY + hr * HS * 0.92;
   const group = new THREE.Group(), rig = new THREE.Group(); group.add(rig);
-  const bodyMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88, envMapIntensity: 0.5 });
-  const headMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, envMapIntensity: 0.5 });
-  const faceMat = new THREE.MeshStandardMaterial({ map: artFaceTex(0, false), transparent: true, roughness: 0.6, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 });
+  const bodyMat = new THREE.MeshStandardMaterial(ART_FIG_MATS.body), headMat = new THREE.MeshStandardMaterial(ART_FIG_MATS.head);
+  const faceMat = new THREE.MeshStandardMaterial(Object.assign({ map: artFaceTex(0, false) }, ART_FIG_MATS.face));
   const mats = [bodyMat, headMat, faceMat];
+  bodyMat.userData.fig = 'body'; headMat.userData.fig = 'head'; faceMat.userData.fig = 'face';   // drawn by the figure pools
+  const fig = artFigAdd(group);
   const owned = [];
   const mk = (bb, parent, cast = false) => { const ms = bb.flush(parent, owned, cast, false); ms.forEach((m) => { m.castShadow = cast; }); return ms[0]; };   // people: contact shadow only
   // legs (pivot at hip)
@@ -3446,7 +3722,7 @@ function buildPerson(kind, seed, opts) {
       for (const o of [torso, headMesh]) if (o) o.castShadow = false;   // indoors: a sun shadow would fall through the floors
     },
     dispose() {
-      if (disposed) return; disposed = true; artLive.delete(live); artBlobRemove(blob);
+      if (disposed) return; disposed = true; artLive.delete(live); artBlobRemove(blob); artFigRemove(fig);
       if (group.parent) group.parent.remove(group);
       for (const g of owned) g.dispose(); for (const m of mats) m.dispose(); bubbleMat.dispose(); steam.dispose();
     },
@@ -3537,7 +3813,7 @@ function artOccupant(parent, kind, seed, opts, pose, x, y, z, ry) {
 // every pose is a pure function of the clock, so there is no per-frame state and no per-frame allocation. Workers keep
 // legs, the upper body (torso + head merged, it bends at the hips), face and arms as separate meshes; diners keep body
 // (torso + bent legs), head, face and arms. Props are one small mesh each, shown only while used. Nothing casts shadows.
-function artPropMat() { return artMatC('occProp', () => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, envMapIntensity: 0.5 })); }
+function artPropMat() { return artMatC('occProp', () => { const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, envMapIntensity: 0.5 }); m.userData.fig = 'prop'; return m; }); }   // held props: pooled when under a figure
 function artFlameMat() { return artMatC('occFlame', () => new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.9, depthWrite: false, toneMapped: false, blending: THREE.AdditiveBlending })); }
 function artEase(x) { return x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x); }
 function artHash01(a) { a |= 0; a = Math.imul(a ^ (a >>> 16), 0x45d9f3b); a = Math.imul(a ^ (a >>> 16), 0x45d9f3b); return ((a ^ (a >>> 16)) >>> 0) / 4294967296; }
@@ -4724,13 +5000,14 @@ function animateArt(time, dt) {
     const ri = artRenderer.info.render; document.documentElement.dataset.art = `calls=${ri.calls} tris=${ri.triangles}`; }
   if (artFrames === 25 && typeof location !== 'undefined' && location.search.includes('artdbg') && artLights) {   // draw-call breakdown for perf work
     const names = new Map(); for (const [k, m] of artMatCache) names.set(m, k); if (typeof R2_MAT !== 'undefined') for (const k in R2_MAT) names.set(R2_MAT[k], 'R2:' + k);
-    const agg = {}; artLights.scene.traverseVisible((o) => { if (!(o.isMesh || o.isPoints || o.isSprite)) return;
-      const k = names.get(o.material) || (o.isSprite ? 'sprite' : o.isInstancedMesh ? 'inst' : (o.material && o.material.map && o.material.transparent ? 'face' : 'other'));
+    const agg = {}; artLights.scene.traverseVisible((o) => { if (!(o.isMesh || o.isPoints || o.isSprite) || o.userData.figSlot) return;   // virtual figure meshes: the pools draw them
+      const k = o.userData.figPool ? 'fig:' + o.userData.figPool : names.get(o.material) || (o.isSprite ? 'sprite' : o.isInstancedMesh ? 'inst' : (o.material && o.material.map && o.material.transparent ? 'face' : 'other'));
       const g = o.geometry, tr = g ? (g.index ? g.index.count : (g.attributes.position ? g.attributes.position.count : 0)) / 3 * (o.isInstancedMesh ? o.count : 1) : 0;
       const e = agg[k] || (agg[k] = [0, 0]); e[0]++; e[1] += tr; });
     document.documentElement.dataset.artdbg = Object.entries(agg).sort((a, b) => b[1][0] - a[1][0]).map(([k, v]) => `${k}:${v[0]}/${Math.round(v[1] / 1000)}k`).join(' ');
   }
   for (const o of artLive) o.tick(time, dt);
+  artFigSync();                                               // last: every figure is posed now
 }
 /* ======== rooms2: realistic wing rooms + underground (second graphics designer) ======== */
 // Needs THREE and mergeGeometries in scope. Everything here is prefixed R2_. Deterministic: no Math.random.

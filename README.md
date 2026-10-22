@@ -133,10 +133,13 @@ then go to <http://localhost:5224/>. Opening `index.html` straight from disk mos
 
 Handy URL options: `?level=3` starts level 3 straight away, `?demo` lets the computer play, `?fast` runs four
 times faster, `?mute` keeps it completely silent, `?seed=7` makes the arrivals repeatable.
+`?legacyFigures` draws the people the old way, each body part on its own (normally all the people share a few
+batched drawings, which is much lighter on phones; it should look exactly the same).
 
 Checks without a browser (Node): `node handoff/zonetest.mjs` tests the lift zones and route planning of every level,
 and `node handoff/simtest.mjs [old-index.html]` lets the computer play the tall towers with the drawing switched off
-(and, given a copy of an older `index.html`, checks levels 1-14 still play exactly the same).
+(and, given a copy of an older `index.html`, checks levels 1-14 still play exactly the same); `node handoff/figtest.mjs`
+checks the batched people's bookkeeping.
 
 Stars are kept in the browser (`goingup.stars`), as is the sound setting (`goingup.muted`).
 
