@@ -13,7 +13,9 @@ Play it at <https://tb-x.github.io/going-up/> (once published).
 ## How it plays
 
 - Tap a floor in a lift shaft and that lift goes there. Tap a floor in the rooms and the nearest free lift goes.
-- The doors open by themselves: people for that floor step out and cheer, then the people waiting get in.
+- People wait for the lift on whichever side of the lifts they come from (there's a queue on each side). The doors
+  open by themselves: people for that floor step out and cheer, then the people waiting on both sides get in, the
+  one who has waited longest first.
 - A moving lift stops on the way wherever someone inside wants to get out, and a lift standing still opens for anyone
   waiting on its floor.
 - The lamps on top of a lift show how full it is. When it's full the lamps flash and the next person waits.
@@ -35,7 +37,7 @@ Play it at <https://tb-x.github.io/going-up/> (once published).
   the hotel and the restaurant and fewer for the offices, and the win ends with "Good night!".
 - On level 1 a pulsing hand shows what to tap if nothing has been tapped for a couple of seconds (later levels: 8 s).
 - When the building is taller than the screen, drag up and down to look around (down into the basements too);
-  on a narrow phone the outer rooms may be cut off, so drag sideways as well. The lifts and the queue always stay
+  on a narrow phone the outer rooms may be cut off, so drag sideways as well. The lifts and both queues always stay
   on screen. Arrows at the edge show (with a face) that someone is waiting out of view. Tap an arrow to go there.
 - Sounds are synthesized in the browser (Web Audio), and the spoken words use the browser's own voice. The speaker
   button turns them off and is remembered.
@@ -81,7 +83,7 @@ At the top of the script in `index.html`:
 | `DOWN_TO_BASEMENT` | 40% | how often people going down want the car park or subway instead of the lobby |
 | `TRAIN_EVERY` / `TRAIN_GROUP` | 20-30 s / 2-4 | how often a subway train arrives, and how many get off |
 | `TRAIN_DOOR_DELAY` | 1.4 s | train stops and opens before people step out |
-| `QUEUE_ROOM` | 4.2 | width left of the lifts that is always kept on screen for the queue |
+| `QUEUE_ROOM` | 4.2 | width each side of the lifts that is always kept on screen for the queues |
 | `TRAIN_GAP_WAITING` | 8 s | the next train comes within this time when someone waits on the platform |
 | `TRAIN_OPEN_MIN` / `TRAIN_OPEN_MAX` | 2 s / 6 s | how long the train doors stay open |
 | `PARKED_AT_START` | 1-3 | cars already parked when a level starts |
