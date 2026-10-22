@@ -94,9 +94,12 @@
   #play{width:clamp(96px,24vmin,130px);height:clamp(96px,24vmin,130px);background:var(--green);box-shadow:0 7px 0 #24852f,0 0 0 8px rgba(255,255,255,.6);
     animation:pulse 1.3s ease-in-out infinite}
   #play svg{width:46%;height:46%;margin-left:8%}
-  #levels{display:grid;grid-template-columns:repeat(2,var(--lb));grid-template-rows:repeat(5,var(--lb));gap:10px;padding:12px;
+  /* 14 levels: 2 columns x 7 rows in portrait, 3 columns x 5 rows on wide screens; renderMap sets --rows2 / --rows3
+     and each button's --r2/--c2/--r3/--c3 (level 1 bottom left, like floors of a tower) */
+  #levels{display:grid;grid-template-columns:repeat(2,var(--lb));grid-template-rows:repeat(var(--rows2,7),var(--lb));gap:10px;padding:12px;
     border-radius:18px;background:rgba(242,168,139,.85);box-shadow:0 0 0 5px #fff6e5;
-    --lb:clamp(48px,min(72px,calc((100vh - 360px) / 5 - 10px)),72px)}
+    --lb:clamp(40px,min(72px,calc((100vh - 380px) / var(--rows2,7) - 10px)),72px)}
+  #levels .lv{grid-row:var(--r2);grid-column:var(--c2)}
   .lv{width:var(--lb);height:var(--lb);border-radius:14px;background:var(--cream);box-shadow:0 4px 0 var(--lip);display:flex;flex-direction:column;
     align-items:center;justify-content:center;font:bold calc(var(--lb) * .36)/1 var(--digits);color:var(--ink)}
   .lv:active{transform:translateY(3px);box-shadow:0 1px 0 var(--lip)}
@@ -106,7 +109,9 @@
   .lv{position:relative}
   .lv .tm{position:absolute;top:2px;right:3px;font-size:calc(var(--lb) * .22);line-height:1}
   body.side #map{flex-direction:row;gap:28px;padding-top:calc(12px + var(--st))}
-  body.side #levels{--lb:clamp(40px,calc((100vh - 90px) / 5 - 10px),66px)}
+  body.side #levels{grid-template-columns:repeat(3,var(--lb));grid-template-rows:repeat(var(--rows3,5),var(--lb));
+    --lb:clamp(36px,calc((100vh - 90px) / var(--rows3,5) - 10px),66px)}
+  body.side #levels .lv{grid-row:var(--r3);grid-column:var(--c3)}
 
   /* ---------- win card ---------- */
   #win{position:fixed;inset:0;z-index:45;display:grid;place-items:center;background:rgba(43,43,58,.25)}
@@ -201,9 +206,16 @@ const TRAIN_GAP_WAITING = 8;      // the next train comes within this many secon
 const TRAIN_OPEN_MIN = 2, TRAIN_OPEN_MAX = 6;  // train doors stay open at least / at most this long (s)
 const PARKED_AT_START = [1, 3];   // cars already parked when a level starts
 const CAR_DOOR_TIME = 0.6;        // a parked car's door stays open this long while someone gets out (s)
-const NIGHT_WEIGHTS = { night: { hotel: 3, restaurant: 3, office: 0.4 }, dusk: { restaurant: 2, hotel: 1.5 } };
+// how popular each kind of floor is as a destination by time of day (variants share their base kind: home2 -> home)
+const NIGHT_WEIGHTS = { day: { office: 1.5, home: 0.5 }, dusk: { restaurant: 2, hotel: 1.5, home: 1.5 },
+  night: { hotel: 3, restaurant: 3, home: 2.5, office: 0.4 } };
+// where trips between floors start: by day people leave home, at dusk they leave work, at night they leave dinner
+const ORIGIN_WEIGHTS = { day: { home: 2.5 }, dusk: { office: 2.5 }, night: { restaurant: 1.5, cafe: 1.5 } };
+const HOME_TO_BASEMENT = 0.7;     // by day, people leaving a home floor head for the subway / car park this often
+const LOWER_PARK_SHARE = 0.5;     // with two garages, this share of car-park arrivals walk up from the lower one (-2)
 // door points (z) people walk to before fading through them; the art may override with floor handle fields
-const ROOM_DOOR_Z = -4.1;              // just in front of a back-wall room door (back wall at z = -ART.DEPTH = -4.5)
+const ROOM_DOOR_Z = -4.1;              // (old: in front of a back-wall room door; rooms have no doors now)
+const ROOM_SPOT_Z = -2.3;              // where people stand when they come out of / go into a room (no doors: the back wall is the outside wall)
 const STAIR_DOOR_Z = -2.6;              // just in front of the stair door (stair column, door at z -2.95)
 const PARK_DOOR_Z = -2.3;               // between two parked cars, beside the driver's door
 const TRAIN_EDGE_Z = -0.15;             // platform edge in front of the train doors (the train runs at z > 0)
@@ -231,14 +243,22 @@ const DEG = Math.PI / 180;
 const RUSH = { kind: 'rush', every: 45, n: 5 };    // 5 people at the lobby at once
 const LUNCH = { kind: 'lunch', every: 50, n: 5 };  // 5 people heading to the restaurant (or café)
 const SP1 = ['grandma'], SP2 = ['grandma', 'courier'], SP3 = ['grandma', 'courier', 'dogwalker'];
-// every floor theme; `basement` floors have no number, `popular` floors get twice the visitors
+// every floor theme; `basement` floors have no number, `popular` floors get twice the visitors.
+// `kind` + `v`: variants (home2, office2, parking2...) reuse their base kind's art and game rules with a variant seed;
+// each variant has its own colour, so floors of the same kind stay apart within a level.
 const THEME_LIB = {
   subway:     { id: 'subway',     name: 'Subway',      color: '#3A4150', icon: '🚇', basement: true },
-  parking:    { id: 'parking',    name: 'Parking',     color: '#8C97A8', icon: '🚗', basement: true },
+  parking2:   { id: 'parking2',   name: 'Parking',     color: '#7A6A58', icon: '🚙', basement: true, kind: 'parking', v: 1 },  // lower garage (-2)
+  parking:    { id: 'parking',    name: 'Parking',     color: '#8C97A8', icon: '🚗', basement: true },   // the garage the street ramp reaches (-1)
   lobby:      { id: 'lobby',      name: 'Lobby',       color: '#FFC928', icon: '🛎️' },
   cafe:       { id: 'cafe',       name: 'Café',        color: '#E8413A', icon: '☕' },
   office:     { id: 'office',     name: 'Offices',     color: '#2F6FE0', icon: '💼', popular: true },
+  office2:    { id: 'office2',    name: 'Offices',     color: '#D63C9E', icon: '🖥️', popular: true, kind: 'office', v: 1 },
   hotel:      { id: 'hotel',      name: 'Hotel',       color: '#9A55E6', icon: '🛏️', popular: true },
+  hotel2:     { id: 'hotel2',     name: 'Hotel',       color: '#7B4A2A', icon: '🧳', popular: true, kind: 'hotel', v: 1 },
+  home:       { id: 'home',       name: 'Homes',       color: '#14A88E', icon: '🏠' },
+  home2:      { id: 'home2',      name: 'Homes',       color: '#45B6F0', icon: '🛋️', kind: 'home', v: 1 },
+  home3:      { id: 'home3',      name: 'Homes',       color: '#A8703F', icon: '🐱', kind: 'home', v: 2 },
   restaurant: { id: 'restaurant', name: 'Restaurant',  color: '#FF8A1F', icon: '🍝' },
   pool:       { id: 'pool',       name: 'Pool',        color: '#19C2D6', icon: '🏊' },
   play:       { id: 'play',       name: 'Playroom',    color: '#FF5FAE', icon: '🧸' },
@@ -246,21 +266,54 @@ const THEME_LIB = {
   garden:     { id: 'garden',     name: 'Roof garden', color: '#35C24A', icon: '🌻' },
   stars:      { id: 'stars',      name: 'Observatory', color: '#1F2F7A', icon: '🔭' },
 };
-// floors bottom -> top (basements first); trains = subway trains on this level
+for (const t of Object.values(THEME_LIB)) { t.kind = t.kind || t.id; t.v = t.v || 0; }
+// floors bottom -> top (basements first: subway -3, parking2 -2, parking -1; parking2 always sits right under parking).
+// `wings` swaps a wing room for another room, by theme id: { office: { R: 'toilets' } }. Rooms: toilets (lobby right
+// wing, office, restaurant), bikes / laundry (parking2 left wing), playground (garden). The floor keeps its colour and number.
+// Difficulty (floors, cars, cap, every, patience, target) rises step by step; levels 3, 6, 10 and 12 sit between old steps.
 const LEVELS = [
-  { floors: ['lobby', 'cafe', 'office'], cars: 1, cap: 4, every: 7.0, patience: 45, target: 5, specials: [], waves: [] },
-  { floors: ['lobby', 'cafe', 'office', 'play'], cars: 1, cap: 4, every: 6.0, patience: 40, target: 8, specials: [], waves: [] },
-  { floors: ['parking', 'lobby', 'cafe', 'office', 'hotel'], cars: 1, cap: 4, every: 5.5, patience: 36, target: 10, specials: SP1, waves: [] },
-  { floors: ['parking', 'lobby', 'restaurant', 'office', 'hotel', 'pool'], cars: 2, cap: 4, every: 5.0, patience: 31, target: 12, specials: SP1, waves: [] },
-  { floors: ['parking', 'lobby', 'cafe', 'office', 'library', 'hotel', 'garden'], cars: 2, cap: 4, every: 4.6, patience: 30, target: 14, specials: SP2, waves: [] },
-  { floors: ['subway', 'parking', 'lobby', 'restaurant', 'office', 'hotel', 'pool'], cars: 2, cap: 3, every: 5.0, patience: 32, target: 15, specials: SP3, waves: [] },
-  { floors: ['subway', 'parking', 'lobby', 'cafe', 'office', 'play', 'hotel', 'garden'], cars: 2, cap: 4, every: 5.2, patience: 32, target: 15, specials: SP3, waves: [RUSH] },
-  { floors: ['subway', 'parking', 'lobby', 'restaurant', 'office', 'library', 'hotel', 'pool', 'stars'], cars: 3, cap: 4, every: 4.2, patience: 30, target: 18, specials: SP3, waves: [] },
-  { floors: ['subway', 'parking', 'lobby', 'cafe', 'office', 'play', 'restaurant', 'hotel', 'pool', 'garden'], cars: 3, cap: 5, every: 3.8, patience: 28, target: 20, specials: SP3, waves: [LUNCH] },
-  { floors: ['subway', 'parking', 'lobby', 'cafe', 'office', 'library', 'restaurant', 'hotel', 'pool', 'stars'], cars: 3, cap: 5, every: 3.6, patience: 26, target: 24, specials: SP3, waves: [RUSH, LUNCH] },
+  // 1 corner flats
+  { floors: ['lobby', 'cafe', 'home'], cars: 1, cap: 4, every: 7.0, patience: 45, target: 5, specials: [], waves: [] },
+  // 2 small apartment block
+  { floors: ['lobby', 'cafe', 'home', 'home2'], cars: 1, cap: 4, every: 6.0, patience: 40, target: 8, specials: [], waves: [] },
+  // 3 apartment block at night, playground on the roof garden
+  { floors: ['lobby', 'home', 'home2', 'home3', 'garden'], cars: 1, cap: 4, every: 5.8, patience: 38, target: 9, specials: [], waves: [],
+    wings: { garden: { R: 'playground' } } },
+  // 4 small office tower
+  { floors: ['parking', 'lobby', 'cafe', 'office', 'office2'], cars: 1, cap: 4, every: 5.5, patience: 36, target: 10, specials: SP1, waves: [],
+    wings: { office: { R: 'toilets' } } },
+  // 5 hotel
+  { floors: ['parking', 'lobby', 'restaurant', 'hotel', 'hotel2', 'pool'], cars: 2, cap: 4, every: 5.0, patience: 31, target: 12, specials: SP1, waves: [],
+    wings: { lobby: { R: 'toilets' } } },
+  // 6 apartment block with a two-level garage and a bike room
+  { floors: ['parking2', 'parking', 'lobby', 'cafe', 'home', 'home2', 'home3'], cars: 2, cap: 4, every: 4.8, patience: 31, target: 13, specials: SP1, waves: [],
+    wings: { parking2: { L: 'bikes' } } },
+  // 7 office tower with a restaurant and a pool
+  { floors: ['parking', 'lobby', 'office', 'restaurant', 'office2', 'pool', 'garden'], cars: 2, cap: 4, every: 4.6, patience: 30, target: 14, specials: SP2, waves: [],
+    wings: { office: { R: 'toilets' } } },
+  // 8 office tower over the subway
+  { floors: ['subway', 'parking', 'lobby', 'restaurant', 'office', 'office2', 'pool'], cars: 2, cap: 3, every: 5.0, patience: 32, target: 15, specials: SP3, waves: [],
+    wings: { lobby: { R: 'toilets' } } },
+  // 9 big hotel
+  { floors: ['subway', 'parking', 'lobby', 'restaurant', 'hotel', 'hotel2', 'pool', 'garden'], cars: 2, cap: 4, every: 5.2, patience: 32, target: 15, specials: SP3, waves: [RUSH],
+    wings: { restaurant: { L: 'toilets' } } },
+  // 10 apartment tower: two garages, laundry, playground
+  { floors: ['parking2', 'parking', 'lobby', 'cafe', 'home', 'home2', 'home3', 'garden'], cars: 3, cap: 4, every: 4.7, patience: 31, target: 16, specials: SP3, waves: [],
+    wings: { parking2: { L: 'laundry' }, garden: { R: 'playground' } } },
+  // 11 mixed: café and offices below, flats above, observatory on top
+  { floors: ['subway', 'parking', 'lobby', 'cafe', 'office', 'library', 'home', 'home2', 'stars'], cars: 3, cap: 4, every: 4.2, patience: 30, target: 18, specials: SP3, waves: [] },
+  // 12 apartment tower over the subway
+  { floors: ['subway', 'parking2', 'parking', 'lobby', 'cafe', 'home', 'home2', 'play', 'home3', 'garden'], cars: 3, cap: 4, every: 4.0, patience: 29, target: 19, specials: SP3, waves: [],
+    wings: { parking2: { L: 'bikes' }, garden: { R: 'playground' } } },
+  // 13 offices and a hotel
+  { floors: ['subway', 'parking', 'lobby', 'cafe', 'office', 'office2', 'restaurant', 'hotel', 'hotel2', 'garden'], cars: 3, cap: 5, every: 3.8, patience: 28, target: 20, specials: SP3, waves: [LUNCH],
+    wings: { office: { R: 'toilets' } } },
+  // 14 mixed tower at night
+  { floors: ['subway', 'parking2', 'parking', 'lobby', 'cafe', 'office', 'home', 'home2', 'home3', 'garden'], cars: 3, cap: 5, every: 3.6, patience: 26, target: 24, specials: SP3, waves: [RUSH, LUNCH],
+    wings: { lobby: { R: 'toilets' }, parking2: { L: 'laundry' }, garden: { R: 'playground' } } },
 ];
-// time of day per level ('day' | 'dusk' | 'night'); the art switches sky and lights with artSetTime(time)
-const LEVEL_TIMES = ['day', 'day', 'day', 'dusk', 'night', 'day', 'night', 'dusk', 'day', 'night'];
+// time of day per level ('day' | 'dusk' | 'night'), a night about every third level; the art switches sky and lights with artSetTime(time)
+const LEVEL_TIMES = ['day', 'day', 'night', 'day', 'dusk', 'night', 'day', 'dusk', 'night', 'day', 'dusk', 'night', 'day', 'night'];
 LEVELS.forEach((l, i) => { l.time = LEVEL_TIMES[i] || 'day'; });
 const TIME_ICONS = { day: '☀️', dusk: '🌇', night: '🌙' };
 const KINDS = {
@@ -711,7 +764,8 @@ const VEH_PN = 16;
 // trim palette columns (uv.x picks the column): roughness / metalness per column, emissive per light state
 const VEH_P = { rubber: 0, plastic: 1, gloss: 2, chrome: 3, alloy: 4, plate: 5, head: 6, tail: 7, amber: 8, sign: 9, cabin: 10, enamel: 11, fabric: 12, glass: 13 };
 const VEH_ORM = [[0.9, 0], [0.55, 0], [0.14, 0], [0.07, 1], [0.26, 1], [0.4, 0], [0.04, 0.55], [0.1, 0.1], [0.1, 0.1], [0.25, 0], [0.4, 0], [0.22, 0.15], [0.95, 0], [0.04, 0.45]];
-const VEH_COLS = ['#B9BEC4', '#EEEEEA', '#1C1E21', '#1F3560', '#A3242A', '#2E4A3C', '#CDBE9C', '#5A5F66', '#6E7F8E', '#8C2F39', '#D9D6CF'];
+const VEH_COLS = ['#B9BEC4', '#EEEEEA', '#1C1E21', '#1F3560', '#A3242A', '#2E4A3C', '#CDBE9C', '#5A5F66', '#6E7F8E', '#8C2F39', '#D9D6CF',
+  '#D9772B', '#3E7C8C', '#5B4A8A', '#E2B33C', '#7E9C6A', '#2D6FB5'];
 const VEH_METALLIC = new Set(['#B9BEC4', '#1C1E21', '#1F3560', '#2E4A3C', '#5A5F66', '#6E7F8E']);
 const VEH_LIVERY = [['#F2C230', '#C8322A'], ['#2F5E9E', '#EEEEEA'], ['#B5362E', '#EDE3C8'], ['#3E7A4E', '#EEEEEA']];
 const VEH_KIND = { hatch: 'hatchback', car: 'sedan', SUV: 'suv', 'city bus': 'bus', citybus: 'bus', delivery: 'truck', lorry: 'truck' };
@@ -866,6 +920,14 @@ const VEH_SPEC = {
   pickup:    { L: 5.3, W: 1.92, H: 1.82, wr: 0.38, tw: 0.25, fo: 0.95, wb: 3.2, cl: 0.27, noseY: 1.04, belt: 1.15, cowlX: 1.25, rFX: 0.52, rRX: -0.8, tailX: -0.92, rear: 'bed', bX: -0.08, panes: [[-0.03, 9], [-0.86, -0.13]], doors: 4, cladding: true },
 };
 VEH_SPEC.taxi = Object.assign({}, VEH_SPEC.sedan, { taxi: true });
+// more variants, derived from the base shapes above
+VEH_SPEC.estate = Object.assign({}, VEH_SPEC.sedan, { L: 4.8, rear: 'hatch', rRX: -1.9, tailX: -2.15, panes: [[-0.21, 9], [-1.3, -0.31]], quarter: -1.4 });
+VEH_SPEC.coupe = Object.assign({}, VEH_SPEC.sedan, { L: 4.45, H: 1.3, noseY: 0.66, belt: 0.88, deck: 0.9, rFX: -0.05, rRX: -0.95, tailX: -1.6, bX: -0.5, panes: [[-0.45, 9], [-1.3, -0.55]], doors: 2 });
+VEH_SPEC.minivan = Object.assign({}, VEH_SPEC.suv, { L: 4.85, H: 1.78, cl: 0.17, wr: 0.33, noseY: 0.86, belt: 1.02, cowlX: 1.15, rFX: 0.42, rRX: -2.15, tailX: -2.3,
+  bX: 0.05, panes: [[0.1, 9], [-1.1, 0.0]], quarter: -1.2, rails: false, cladding: false, slide: true });
+VEH_SPEC.camper = Object.assign({}, VEH_SPEC.van, { H: 2.35, L: 5.3, rRX: -2.6, tailX: -2.64 });
+VEH_SPEC.police = Object.assign({}, VEH_SPEC.sedan, { police: true });
+VEH_SPEC.ambulance = Object.assign({}, VEH_SPEC.van, { ambulance: true });
 
 function VEH_carGeo(kind) {
   if (VEH_GEO.has('car|' + kind)) return VEH_GEO.get('car|' + kind);
@@ -950,6 +1012,12 @@ function VEH_carGeo(kind) {
     const sx = (rFX + rRX) / 2 + 0.05;
     T.box(0.62, 0.04, 0.3, sx, H + 0.045, 0, '#141517', VEH_P.plastic); T.box(0.54, 0.15, 0.24, sx, H + 0.14, 0, '#FFF3C4', VEH_P.sign);
     for (const sd of [-1, 1]) for (let k = 0; k < 12; k++) T.box(0.075, 0.07, 0.006, cowlX - 0.28 - k * 0.15 - (k % 2 ? 0 : 0.075), belt - 0.15 - (k % 2) * 0.07, sd * (W / 2 + 0.006), '#151617', VEH_P.gloss);
+  }
+  if (s.police || s.ambulance) {                       // roof light bar and a side stripe
+    const sx = (rFX + rRX) / 2 + 0.1, stripe = s.police ? '#1F3560' : '#D32F2F';
+    T.box(0.32, 0.06, W * 0.72, sx, H + 0.03, 0, '#141517', VEH_P.plastic);
+    T.box(0.26, 0.1, W * 0.3, sx, H + 0.1, -W * 0.18, '#3D7BFF', VEH_P.sign); T.box(0.26, 0.1, W * 0.3, sx, H + 0.1, W * 0.18, s.police ? '#FF3B30' : '#3D7BFF', VEH_P.sign);
+    for (const sd of [-1, 1]) T.box(L * 0.86, 0.13, 0.006, 0.02, cl + (belt - cl) * 0.55, sd * (W / 2 + 0.007), stripe, VEH_P.gloss);
   }
   if (s.rear === 'box') T.box(0.006, deck - cl - 0.45, 0.012, -h - bsL + 0.002, (deck + cl) / 2 + 0.3, 0, '#26282B', VEH_P.plastic);
   const trim = T.done();
@@ -1108,7 +1176,7 @@ function VEH_build(kind, seed = 1, opts = {}) {
   let col, K, route = 0;
   if (kind === 'bus') { const li = (r() * VEH_LIVERY.length) | 0; col = VEH_LIVERY[li][0]; K = VEH_busGeo(li); route = [12, 24, 105, 175, 520, 7, 33][(r() * 7) | 0]; }
   else if (kind === 'truck') { col = ['#EEEEEA', '#A3242A', '#1F3560', '#2E4A3C', '#E0A030'][(r() * 5) | 0]; K = VEH_truckGeo(col === '#EEEEEA' ? '#2F6FE0' : col); }
-  else { col = kind === 'taxi' ? '#F0B400' : opts.color || VEH_COLS[(r() * VEH_COLS.length) | 0]; K = VEH_carGeo(kind); }
+  else { col = kind === 'taxi' ? '#F0B400' : kind === 'police' || kind === 'ambulance' ? '#F2F2EE' : opts.color || VEH_COLS[(r() * VEH_COLS.length) | 0]; K = VEH_carGeo(kind); }
   const sc = opts.scale || 1, group = new THREE.Group(); group.name = 'vehicle-' + kind; group.scale.setScalar(sc);
   const mk = (geo, mat, cast = true, parent = group) => { const m = new THREE.Mesh(geo, mat); m.castShadow = cast; m.receiveShadow = true; parent.add(m); return m; };
   const paint = mk(K.paint, VEH_paintMat(col)), glass = mk(K.glass, VEH_glassMat(0, !!K.see), !K.see), trim = mk(K.trim, VEH_trimMat(0, 0));
@@ -1148,9 +1216,12 @@ function VEH_build(kind, seed = 1, opts = {}) {
    scale per point (street cars are a little bigger than parked ones); timing is precomputed, so carIn/carOut return
    exact seconds. Moving cars on the road are obstacles for the street traffic (artGuests). */
 const ART_PARK = { street: 0.72, laneNear: -8.0, laneFar: -10.0, roadY: -0.12, busStopX: -16, aisleZ: -0.95, rampZ: -1.15, rampLen: 8.0, groundX: 23.5,
-  vStreet: 7, vRamp: 2.8, vBay: 1.2, bayW: 1.72 };
+  vStreet: 7, vRamp: 2.8, vBay: 1.2, bayW: 1.72, holeL: 3.2, holeZ: -2.75 };
 let artVehNight = 0;                  // 0 day .. 1 night: vehicle head/tail lights (artSetTime)
 const artGuests = new Set();          // { x, z, L } of parking cars while they are on the road
+// two garages (parking -1 over parking2 -2): the lower one's cars reach it by an internal ramp at the far end of the
+// right wing, rising from parking2 to parking through an opening holeL long (x) at the back (z < holeZ)
+const artLowerPark = (layout) => !!(layout && layout.ids && layout.ids.includes('parking2') && layout.ids.includes('parking'));
 function artRampOf(layout) {          // the car park ramp outside the right wall (null without a parking floor)
   const i = layout && layout.ids ? layout.ids.indexOf('parking') : -1; if (i < 0) return null;
   const xw = layout.x1 + ART_WALL_T;
@@ -1275,8 +1346,8 @@ function buildSky(scene) {
     const beam = new THREE.Mesh(artPln(4.4, 2.6), lampPoolMat); beam.rotation.x = -Math.PI / 2; beam.position.set(h.info.L / 2 + 2.3, 0.05 / sc, 0); h.group.add(beam);
     const c = { h, dir, z, x, v: vmax, vmax, L: h.info.L * sc, dist: 0, lv: -1, br: -1 }; traffic.push(c); return c;
   };
-  [['sedan', 11, 0, -45, 8.5], ['hatchback', 23, 0, 8, 7.5], ['suv', 5, 0, 42, 8], ['truck', 3, 0, 70, 6.5, 0.85],
-    ['taxi', 7, 1, 30, 8], ['van', 9, 1, -18, 7], ['pickup', 13, 1, -58, 8.5], ['mini', 17, 1, 66, 7.5]].forEach(([k, sd, ln, x, v, sc]) => mkTraffic(k, sd, ln, x, v, sc || PK.street));
+  [['estate', 11, 0, -45, 8.5], ['coupe', 23, 0, 8, 8], ['suv', 5, 0, 42, 8], ['truck', 3, 0, 70, 6.5, 0.85], ['police', 19, 0, -15, 8],
+    ['taxi', 7, 1, 30, 8], ['minivan', 9, 1, -18, 7], ['pickup', 13, 1, -58, 8.5], ['mini', 17, 1, 66, 7.5], ['camper', 21, 1, 48, 6.5], ['ambulance', 29, 1, 6, 7.5]].forEach(([k, sd, ln, x, v, sc]) => mkTraffic(k, sd, ln, x, v, sc || PK.street));
   const bus = mkTraffic('bus', 2, 0, 72, 7, 0.8); bus.bus = { state: 'drive', t: 0 };
   const gapAhead = (c) => {
     let best = 1e9;
@@ -1393,7 +1464,9 @@ function buildLights(scene, renderer) {
 // Layout (SPEC2): left wing = stair column + room, lift core in the middle, right wing room. Basements below y = 0.
 let artThemes = null;                 // layout.themes of the current building
 const artTheme = (fi) => (artThemes && artThemes[fi]) || FLOOR_THEMES[fi % FLOOR_THEMES.length];
-const ART_R2_ROOMS = new Set(['office', 'hotel', 'restaurant', 'parking', 'subway']);
+const ART_R2_ROOMS = new Set(['office', 'hotel', 'restaurant', 'parking', 'subway', 'home']);
+// rooms2 rooms merged into one batch per building (and wing swaps from LEVELS[].wings: toilets, bikes, laundry, playground)
+const ART_R2_SHARED = new Set(['office', 'hotel', 'restaurant', 'home', 'toilets', 'bikes', 'laundry', 'playground']);
 let artEntranceX = 0;                // x of the lobby's back door (left wing), set per building
 function buildBuilding(scene, layout) {
   artLabels = layout.labels || null; artThemes = layout.themes || null;
@@ -1410,13 +1483,23 @@ function buildBuilding(scene, layout) {
   const S = (geo, hex, x, y, z, mat = conc, uvS) => SB.add(geo, mat, artXf(x, y, z), hex, uvS);
   const HOLE_Z = -3.1, w = x1 - x0, cx = (x0 + x1) / 2;
   const beamXs = [x0 + 0.1, x0 + STW, x1 - 0.1]; for (let s = 0; s <= nShafts; s++) beamXs.push(coreX0 + s * SW);
+  const holeK = artLowerPark(layout) ? layout.ids.indexOf('parking') : -1;   // slab with the internal ramp opening
   // ---- slabs with a layered cut edge
   for (let k = 0; k <= nFloors; k++) {
     const yt = yB + k * FH, mid = k > 0 && k < nFloors;
     S(artBox(w, SL, 1.2), '#A9A6A0', cx, yt - SL / 2, -0.6);
     const back = (a, b, hex = '#A9A6A0') => S(artBox(b - a, SL, D - 1.2), hex, (a + b) / 2, yt - SL / 2, -1.2 - (D - 1.2) / 2);
-    back(x0 + STW, coreX0); back(coreX1, x1);
-    if (!mid) back(coreX0, coreX1);
+    back(x0 + STW, coreX0);
+    if (k === holeK) {                                        // two garages: the internal ramp's opening in the upper garage floor
+      const hx = x1 - ART_PARK.holeL, hz = ART_PARK.holeZ;
+      S(artBox(x1 - coreX1, SL, -hz - 1.2), '#A9A6A0', (coreX1 + x1) / 2, yt - SL / 2, (-1.2 + hz) / 2);
+      S(artBox(hx - coreX1, SL, D + hz), '#A9A6A0', (coreX1 + hx) / 2, yt - SL / 2, (hz - D) / 2);
+    } else back(coreX1, x1);
+    if (k === nFloors) back(coreX0, coreX1);                  // shaft roof
+    else if (k === 0) {                                       // shaft pit: 1.2 m below the lowest floor, not a floor level with the lobby
+      S(artBox(coreX1 - coreX0, SL, D - 1.2), '#5E5B56', (coreX0 + coreX1) / 2, yt - 1.2 - SL / 2, -1.2 - (D - 1.2) / 2);
+      S(artBox(coreX1 - coreX0, 1.2, 0.12), '#7A766F', (coreX0 + coreX1) / 2, yt - 0.6, -1.26);   // pit front wall under the landing
+    }
     const sd = mid ? -HOLE_Z - 1.2 : D - 1.2;
     S(artBox(STW, SL, sd), '#B8B2A8', x0 + STW / 2, yt - SL / 2, -1.2 - sd / 2);
     const lay = (h, yc, hex, mat = conc) => S(artBox(w, h, 0.012), hex, cx, yc, 0.006, mat);
@@ -1585,6 +1668,9 @@ function buildBuilding(scene, layout) {
     } });
     shafts[s].setCarY(fY(layout.groundIndex || 0));
   }
+  // nothing inside the tower casts sun shadows: the slabs don't block the sun, so a shadow would fall through onto the
+  // floors below. Rooms are lit by their own lamps; people, furniture and cars use contact shadows. Only the proxies cast.
+  group.traverse((o) => { if (o.isMesh && o.material !== proxyMat) o.castShadow = false; });
   scene.add(group);
   const live = { tick: (t, dt) => { for (const f of ticks) f(t, dt); } };
   artLive.add(live);
@@ -1601,7 +1687,8 @@ function buildBuilding(scene, layout) {
 /* One floor: stair column, lift landings, and a room in each wing (rooms2 builders for office/hotel/restaurant/
    parking/subway, artWing for the others). Structure in batch S (no sun shadow), furniture in batch B. */
 function artBuildFloor(i, layout, parent, owned, ticks, SB, PB, R2B) {
-  const th = artTheme(i), id = th.id, FH = ART.FLOOR_H, SL = ART.SLAB, D = ART.DEPTH, STW = ART.STAIR_W;
+  // id = the art kind (variants such as home2 / office2 / parking2 are drawn by their base kind with a variant seed)
+  const th = artTheme(i), id = th.kind || th.id, tid = th.id, variant = th.v || 0, FH = ART.FLOOR_H, SL = ART.SLAB, D = ART.DEPTH, STW = ART.STAIR_W;
   const { x0, nFloors } = layout, y = layout.floorY ? layout.floorY[i] : i * FH, CH = FH - SL, basement = !!th.basement;
   const fg = new THREE.Group(); parent.add(fg);
   const S = SB || new ArtBatch(), clay = artClay(), conc = artConc(), shiny = artShiny(), glow = artGlow(), wood = artWood();
@@ -1626,6 +1713,9 @@ function artBuildFloor(i, layout, parent, owned, ticks, SB, PB, R2B) {
   Ps(artBox(0.56, 0.24, 0.07), '#2E3236', sdx, 2.42, SDZ);
   S.add(artPln(0.52, 0.2), artTexMat('exit', artExitTex(), true), artXf(sdx, y + 2.42, SDZ + 0.04), '#ffffff');
   S.add(artPln(0.9, 0.7), artPoolM(), artXf(sdx, y + 2.42, SDZ + 0.05), '#123A20');
+  { const CHs = FH - SL, pz = SDZ - 0.02;                   // partition wall around the stair door (the stairs are behind it)
+    for (const [a0, a1] of [[x0, sdx - 0.46], [sdx + 0.46, x0 + STW]]) if (a1 - a0 > 0.01) Ps(artBox(a1 - a0, CHs, 0.08), '#C9C4BA', (a0 + a1) / 2, CHs / 2, pz, 0, 0, 0, 1, 1, 1, conc);
+    Ps(artBox(0.92, CHs - 2.12, 0.08), '#C9C4BA', sdx, 2.12 + (CHs - 2.12) / 2, pz, 0, 0, 0, 1, 1, 1, conc); }
   const stairDoor = new THREE.Group(); stairDoor.position.set(sdx - 0.42, y, SDZ); fg.add(stairDoor);
   { const db = new ArtBatch();
     db.add(artBox(0.84, 2.06, 0.05), shiny, artXf(0.42, 1.03, 0), '#8E949A');
@@ -1647,13 +1737,19 @@ function artBuildFloor(i, layout, parent, owned, ticks, SB, PB, R2B) {
   const doors = [], anims = [], hooks = {};
   [[roomL, 'L', 0], [roomR, 'R', 1]].forEach(([[rx0, rx1], wing, wi]) => {
     if (rx1 - rx0 < 0.5) return;
-    const doorX = basement ? null : (layout.roomDoorXs ? layout.roomDoorXs[wi] : (wi ? null : layout.roomDoorX));
-    if (ART_R2_ROOMS.has(id) && typeof R2_buildRoom === 'function') {
+    const doorX = null;   // no back-wall room doors: the back wall is the outside wall (street behind); people use spots inside the room
+    const ovr = (layout.wings && layout.wings[tid] && layout.wings[tid][wing]) || null;   // a swapped wing room (toilets, bikes…)
+    const room = ovr || id;
+    if ((ovr || ART_R2_ROOMS.has(id)) && typeof R2_buildRoom === 'function') {
       const rctx = { x0: rx0, x1: rx1, y, depth: D, floorH: FH, slab: SL, backZ: -D, frontZ: 0, laneZ: ART.LANE_Z,
-        buildingX0: x0 - ART_WALL_T, buildingX1: layout.x1 + ART_WALL_T, coreX0: layout.coreX0, coreX1: layout.coreX1, doorX, rng: artRng(3000 + i * 31 + wi * 7 + id.length), dynamicCars: true,
-        sharedBatch: R2B && (id === 'office' || id === 'hotel' || id === 'restaurant') ? R2B : null };
-      const h = R2_buildRoom(id, wing, rctx);
-      for (const f of artR2Occupants(id, wing, rctx, fg, i * 10 + wi)) anims.push(f);
+        buildingX0: x0 - ART_WALL_T, buildingX1: layout.x1 + ART_WALL_T, coreX0: layout.coreX0, coreX1: layout.coreX1, doorX,
+        rng: artRng(3000 + i * 31 + wi * 7 + room.length + variant * 101), dynamicCars: true,
+        variant, accent: th.color, parkLower: artLowerPark(layout), spotX: basement ? null : (layout.roomDoorXs ? layout.roomDoorXs[wi] : null),
+        sharedBatch: R2B && ART_R2_SHARED.has(room) ? R2B : null };
+      const h = R2_buildRoom(room, wing, rctx);
+      for (const f of artR2Occupants(room, wing, rctx, fg, i * 10 + wi)) anims.push(f);
+      if (h.footXZ) hooks.footXZ = h.footXZ;
+      if (rctx.spotX != null) (hooks.roomSpots = hooks.roomSpots || []).push({ x: rctx.spotX, z: -2.3, wing });   // clear strip, see R2_doorClear
       if (h.bays) { (hooks._bays = hooks._bays || []).push(...h.bays); if (h.ramp) hooks._ramp = h.ramp; }
       if (h.decor) (hooks._decor = hooks._decor || []).push(...h.decor);
       if (h.train) { hooks.train = h.train; }
@@ -1662,13 +1758,17 @@ function artBuildFloor(i, layout, parent, owned, ticks, SB, PB, R2B) {
       if (h.doorXs) hooks.trainDoorXs = h.doorXs;
       if (h.spawnPoints) hooks.spawnPoints = (hooks.spawnPoints || []).concat(h.spawnPoints);
       const W = rx1 - rx0, wc = (rx0 + rx1) / 2;                  // ceiling finish + corner shading for rooms2 rooms
-      Ps(artPln(W, D - 0.3), basement ? '#BDB9B1' : '#E9E5DC', wc, CH - 0.003, -0.3 - (D - 0.3) / 2, Math.PI / 2, 0, 0, 1, 1, 1, basement ? conc : clay);
+      if (room === 'parking' && variant === 1 && wing === 'R') {   // lower garage: leave the internal ramp's opening open
+        const hl = ART_PARK.holeL, hz = ART_PARK.holeZ;
+        Ps(artPln(W - hl, D - 0.3), '#BDB9B1', rx0 + (W - hl) / 2, CH - 0.003, -0.3 - (D - 0.3) / 2, Math.PI / 2, 0, 0, 1, 1, 1, conc);
+        Ps(artPln(hl, -hz - 0.3), '#BDB9B1', rx1 - hl / 2, CH - 0.003, (-0.3 + hz) / 2, Math.PI / 2, 0, 0, 1, 1, 1, conc);
+      } else Ps(artPln(W, D - 0.3), basement ? '#BDB9B1' : '#E9E5DC', wc, CH - 0.003, -0.3 - (D - 0.3) / 2, Math.PI / 2, 0, 0, 1, 1, 1, basement ? conc : clay);
       S.add(artPln(W, 0.5), artAoM(), artXf(wc, y + CH - 0.25, -D + 0.01), '#000000');
     } else artWing(id, i, wing, rx0, rx1, y, doorX, fg, owned, anims, S, PB);
     if (doorX != null) doors.push({ wing, d: artRoomDoor(i, doorX, y, S, fg, owned) });
   });
   if (!SB) S.flush(fg, owned, false, true);
-  if (hooks._bays) { const life = artParkingLife(hooks._bays, hooks._ramp, y, fg, owned, hooks._decor); anims.push(life.tick); Object.assign(hooks, life.api); delete hooks._bays; delete hooks._ramp; delete hooks._decor; }
+  if (hooks._bays || hooks._decor) { const life = artParkingLife(hooks._bays || [], hooks._ramp, y, fg, owned, hooks._decor); anims.push(life.tick); Object.assign(hooks, life.api); delete hooks._bays; delete hooks._ramp; delete hooks._decor; }
   if (id === 'subway') {                                     // lane spots to wait for a train, clear of the lift queue
     const qx = layout.queueX ? Math.min(...layout.queueX) - 0.5 : roomL[1] - 4.2;
     hooks.platformXs = [roomL[0] + 0.8, roomL[0] + 1.8, roomR[0] + 1.0, roomR[0] + 2.2, roomR[0] + 3.4, roomR[0] + 4.6].filter((px) => px < qx || px > roomR[0]);
@@ -1778,9 +1878,10 @@ function artParkingLife(bays, ramp, y, parent, owned, decor) {
     Q(R2_box(3.6, 0.03, 2.2), 'concrete', '#55595F', top + 2.2, 0.0, -5.95);           // driveway across the back pavement (z -4.9 .. -7)
     for (const m of RB.flush(parent)) owned.push(m.geometry);
   }
-  const kindOf = (seed) => { const r = artRng((seed | 0) * 131 + 17); return artPick(r, ['hatchback', 'mini', 'hatchback', 'sedan', 'suv', 'mini', 'hatchback']); };
+  const kindOf = (seed) => { const r = artRng((seed | 0) * 131 + 17); return artPick(r, ['hatchback', 'mini', 'estate', 'sedan', 'suv', 'minivan', 'coupe', 'hatchback', 'mini']); };
   const parkSc = (h) => Math.min(0.78, 2.7 / h.info.L);
   const mk = (seed) => { const h = VEH_build(kindOf(seed), seed | 0); h.group.rotation.order = 'YXZ'; parent.add(h.group);
+    h.group.traverse((o) => { if (o.isMesh) o.castShadow = false; });   // parked cars: contact shadow only (no sun shadow through the slabs)
     return { h, sc: parkSc(h), path: null, t: 0, wd: 0, lastS: 0, g: { x: 0, z: 0, L: 0 }, lv: -1, br: -1 }; };
   const place = (c, b) => { c.h.group.position.set(b.x, y, b.z); c.h.group.rotation.set(0, PI / 2, 0); c.h.group.scale.setScalar(c.sc); c.h.setLights(0); c.h.setBrake(0); };
   const drop = (c) => { if (!c) return; moving.delete(c); artGuests.delete(c.g); c.h.dispose(); };
@@ -2058,8 +2159,6 @@ function artThemeProps(id, k) {
     for (const du of [-0.58, 0.58]) P(artRB(0.16, 0.5, 0.62, 0.07), '#5A92E8', 3.35 + du, 0.4, -4.05);
     P(artCyl(0.28, 0.28, 0.06, 20), '#FFF3E0', 4.6, 2.2, -D + 0.04, Math.PI / 2); P(artTor(0.28, 0.035, 6, 20), accent, 4.6, 2.2, -D + 0.07);
     P(artBox(0.03, 0.18, 0.02), '#2B2B3A', 4.6, 2.27, -D + 0.09); P(artBox(0.13, 0.03, 0.02), '#2B2B3A', 4.66, 2.2, -D + 0.09);
-    for (const u of [2.95, 3.85]) { P(artCyl(0.035, 0.05, 0.8, 8), ART_BRASS, u, 0.4, -2.1, 0, 0, 0, 1, 1, 1, shiny); P(artSph(0.06, 8, 6), ART_BRASS, u, 0.82, -2.1, 0, 0, 0, 1, 1, 1, shiny); P(artCyl(0.14, 0.16, 0.04, 12), ART_BRASS, u, 0.02, -2.1, 0, 0, 0, 1, 1, 1, shiny); }
-    P(artCyl(0.03, 0.03, 0.9, 6), '#C0392B', 3.4, 0.66, -2.1, 0, 0, Math.PI / 2);
   } else if (id === 'cafe') {
     P(artRB(1.9, 1.0, 0.62, 0.08), '#8A5A3C', 5.15, 0.5, -3.85); P(artRB(2.0, 0.08, 0.72, 0.03), '#FFF3E0', 5.15, 1.04, -3.85);
     for (let s = 0; s < 6; s++) P(artBox(0.15, 0.7, 0.02), s % 2 ? '#FFFFFF' : accent, 4.4 + s * 0.3, 0.55, -3.535);
@@ -2298,7 +2397,7 @@ function buildCar(shaftIndex, capacity) {
       if (o > 0 && door === 0) dingT = artNow;
       door = o; const e = 1 - (1 - o) * (1 - o);
       doorL.position.x = -0.25 - 0.43 * e; doorR.position.x = 0.25 + 0.43 * e;
-      glowMat.opacity = 0.4 * e; doorway.visible = e > 0.01;
+      doorway.visible = false;                                  // (was a glow panel across the open doorway: looked like a curtain)
     },
     setLoad(u, c) { used = u; cap = Math.max(1, Math.min(ART.MAX_CAP, c)); paintSign(); paintFeet(); },
     flashFull() { flashT = artNow; },
@@ -2365,7 +2464,7 @@ function buildPerson(kind, seed, opts) {
   const faceMat = new THREE.MeshStandardMaterial({ map: artFaceTex(0, false), transparent: true, roughness: 0.6, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 });
   const mats = [bodyMat, headMat, faceMat];
   const owned = [];
-  const mk = (bb, parent, cast = true) => { const ms = bb.flush(parent, owned, cast, false); ms.forEach((m) => { m.castShadow = cast; }); return ms[0]; };
+  const mk = (bb, parent, cast = false) => { const ms = bb.flush(parent, owned, cast, false); ms.forEach((m) => { m.castShadow = cast; }); return ms[0]; };   // people: contact shadow only
   // legs (pivot at hip)
   const legs = [-1, 1].map((sd) => {
     const g = new THREE.Group(); g.position.set(sd * tor * 0.45, hip, 0); rig.add(g);
@@ -2520,7 +2619,7 @@ function buildPerson(kind, seed, opts) {
       const tr = a < 0.999;
       for (const m of [bodyMat, headMat]) { if (m.transparent !== tr) { m.transparent = tr; m.needsUpdate = true; } m.opacity = a; }
       faceMat.opacity = a; bubbleMat.opacity = a; group.visible = a > 0.01; blob.visible = a > 0.5;
-      for (const o of [torso, headMesh]) if (o) o.castShadow = a > 0.5;
+      for (const o of [torso, headMesh]) if (o) o.castShadow = false;   // indoors: a sun shadow would fall through the floors
     },
     dispose() {
       if (disposed) return; disposed = true; artLive.delete(live);
@@ -2739,6 +2838,7 @@ const R2_ATLAS = {
   menu: [0, 640, 256, 192], ad1: [256, 640, 192, 256], ad2: [448, 640, 192, 256], map: [640, 768, 384, 256],
   view: [0, 832, 256, 192], ticket: [256, 896, 128, 128], monitor: [384, 896, 128, 128], wayout: [512, 896, 128, 64],
   clock: [512, 960, 64, 64], art3: [576, 960, 64, 64], logo: [640, 704, 256, 64], hotelno: [896, 704, 128, 64],
+  wc: [640, 640, 128, 64],
 };
 function R2_atlasTex() {
   return R2_canvas('atlas', 1024, 1024, (g, W, H, r) => {
@@ -2799,6 +2899,12 @@ function R2_atlasTex() {
       g.lineWidth = 3; g.beginPath(); g.moveTo(x + 32, y + 32); g.lineTo(x + 32, y + 12); g.moveTo(x + 32, y + 32); g.lineTo(x + 46, y + 38); g.stroke(); }
     { const [x, y, w, h] = R.logo; g.fillStyle = '#2F6FE0'; g.fillRect(x, y, w, h); txt('BLUEDESK', x + w / 2, y + h / 2 + 2, 34, '#fff'); }
     { const [x, y, w, h] = R.hotelno; g.fillStyle = '#3a2f2a'; g.fillRect(x, y, w, h); txt('214  216', x + w / 2, y + h / 2 + 2, 22, '#e8d6a8'); }
+    { const [x, y, w, h] = R.wc; g.fillStyle = '#2459B8'; g.fillRect(x, y, w, h); g.fillStyle = '#fff'; g.fillRect(x + w / 2 - 1.5, y + 8, 3, h - 16);   // toilets: man | woman pictograms
+      for (const [cx, dress] of [[x + 32, false], [x + 96, true]]) { g.beginPath(); g.arc(cx, y + 13, 6.5, 0, 7); g.fill();
+        if (dress) { g.beginPath(); g.moveTo(cx - 5, y + 22); g.lineTo(cx + 5, y + 22); g.lineTo(cx + 11, y + 46); g.lineTo(cx - 11, y + 46); g.closePath(); g.fill(); }
+        else g.fillRect(cx - 7, y + 22, 14, 22);
+        g.fillRect(cx - 6, y + 44, 5, 15); g.fillRect(cx + 1, y + 44, 5, 15);
+        g.fillRect(cx - 11, y + 23, 3, 17); g.fillRect(cx + 8, y + 23, 3, 17); } }
   });
 }
 
@@ -2889,7 +2995,9 @@ function R2_placer(B, ctx) {
   };
   return P;
 }
-function R2_doorClear(ctx) { return ctx.doorX == null ? null : [ctx.doorX - ctx.x0 - 0.65, ctx.doorX - ctx.x0 + 0.65]; }
+// the 1.3 m strip kept clear from the lane to the back wall: at the door (doorX) or, now rooms have no back-wall doors,
+// at the wing's clear spot (spotX) where people fade in and out of the room
+function R2_doorClear(ctx) { const x = ctx.doorX ?? ctx.spotX; return x == null ? null : [x - ctx.x0 - 0.65, x - ctx.x0 + 0.65]; }
 // shift [u, u+w] out of the door corridor if needed (returns the new u, or null when nothing fits)
 function R2_fit(ctx, u, w, W) {
   const d = R2_doorClear(ctx); if (!d || u + w <= d[0] || u >= d[1]) return u;
@@ -2901,7 +3009,11 @@ function R2_fit(ctx, u, w, W) {
 /* ======== rooms2: shared room parts ======== */
 function R2_shell(P, ctx, o) {
   const W = ctx.x1 - ctx.x0, CH = ctx.floorH - (ctx.slab ?? 0.3), D = -ctx.backZ, bz = ctx.backZ;
-  P(R2_plnUp(W, D), o.floor, o.floorCol, W / 2, 0.004, bz / 2, 0, { rot90: o.floorRot });
+  if (o.hole) { const [h0, h1, hz] = o.hole;                  // leave the floor open over [h0, h1] x [backZ, hz] (internal car ramp)
+    P(R2_plnUp(W, -hz), o.floor, o.floorCol, W / 2, 0.004, hz / 2, 0, { rot90: o.floorRot });
+    if (h0 > 0.01) P(R2_plnUp(h0, D + hz), o.floor, o.floorCol, h0 / 2, 0.004, (bz + hz) / 2, 0, { rot90: o.floorRot });
+    if (W - h1 > 0.01) P(R2_plnUp(W - h1, D + hz), o.floor, o.floorCol, (h1 + W) / 2, 0.004, (bz + hz) / 2, 0, { rot90: o.floorRot });
+  } else P(R2_plnUp(W, D), o.floor, o.floorCol, W / 2, 0.004, bz / 2, 0, { rot90: o.floorRot });
   P(R2_pln(W, CH), o.wall, o.wallCol, W / 2, CH / 2, bz + 0.005);
   if (o.dado) { P(R2_box(W, o.dado, 0.02), o.dadoMat || 'wood', o.dadoCol, W / 2, o.dado / 2, bz + 0.015); P(R2_box(W, 0.04, 0.04), o.dadoMat || 'wood', o.dadoCol, W / 2, o.dado, bz + 0.03); }
   if (o.stripe) P(R2_box(W, 0.12, 0.012), 'plasticNC', o.stripe, W / 2, o.stripeY ?? 1.25, bz + 0.012);
@@ -2961,7 +3073,9 @@ function R2_suitcase(P, u, z, col, ry = 0, s = 1) {
 
 /* ======== rooms2: office ======== */
 function R2_office(P, ctx, wing) {
-  const { W, CH } = R2_shell(P, ctx, { floor: 'carpet', floorCol: '#7E858E', wall: 'paint', wallCol: '#E8E4DC', skirt: '#5C5F63', skirtMat: 'plasticNC', cornice: '#F1EEE8' });
+  // office2 (variant 1): its own palette and accent, the two wings' layouts swapped, desks packed by R2_deskUs
+  const v = ctx.variant || 0, lay = v ? (wing === 'L' ? 'R' : 'L') : wing, acc = v ? (ctx.accent || '#D63C9E') : '#2F6FE0';
+  const { W, CH } = R2_shell(P, ctx, { floor: 'carpet', floorCol: v ? '#6E7A70' : '#7E858E', wall: 'paint', wallCol: v ? '#E3E8E2' : '#E8E4DC', skirt: '#5C5F63', skirtMat: 'plasticNC', cornice: '#F1EEE8' });
   const bz = ctx.backZ, r = ctx.rng;
   R2_ceilingServices(P, ctx, W, CH, { lights: [W * 0.25, W * 0.5, W * 0.75], lightType: 'panel', duct: false });
   P(R2_box(W, 0.02, 4.5), 'paint', '#F3F1EC', W / 2, CH - 0.15, -2.25, 0, { cast: false }); // suspended ceiling with grid
@@ -2981,13 +3095,14 @@ function R2_office(P, ctx, wing) {
     for (let k = 0; k < 3; k++) L(R2_box(0.36, 0.01, 0.01), 'metal', '#C9CCD0', 0.45, 0.2 + k * 0.18, 0.26);
     const C = P.local(u + (r() - 0.5) * 0.2, 0, z + 0.62, Math.PI + (r() - 0.5) * 0.5); R2_chair(C, '#3B3F45');
   };
-  if (wing === 'L') {
+  if (lay === 'L') {
     const n = W > 6.2 ? 3 : 2, step = (W - 0.4) / n;
-    for (let k = 0; k < n; k++) { const u = R2_fit(ctx, 0.2 + step * k + (step - 1.5) / 2, 1.5, W); if (u != null) desk(u + 0.75, -3.65, k === 1 ? 2 : 1); }
+    if (v) R2_deskUs(ctx, W).forEach((u, k) => desk(u + 0.75, -3.65, k === 1 ? 2 : 1));
+    else for (let k = 0; k < n; k++) { const u = R2_fit(ctx, 0.2 + step * k + (step - 1.5) / 2, 1.5, W); if (u != null) desk(u + 0.75, -3.65, k === 1 ? 2 : 1); }
     // whiteboard + logo above it, printer, water cooler, plant, filing cabinet, clock
     const wbU = R2_fit(ctx, W * 0.5 - 0.7, 1.4, W);
-    P(R2_box(1.6, 0.012, 0.02), 'plasticNC', '#2F6FE0', W / 2, CH - 0.34, bz + 0.012);
-    P(R2_box(W, 0.012, 0.012), 'plasticNC', '#2F6FE0', W / 2, 0.11, bz + 0.03);
+    P(R2_box(1.6, 0.012, 0.02), 'plasticNC', acc, W / 2, CH - 0.34, bz + 0.012);
+    P(R2_box(W, 0.012, 0.012), 'plasticNC', acc, W / 2, 0.11, bz + 0.03);
     if (wbU != null) { P(R2_box(1.44, 0.94, 0.03), 'metalNC', '#C9CCD0', wbU + 0.7, 1.75, bz + 0.02); P(R2_pln(1.38, 0.88), 'sign', '#ffffff', wbU + 0.7, 1.75, bz + 0.037, 0, { rect: R2_ATLAS.whiteboard }); P(R2_box(1.2, 0.03, 0.07), 'metalNC', '#B9BDC2', wbU + 0.7, 1.27, bz + 0.05);
       for (const [c, dx] of [['#2F6FE0', 0], ['#D23A2E', 0.12], ['#222', 0.24]]) P(R2_cylX(0.01, 0.12, 6), 'plastic', c, wbU + 0.4 + dx, 1.3, bz + 0.06); }
     P(R2_pln(1.2, 0.3), 'sign', '#ffffff', W / 2, 2.38, bz + 0.012, 0, { rect: R2_ATLAS.logo });
@@ -3028,7 +3143,7 @@ function R2_office(P, ctx, wing) {
     P(R2_box(tw - 0.2, 0.05, 0.12), 'metalNC', '#2E3134', cu, CH - 0.55, tz); P(R2_box(tw - 0.3, 0.01, 0.08), 'glow', '#FFF4E0', cu, CH - 0.58, tz);
     for (const s of [-1, 1]) P(R2_cyl(0.004, 0.004, 0.5, 4), 'metalNC', '#333', cu + s * (tw / 2 - 0.3), CH - 0.28, tz);
     R2_plant(P, m0 + mw - 0.35, 0, bz + 0.4, 1.2, '#E6E2DA', 1);
-    P(R2_box(0.6, 0.012, 0.012), 'plasticNC', '#2F6FE0', cu, 2.3, bz + 0.012); P(R2_pln(0.9, 0.22), 'sign', '#ffffff', cu, 2.42, bz + 0.012, 0, { rect: R2_ATLAS.logo });
+    P(R2_box(0.6, 0.012, 0.012), 'plasticNC', acc, cu, 2.3, bz + 0.012); P(R2_pln(0.9, 0.22), 'sign', '#ffffff', cu, 2.42, bz + 0.012, 0, { rect: R2_ATLAS.logo });
     // outside the meeting room: low sofa + coffee point (only if space)
     const oa = m0 > 1.8 ? [0.15, m0 - 0.15] : (W - (m0 + mw) > 1.8 ? [m0 + mw + 0.15, W - 0.15] : null);
     if (oa && R2_fit(ctx, oa[0], oa[1] - oa[0], W) === oa[0]) {
@@ -3066,8 +3181,9 @@ function R2_wardrobe(P, u, ctx, w = 1.0) {
   P(R2_box(w + 0.04, 0.05, 0.62), 'wood', '#5A4434', u, 2.12, bz + 0.31);
 }
 function R2_hotel(P, ctx, wing) {
-  const acc = '#9A55E6', bz = ctx.backZ, r = ctx.rng;
-  const { W, CH } = R2_shell(P, ctx, { floor: 'hcarpet', floorCol: '#8A7E8C', wall: 'paint', wallCol: '#DCD3C6', dado: 0.9, dadoMat: 'paint', dadoCol: '#C9BDAE', skirt: '#5A4434', cornice: '#EEE8DE' });
+  const v = ctx.variant || 0, acc = v ? (ctx.accent || '#7B4A2A') : '#9A55E6', bz = ctx.backZ, r = ctx.rng;   // hotel2: blue-grey palette
+  const { W, CH } = R2_shell(P, ctx, { floor: 'hcarpet', floorCol: v ? '#5E7A8A' : '#8A7E8C', wall: 'paint', wallCol: v ? '#D6DEE0' : '#DCD3C6', dado: 0.9, dadoMat: 'paint',
+    dadoCol: v ? '#B9C6CA' : '#C9BDAE', skirt: '#5A4434', cornice: '#EEE8DE' });
   R2_ceilingServices(P, ctx, W, CH, { lights: [W * 0.3, W * 0.72], duct: false });
   const d = R2_doorClear(ctx);
   const room = (a, b, k) => {                                // one bedroom between u = a and b
@@ -3083,7 +3199,7 @@ function R2_hotel(P, ctx, wing) {
   if (wing === 'L') {
     let s = W / 2; if (d && s > d[0] - 0.1 && s < d[1] + 0.1) s = d[0] - 0.1 > W - d[1] ? d[0] - 0.1 : d[1] + 0.1;
     part(s); room(0.1, s - 0.1, 0); room(s + 0.1, W - 0.1, 1);
-    R2_window(P, ctx, s < W / 2 ? 0.25 + 0.4 : W - 0.65, 0.7, 1.2, 0.95, { curtains: '#7A6A8E', radiator: false, frame: '#E8E6E0' });
+    R2_window(P, ctx, s < W / 2 ? 0.25 + 0.4 : W - 0.65, 0.7, 1.2, 0.95, { curtains: v ? '#3E5E7E' : '#7A6A8E', radiator: false, frame: '#E8E6E0' });
   } else {
     // bedroom on the inner side, corridor with room doors, housekeeping cart and luggage trolley outside
     const rw = Math.min(3.4, W * 0.5); part(rw); room(0.1, rw - 0.1, 2);
@@ -3467,6 +3583,311 @@ function R2_tunnelAndTrain(group, ctx, B) {
   return { handle, trainTris: TB.tris + DL.tris + DR.tris };
 }
 
+/* ======== rooms2: homes, toilets, bike room / laundry, playground ======== */
+// free stretches along a wing's back wall outside the door corridor, as [u0, u1] pairs, longest first
+function R2_segs(ctx, W, a = 0.1, b = W - 0.1) {
+  const d = R2_doorClear(ctx);
+  const out = (d ? [[a, Math.min(b, d[0] - 0.05)], [Math.max(a, d[1] + 0.05), b]] : [[a, b]]).filter(([s, e]) => e - s > 0.4);
+  return out.sort((p, q) => (q[1] - q[0]) - (p[1] - p[0]));
+}
+const R2_ring = (r, t, s = 18) => R2_GEO['rg' + [r, t, s]] || (R2_GEO['rg' + [r, t, s]] = new THREE.TorusGeometry(r, t, 6, s));   // upright ring facing +z
+function R2_wedge(len, rise, depth) {          // right triangle (0,0)-(len,0)-(len,rise) in x-y, extruded `depth` along +z
+  const k = 'wd' + [len, rise, depth]; if (R2_GEO[k]) return R2_GEO[k];
+  const sh = new THREE.Shape(); sh.moveTo(0, 0); sh.lineTo(len, 0); sh.lineTo(len, rise); sh.closePath();
+  return (R2_GEO[k] = new THREE.ExtrudeGeometry(sh, { depth, bevelEnabled: false }));
+}
+// office2: left edges of 1.5 m desks packed into the free stretches of wall (at most 3)
+function R2_deskUs(ctx, W) {
+  const out = [];
+  for (const [s, e] of R2_segs(ctx, W, 0.2, W - 0.2).sort((p, q) => p[0] - q[0])) {
+    const k = Math.floor((e - s + 0.2) / 1.7);
+    for (let j = 0; j < k && out.length < 3; j++) out.push(s + (e - s - (k * 1.7 - 0.2)) / 2 + j * 1.7);
+  }
+  return out;
+}
+
+/* homes: the left wing is a living room; the right wing a kitchen-diner (home, home3) or a kids' bedroom (home2).
+   Variant v (0..2) picks the palette, mirrors the furniture (v2) and the occupants; home3 has a cat. */
+const R2_HOME_PAL = [
+  { wall: '#E6DCCB', floor: '#B98A5E', sofa: '#5B7A99', rug: '#B5655A', cur: '#C9A46A', units: '#F2EEE6', top: '#6B4A33', wood: '#5A4434', kid: '#CFE3EE', art: 'art2' },
+  { wall: '#D5E2E6', floor: '#C9A27A', sofa: '#8C5A4A', rug: '#3E5E7E', cur: '#6F8A5E', units: '#7A9A8A', top: '#E8E4DA', wood: '#E8E2D6', kid: '#F4E1EA', art: 'art3' },
+  { wall: '#EFE3CF', floor: '#8A6142', sofa: '#6F8A5E', rug: '#C9A46A', cur: '#B5655A', units: '#3E4B5E', top: '#C9B08A', wood: '#7A5638', kid: '#E6EED6', art: 'art1' },
+];
+// furniture positions (u from the wing's left end), shared by R2_home and the occupants in artR2Occupants
+function R2_homePlan(ctx, wing) {
+  const W = ctx.x1 - ctx.x0, v = (ctx.variant || 0) % 3, segs = R2_segs(ctx, W);
+  const big = segs[0] || [0.1, W - 0.1], small = segs[1] || null, flip = v === 2, sgn = flip ? -1 : 1;
+  const room = wing === 'L' ? 'living' : v === 1 ? 'kids' : 'kitchen';
+  const inSeg = (sg, f) => (flip ? sg[1] - f : sg[0] + f);           // f metres in from the stretch's start (mirrored in v2)
+  const H = { W, v, big, small, flip, sgn, room };
+  if (room === 'living') {
+    const Lb = big[1] - big[0], sw = Math.min(1.9, Math.max(1.3, Lb - 1.7));
+    H.sofa = { u: inSeg(big, 0.1 + sw / 2), z: -3.95, ry: 0.12 * sgn, w: sw };
+    H.table = { u: H.sofa.u, z: -2.85 };
+    H.tv = { u: inSeg(big, Lb - 0.62), z: -4.05, ry: -0.35 * sgn };
+    H.arm = { u: inSeg(big, Lb - 0.55), z: -2.3, ry: -sgn * (Math.PI / 2 - 0.5) };
+    H.lamp = inSeg(big, Math.min(Lb - 1.3, 0.1 + sw + 0.2));
+    H.cat = inSeg(big, 0.1 + sw / 2 + 0.75);
+    if (small) { const Ls = small[1] - small[0], bw = Math.max(0.5, Math.min(1.0, Ls - 0.45)); H.shelf = { u: inSeg(small, 0.05 + bw / 2), w: bw }; H.plant = inSeg(small, Ls - 0.22); }
+  } else if (room === 'kitchen') {
+    let ks = small && small[1] - small[0] >= 2.0 ? small : big, ds = ks === big ? small : big;
+    if (flip && small && small[1] - small[0] >= 2.2) { ks = big; ds = small; }
+    const Lk = ks[1] - ks[0], uw = Math.max(1.0, Math.min(2.4, Lk - 0.85));
+    H.kit = { uw, uc: inSeg(ks, 0.05 + uw / 2), hob: inSeg(ks, 0.5), sink: inSeg(ks, 0.05 + uw - 0.4), fridge: inSeg(ks, Lk - 0.4),
+      dc: ds && ds[1] - ds[0] >= 2.2 ? (ds[0] + ds[1]) / 2 : null };
+  } else {
+    H.bunk = big[0] + 0.15 + 1.0; H.toy = big[0] + 2.55 <= big[1] - 0.3 ? big[0] + 2.55 : null; H.rugU = big[0] + 1.3;
+    H.desk = small ? (small[0] + small[1]) / 2 : null;
+  }
+  return H;
+}
+function R2_home(P, ctx, wing) {
+  const H = R2_homePlan(ctx, wing), pal = R2_HOME_PAL[H.v], bz = ctx.backZ, r = ctx.rng, acc = ctx.accent || '#14A88E', PI = Math.PI;
+  const kitchen = H.room === 'kitchen', kids = H.room === 'kids';
+  const { CH } = R2_shell(P, ctx, { floor: kitchen ? 'floortile' : 'planks', floorCol: kitchen ? '#D8D2C6' : pal.floor, wall: 'paint', wallCol: kids ? pal.kid : pal.wall,
+    dado: H.v === 1 && !kids ? 0.9 : 0, dadoMat: 'paint', dadoCol: '#C9D6DA', skirt: '#F2EEE6', cornice: '#F4F0E8', stripe: kids ? acc : null, stripeY: 1.0 });
+  const pend = (u, z, y0, col) => { P(R2_cyl(0.005, 0.005, CH - y0, 4), 'metalNC', '#333', u, (CH + y0) / 2, z);
+    P(R2_cyl(0.07, 0.24, 0.2, 14), 'plastic', col, u, y0, z); P(R2_cyl(0.07, 0.22, 0.02, 14), 'glow', '#FFE2A8', u, y0 - 0.09, z); };
+  P(R2_cyl(0.07, 0.07, 0.04, 12), 'plasticNC', '#F2F2EE', H.W * 0.5 + 0.3, CH - 0.02, -1.7);           // smoke alarm
+  if (H.room === 'living') {
+    // sofa on a rug, coffee table, TV on a low unit turned towards the sofa, armchair, floor lamp, bookshelf, plant
+    const s = H.sofa, sw = s.w, L = P.local(s.u, 0, s.z, s.ry);
+    P(R2_plnUp(sw + 0.9, 1.7), 'carpet', pal.rug, s.u, 0.009, -3.25);
+    L(R2_box(sw, 0.3, 0.86), 'fabric', pal.sofa, 0, 0.2, 0); L(R2_box(sw - 0.34, 0.14, 0.64), 'fabric', pal.sofa, 0, 0.42, 0.08);
+    L(R2_box(sw, 0.48, 0.2), 'fabric', pal.sofa, 0, 0.6, -0.33);
+    for (const sx of [-1, 1]) { L(R2_box(0.17, 0.55, 0.86), 'fabric', pal.sofa, sx * (sw / 2 - 0.085), 0.33, 0);
+      L(R2_box(0.36, 0.32, 0.1), 'fabric', sx < 0 ? pal.cur : pal.rug, sx * (sw / 2 - 0.42), 0.66, -0.2, sx * 0.15, { rx: -0.2 });
+      L(R2_box(0.05, 0.06, 0.05), 'wood', '#3A2A1E', sx * (sw / 2 - 0.08), 0.03, 0.35); }
+    const T = P.local(H.table.u, 0, H.table.z, 0);
+    T(R2_box(0.9, 0.04, 0.5), 'wood', '#8A6142', 0, 0.4, 0); T(R2_box(0.84, 0.02, 0.44), 'wood', '#6B4A33', 0, 0.12, 0);
+    for (const [x, z] of [[-0.41, -0.21], [0.41, -0.21], [-0.41, 0.21], [0.41, 0.21]]) T(R2_box(0.04, 0.4, 0.04), 'wood', '#6B4A33', x, 0.2, z);
+    T(R2_cyl(0.04, 0.035, 0.09, 10), 'plastic', acc, 0.28, 0.465, 0.06); T(R2_box(0.22, 0.03, 0.16), 'plastic', '#C84A3A', -0.22, 0.435, 0.04, 0.3);
+    T(R2_cyl(0.12, 0.08, 0.06, 12), 'plastic', '#E8E2D6', 0.02, 0.45, -0.1);
+    for (let k = 0; k < 3; k++) T(R2_sph(0.035, 8, 6), 'plastic', ['#D23A2E', '#F2C230', '#7AAE4E'][k], -0.01 + k * 0.03, 0.49, -0.1 + (k - 1) * 0.02);
+    const V = P.local(H.tv.u, 0, H.tv.z, H.tv.ry);
+    V(R2_box(1.1, 0.46, 0.42), 'wood', pal.wood, 0, 0.27, 0); V(R2_box(1.06, 0.004, 0.01), 'plasticNC', '#2E2520', 0, 0.27, 0.212);
+    for (const x of [-0.5, 0.5]) V(R2_box(0.04, 0.04, 0.38), 'metal', '#2E3134', x, 0.02, 0);
+    V(R2_box(0.3, 0.03, 0.2), 'metal', '#2E3134', 0, 0.515, -0.05); V(R2_box(0.05, 0.12, 0.04), 'metal', '#2E3134', 0, 0.58, -0.08);
+    V(R2_box(1.0, 0.6, 0.04), 'plastic', '#15181C', 0, 0.94, -0.08); V(R2_pln(0.94, 0.54), 'sign', '#ffffff', 0, 0.94, -0.058, 0, { rect: R2_ATLAS.art1 });
+    V(R2_box(0.14, 0.1, 0.1), 'plastic', '#2A2D31', 0.38, 0.55, 0.06);
+    const A = P.local(H.arm.u, 0, H.arm.z, H.arm.ry);
+    A(R2_box(0.78, 0.3, 0.76), 'fabric', pal.cur, 0, 0.2, 0); A(R2_box(0.5, 0.13, 0.56), 'fabric', pal.cur, 0, 0.42, 0.06);
+    A(R2_box(0.78, 0.46, 0.18), 'fabric', pal.cur, 0, 0.6, -0.29); for (const sx of [-1, 1]) A(R2_box(0.14, 0.5, 0.76), 'fabric', pal.cur, sx * 0.32, 0.31, 0);
+    P(R2_cyl(0.15, 0.15, 0.03, 12), 'metal', '#2E3134', H.lamp, 0.015, -4.2); P(R2_cyl(0.015, 0.015, 1.45, 6), 'metal', '#2E3134', H.lamp, 0.74, -4.2);
+    P(R2_cyl(0.13, 0.2, 0.28, 14), 'fabric', '#F1E6D0', H.lamp, 1.55, -4.2); P(R2_cyl(0.11, 0.18, 0.26, 12), 'glow', '#FFE2A8', H.lamp, 1.55, -4.2);
+    R2_frame(P, ctx, s.u, 1.75, 0.9, 0.56, R2_ATLAS[pal.art], '#3A2F28');
+    R2_window(P, ctx, H.tv.u, 1.0, 0.9, 1.4, { curtains: pal.cur, radiator: false, frame: '#E8E6E0' });
+    pend(s.u, -3.1, 2.15, pal.cur);
+    if (H.shelf) { const u = H.shelf.u, w = H.shelf.w;
+      for (const sx of [-1, 1]) P(R2_box(0.03, 1.8, 0.32), 'wood', pal.wood, u + sx * (w / 2 - 0.015), 0.9, bz + 0.17);
+      for (let k = 0; k < 5; k++) P(R2_box(w, 0.03, 0.32), 'wood', pal.wood, u, 0.04 + k * 0.43, bz + 0.17);
+      P(R2_box(w, 1.8, 0.01), 'wood', pal.wood, u, 0.9, bz + 0.012);
+      for (let k = 0; k < 4; k++) { let x = u - w / 2 + 0.06;
+        while (x < u + w / 2 - 0.12) { const bw = 0.04 + r() * 0.04, bh = 0.24 + r() * 0.12;
+          if (r() < 0.85) P(R2_box(bw, bh, 0.22), 'plastic', artPick(r, ART_TOYS), x + bw / 2, 0.055 + k * 0.43 + bh / 2, bz + 0.17); x += bw + 0.008; } }
+      R2_plant(P, H.plant, 0, -1.75, 1.0, '#D8D4CC', 1); }
+    R2_socket(P, ctx, H.tv.u + 0.7 * H.sgn);
+    if (H.v === 2) {                                         // the family cat, curled on the rug
+      const C = P.local(H.cat, 0, -2.25, -0.6), fur = '#E08A3C';
+      C(R2_sph(0.11, 10, 8), 'fabric', fur, 0, 0.12, 0, 0, { sx: 1.7, sy: 0.85 }); C(R2_sph(0.085, 10, 8), 'fabric', fur, 0.2, 0.22, 0);
+      for (const sz of [-1, 1]) { C(R2_cyl(0.0001, 0.035, 0.07, 4), 'fabric', fur, 0.2, 0.31, sz * 0.045); C(R2_sph(0.013, 6, 4), 'plastic', '#1D1D1D', 0.28, 0.24, sz * 0.032); }
+      C(R2_cyl(0.016, 0.022, 0.3, 6), 'fabric', fur, -0.25, 0.18, 0.04, 0, { rz: 1.0 });
+    }
+  } else if (kitchen) {
+    // units along the back wall (hob, sink, wall cupboards, tiled splashback), a fridge at the end; dining table with chairs
+    const K = H.kit, uw = K.uw, nd = Math.max(1, Math.round(uw / 0.6)), dw = uw / nd;
+    P(R2_box(uw, 0.82, 0.6), 'wood', pal.units, K.uc, 0.45, bz + 0.31); P(R2_box(uw, 0.08, 0.56), 'plasticNC', '#2A2D31', K.uc, 0.04, bz + 0.3);
+    P(R2_box(uw + 0.03, 0.04, 0.64), 'wood', pal.top, K.uc, 0.88, bz + 0.32);
+    P(R2_box(uw, 0.6, 0.012), 'tile', '#F2F0EA', K.uc, 1.21, bz + 0.008);
+    for (let k = 0; k < nd; k++) { const x = K.uc - uw / 2 + (k + 0.5) * dw;
+      if (k) P(R2_box(0.006, 0.74, 0.005), 'plasticNC', '#3A3D42', x - dw / 2, 0.47, bz + 0.613);
+      P(R2_box(0.16, 0.02, 0.025), 'metal', '#C9CCD0', x, 0.76, bz + 0.63);
+      P(R2_box(dw - 0.03, 0.55, 0.33), 'wood', pal.units, x, 1.88, bz + 0.17);
+      P(R2_box(0.02, 0.14, 0.025), 'metal', '#C9CCD0', x + (k % 2 ? -1 : 1) * (dw / 2 - 0.06), 1.72, bz + 0.35); }
+    P(R2_box(uw - 0.1, 0.012, 0.04), 'glow', '#FFF4E0', K.uc, 1.595, bz + 0.3);
+    P(R2_box(0.58, 0.012, 0.5), 'plastic', '#1E1F21', K.hob, 0.906, bz + 0.33);
+    for (const [dx, dz] of [[-0.14, -0.12], [0.14, -0.12], [-0.14, 0.12], [0.14, 0.12]]) P(R2_torus(0.07), 'plastic', '#55595F', K.hob + dx, 0.915, bz + 0.33 + dz);
+    P(R2_cyl(0.13, 0.12, 0.09, 14), 'metal', '#3A3D42', K.hob - 0.14, 0.96, bz + 0.45); P(R2_box(0.22, 0.02, 0.03), 'plastic', '#2A2A2A', K.hob - 0.14 - 0.22, 0.99, bz + 0.5, 0.4);
+    P(R2_box(0.6, 0.1, 0.45), 'metal', '#B9BEC3', K.hob, 1.55, bz + 0.24);                                // hood under the cupboard
+    P(R2_box(0.48, 0.015, 0.38), 'metal', '#B9BEC3', K.sink, 0.905, bz + 0.33);
+    P(R2_cyl(0.015, 0.015, 0.25, 8), 'metal', '#C9CCD0', K.sink, 1.02, bz + 0.12); P(R2_cylZ(0.012, 0.16, 8), 'metal', '#C9CCD0', K.sink, 1.14, bz + 0.2);
+    P(R2_box(0.68, 1.95, 0.64), 'plastic', '#ECEBE6', K.fridge, 0.975, bz + 0.33); P(R2_box(0.66, 0.006, 0.005), 'plasticNC', '#9AA0A6', K.fridge, 1.3, bz + 0.653);
+    for (const y of [0.9, 1.6]) P(R2_box(0.03, 0.3, 0.04), 'metal', '#C9CCD0', K.fridge + 0.28, y, bz + 0.67);
+    P(R2_pln(0.24, 0.18), 'sign', '#ffffff', K.fridge - 0.05, 1.6, bz + 0.656, 0, { rect: R2_ATLAS.art3 });       // a child's drawing
+    for (let k = 0; k < 3; k++) P(R2_box(0.04, 0.04, 0.015), 'plastic', ART_TOYS[(k * 3 + H.v) % 8], K.fridge - 0.2 + k * 0.12, 1.05 + (k % 2) * 0.1, bz + 0.658);
+    P(R2_pln(0.28, 0.28), 'sign', '#ffffff', K.uc, 2.4, bz + 0.012, 0, { rect: R2_ATLAS.clock });
+    if (K.dc != null) { const c = K.dc, tz = -3.0, tw = '#B98A5E';
+      P(R2_box(1.2, 0.04, 0.8), 'wood', tw, c, 0.74, tz);
+      for (const [x, z] of [[-0.54, -0.34], [0.54, -0.34], [-0.54, 0.34], [0.54, 0.34]]) P(R2_box(0.05, 0.72, 0.05), 'wood', tw, c + x, 0.36, tz + z);
+      R2_chair(P.local(c - 0.85, 0, tz, PI / 2), '#8A6142', true, true); R2_chair(P.local(c + 0.85, 0, tz, -PI / 2), '#8A6142', true, true);
+      R2_chair(P.local(c, 0, tz - 0.62, 0), '#8A6142', true, true);
+      for (const dx of [-0.35, 0.35]) P(R2_cyl(0.11, 0.09, 0.015, 14), 'plastic', '#FBFBF8', c + dx, 0.765, tz);
+      P(R2_cyl(0.13, 0.09, 0.07, 12), 'plastic', acc, c, 0.79, tz - 0.12);
+      for (let k = 0; k < 4; k++) P(R2_sph(0.045, 8, 6), 'plastic', ['#D23A2E', '#F2C230', '#7AAE4E', '#F2A541'][k], c - 0.06 + (k % 2) * 0.1, 0.84 + (k > 1 ? 0.04 : 0), tz - 0.12 + (k - 1.5) * 0.02);
+      P(R2_cyl(0.05, 0.06, 0.2, 10), 'glass', '#D8E8EC', c + 0.12, 0.86, tz + 0.18);
+      pend(c, tz, 1.85, acc);
+      R2_window(P, ctx, c, 1.0, 1.0, 1.0, { curtains: pal.cur, frame: '#E8E6E0' });
+    }
+  } else {
+    // kids' bedroom: bunk bed, toy box, rug with toys, small desk with a lamp, a poster, a star lamp
+    const L = P.local(H.bunk, 0, bz + 0.52, 0), wf = '#F2EEE6';
+    for (const [x, z] of [[-1.0, -0.43], [1.0, -0.43], [-1.0, 0.43], [1.0, 0.43]]) L(R2_box(0.07, 1.85, 0.07), 'wood', wf, x, 0.925, z);
+    for (const y of [0.3, 1.35]) { L(R2_box(2.0, 0.12, 0.92), 'wood', wf, 0, y, 0); L(R2_box(1.9, 0.12, 0.86), 'fabric', '#FBFAF6', 0, y + 0.12, 0); }
+    L(R2_box(1.4, 0.08, 0.88), 'fabric', acc, 0.22, 0.52, 0); L(R2_box(1.4, 0.08, 0.88), 'fabric', '#F2C230', 0.22, 1.57, 0);
+    for (const y of [0.54, 1.59]) L(R2_box(0.36, 0.1, 0.5), 'fabric', '#FBFAF6', -0.72, y, 0);
+    L(R2_box(1.3, 0.07, 0.04), 'wood', wf, -0.2, 1.72, 0.45);
+    for (const x of [0.74, 0.96]) L(R2_box(0.04, 1.75, 0.04), 'wood', wf, x, 0.875, 0.5);
+    for (let k = 0; k < 5; k++) L(R2_box(0.24, 0.03, 0.035), 'wood', wf, 0.85, 0.3 + k * 0.3, 0.5);
+    L(R2_sph(0.1, 10, 8), 'fabric', '#9B6E47', -0.35, 1.6, 0.1, 0, { sy: 1.1 }); L(R2_sph(0.075, 10, 8), 'fabric', '#9B6E47', -0.35, 1.78, 0.12);   // teddy
+    R2_frame(P, ctx, H.bunk, 2.25, 0.6, 0.34, R2_ATLAS.art2, acc);
+    if (H.toy != null) { P(R2_box(0.6, 0.42, 0.42), 'wood', acc, H.toy, 0.21, -3.95); P(R2_box(0.6, 0.03, 0.42), 'wood', acc, H.toy, 0.55, -4.18, 0, { rx: 1.2 });
+      for (let k = 0; k < 4; k++) P(k % 2 ? R2_box(0.12, 0.12, 0.12) : R2_sph(0.08, 8, 6), 'plastic', ART_TOYS[(k * 2 + 1) % 8], H.toy - 0.18 + k * 0.12, 0.46, -3.95 + (k % 2) * 0.06); }
+    P(R2_plnUp(2.0, 1.0), 'carpet', pal.rug, H.rugU, 0.009, -2.35);
+    for (let k = 0; k < 4; k++) P(R2_box(0.12, 0.12, 0.12), 'plastic', ART_TOYS[(k + 2) % 8], H.rugU - 0.6 + (k % 2) * 0.13, 0.06 + (k > 1 ? 0.12 : 0), -2.2 + (k > 1 ? 0 : 0.02), k * 0.3);
+    P(R2_sph(0.11, 12, 8), 'plastic', '#E8635A', H.rugU + 0.55, 0.11, -2.15);
+    { const C = P.local(H.rugU + 0.1, 0, -2.55, 0.4); C(R2_box(0.3, 0.1, 0.14), 'plastic', '#5B8FD6', 0, 0.08, 0); C(R2_box(0.14, 0.08, 0.12), 'plastic', '#5B8FD6', -0.02, 0.17, 0);
+      for (const [x, z] of [[-0.1, -0.07], [0.1, -0.07], [-0.1, 0.07], [0.1, 0.07]]) C(R2_cylZ(0.035, 0.02, 8), 'plastic', '#222', x, 0.035, z); }
+    if (H.desk != null) { const c = H.desk;
+      P(R2_box(1.0, 0.035, 0.5), 'wood', wf, c, 0.62, bz + 0.3); for (const sx of [-1, 1]) P(R2_box(0.035, 0.6, 0.46), 'wood', wf, c + sx * 0.48, 0.3, bz + 0.3);
+      R2_chair(P.local(c, 0, -3.62, PI), acc, true, true);
+      P(R2_cyl(0.07, 0.08, 0.02, 10), 'plastic', '#2E3134', c + 0.35, 0.65, bz + 0.15); P(R2_cyl(0.01, 0.01, 0.32, 6), 'metal', '#C9CCD0', c + 0.35, 0.8, bz + 0.15);
+      P(R2_cyl(0.04, 0.09, 0.1, 10), 'plastic', '#F2C230', c + 0.3, 0.95, bz + 0.2, 0, { rz: 0.5 });
+      P(R2_box(0.3, 0.005, 0.22), 'plasticNC', '#FBFBF8', c - 0.1, 0.64, bz + 0.35, 0.1);
+      for (let k = 0; k < 4; k++) P(R2_cylX(0.006, 0.1, 6), 'plastic', ART_TOYS[k * 2], c - 0.35, 0.645, bz + 0.3 + k * 0.03);
+      R2_window(P, ctx, c, 0.9, 0.8, 1.45, { curtains: acc, radiator: false, frame: '#E8E6E0' }); }
+    P(R2_cyl(0.005, 0.005, 0.3, 4), 'metalNC', '#333', H.rugU, CH - 0.15, -2.8); P(R2_sph(0.14, 10, 8), 'glow', '#FFE9A8', H.rugU, CH - 0.38, -2.8);
+    R2_socket(P, ctx, H.rugU + 1.2);
+  }
+  return {};
+}
+
+/* public toilets: a row of cubicles (some doors ajar), basins with mirrors, a hand dryer, tiles, a pictogram sign;
+   a cleaner's mop cart and a wet-floor sign (the cleaner is an occupant) */
+function R2_toilets(P, ctx, wing) {
+  const bz = ctx.backZ, panel = '#7FB2D0', acc = '#5FB8A6';
+  const { W, CH } = R2_shell(P, ctx, { floor: 'floortile', floorCol: '#C8D0D2', wall: 'tile', wallCol: '#F4F2EC', skirt: '#8A9AA0', skirtMat: 'plasticNC', cornice: '#EEEEEA', stripe: panel, stripeY: 2.05 });
+  R2_ceilingServices(P, ctx, W, CH, { lights: [W * 0.25, W * 0.75], lightType: 'panel', duct: false });
+  const segs = R2_segs(ctx, W), cub = segs[0] || [0.1, W - 0.1], bas = segs[1] || null;
+  const cw = 0.85, n = Math.max(1, Math.min(4, Math.floor((cub[1] - cub[0]) / cw))), c0 = cub[0] + (cub[1] - cub[0] - n * cw) / 2, fz = bz + 1.45;
+  for (let k = 0; k <= n; k++) P(R2_box(0.035, 1.8, 1.45), 'plastic', panel, c0 + k * cw, 1.05, (bz + fz) / 2);
+  P(R2_box(n * cw + 0.04, 0.05, 0.05), 'metal', '#B7BCC1', c0 + n * cw / 2, 1.97, fz);
+  for (let k = 0; k < n; k++) {
+    const cx = c0 + (k + 0.5) * cw, open = k % 2 === 0 ? 0.95 : 0, dw = cw - 0.14;
+    for (const sx of [-1, 1]) P(R2_box(0.07, 1.8, 0.035), 'plastic', panel, cx + sx * (cw / 2 - 0.035), 1.05, fz);
+    const Dr = P.local(cx - dw / 2, 0, fz, open);                  // door hinged on its left, ajar ones swing inwards
+    Dr(R2_box(dw, 1.72, 0.03), 'plastic', panel, dw / 2, 1.04, 0); Dr(R2_box(0.04, 0.12, 0.03), 'metal', '#C9CCD0', dw - 0.06, 1.0, 0.03);
+    if (!open) P(R2_cyl(0.025, 0.025, 0.01, 10), 'glow', k % 4 === 1 ? '#FF5040' : '#5CFF8A', cx + dw / 2 - 0.1, 1.2, fz + 0.03, 0, { rx: Math.PI / 2 });
+    P(R2_cyl(0.17, 0.14, 0.38, 14), 'plastic', '#FBFBF8', cx, 0.19, bz + 0.5); P(R2_cyl(0.18, 0.18, 0.03, 14), 'plastic', '#F4F2EC', cx, 0.4, bz + 0.5);
+    P(R2_box(0.38, 0.42, 0.16), 'plastic', '#FBFBF8', cx, 0.62, bz + 0.1); P(R2_cyl(0.03, 0.03, 0.01, 8), 'metal', '#C9CCD0', cx, 0.835, bz + 0.1);
+    P(R2_cylX(0.05, 0.1, 10), 'plastic', '#FBFBF8', cx + cw / 2 - 0.1, 0.7, bz + 0.75);
+  }
+  P(R2_pln(0.64, 0.32), 'sign', '#ffffff', c0 + n * cw / 2, 2.32, bz + 0.012, 0, { rect: R2_ATLAS.wc });
+  if (bas) {
+    const Ls = bas[1] - bas[0], nb = Math.max(1, Math.min(3, Math.floor((Ls - 0.45) / 0.65))), vw = nb * 0.65, vc = bas[0] + 0.1 + vw / 2;
+    P(R2_box(vw, 0.1, 0.5), 'plastic', '#DCD6CA', vc, 0.82, bz + 0.27); P(R2_box(vw, 0.7, 0.04), 'plasticNC', '#B9B2A6', vc, 0.42, bz + 0.48);
+    for (let k = 0; k < nb; k++) { const x = vc - vw / 2 + (k + 0.5) * 0.65;
+      P(R2_cyl(0.2, 0.15, 0.08, 14), 'plastic', '#FBFBF8', x, 0.88, bz + 0.28, 0, { sz: 0.75 });
+      P(R2_cyl(0.015, 0.015, 0.2, 8), 'metal', '#C9CCD0', x, 0.97, bz + 0.08); P(R2_cylZ(0.012, 0.13, 8), 'metal', '#C9CCD0', x, 1.06, bz + 0.14);
+      P(R2_box(0.5, 0.7, 0.02), 'metal', '#DCE6EC', x, 1.55, bz + 0.015);
+      P(R2_box(0.08, 0.14, 0.08), 'plastic', acc, x + 0.24, 1.15, bz + 0.05); }
+    const du = bas[0] + 0.1 + vw + 0.25;
+    if (du < bas[1] - 0.1) { P(R2_box(0.3, 0.36, 0.2), 'plastic', '#ECEBE6', du, 1.25, bz + 0.1); P(R2_box(0.12, 0.04, 0.1), 'plastic', '#3A3D42', du, 1.05, bz + 0.15);
+      P(R2_cyl(0.16, 0.14, 0.5, 12), 'metal', '#B9BEC3', du, 0.25, bz + 0.25); }
+  }
+  const M = P.local(cub[0] + 1.15, 0, -2.2, 0);                      // mop cart: bucket, wringer, mop
+  M(R2_box(0.5, 0.04, 0.36), 'plastic', '#F2C230', 0, 0.12, 0); M(R2_box(0.32, 0.26, 0.3), 'plastic', '#F2C230', -0.06, 0.27, 0);
+  M(R2_box(0.3, 0.02, 0.28), 'plastic', '#5FB8E8', -0.06, 0.39, 0); M(R2_box(0.12, 0.16, 0.24), 'plastic', '#3A3D42', 0.16, 0.48, 0);
+  M(R2_cyl(0.014, 0.014, 1.25, 6), 'metal', '#C9CCD0', 0.02, 0.85, 0.05, 0, { rz: -0.25 });
+  for (const [x, z] of [[-0.22, -0.15], [0.22, -0.15], [-0.22, 0.15], [0.22, 0.15]]) M(R2_sph(0.035, 6, 4), 'plastic', '#222', x, 0.035, z);
+  for (const s of [-1, 1]) P(R2_box(0.3, 0.6, 0.02), 'plastic', '#F2C230', cub[0] + 0.35, 0.29, -1.75 + s * 0.06, 0, { rx: s * 0.2 });   // wet-floor sign
+  return {};
+}
+
+/* basement wing for residents: a bike room (bikes in a floor rack, helmets, a pump, a scooter) or a laundry
+   (washers and dryers, folding table with towels, a drying rack). Basements have no door strip. */
+function R2_utility(P, ctx, wing, kind) {
+  const bz = ctx.backZ, r = ctx.rng, acc = ctx.accent || '#7A6A58', laundry = kind === 'laundry';
+  const { W, CH } = R2_shell(P, ctx, { floor: 'concrete', floorCol: laundry ? '#B4B8B6' : '#9C9A94', wall: 'paint', wallCol: laundry ? '#DCE8EC' : '#E2DED2',
+    skirt: '#5A6068', skirtMat: 'plasticNC', cornice: '#C9C6BF', stripe: acc, stripeY: 1.2 });
+  R2_ceilingServices(P, ctx, W, CH, { lights: [W * 0.25, W * 0.75], lightType: 'tube', duct: false });
+  P(R2_cylX(0.06, W), 'metalNC', '#B8322A', W / 2, CH - 0.12, -3.6);
+  const [a, b] = R2_segs(ctx, W)[0] || [0.1, W - 0.1];
+  if (!laundry) {
+    const bike = (u, z, col, sc) => { const B = P.local(u, 0, z, 0, sc), wr = 0.33;
+      for (const x of [-0.52, 0.52]) { B(R2_ring(wr, 0.028), 'plastic', '#1C1C1E', x, wr, 0); B(R2_ring(0.05, 0.02, 10), 'metal', '#C9CCD0', x, wr, 0); }
+      const tube = (xa, ya, xb, yb, c = col) => { const l = Math.hypot(xb - xa, yb - ya); B(R2_box(l, 0.035, 0.035), 'metal', c, (xa + xb) / 2, (ya + yb) / 2, 0, 0, { rz: Math.atan2(yb - ya, xb - xa) }); };
+      tube(-0.52, wr, -0.05, wr); tube(-0.05, wr, -0.2, 0.82); tube(-0.2, 0.82, 0.38, 0.8); tube(-0.05, wr, 0.38, 0.8); tube(-0.52, wr, -0.2, 0.82); tube(0.52, wr, 0.38, 0.8);
+      tube(0.38, 0.8, 0.42, 0.95, '#2E3134');
+      B(R2_box(0.06, 0.03, 0.42), 'metal', '#2E3134', 0.42, 0.97, 0); B(R2_box(0.24, 0.05, 0.1), 'plastic', '#2A2D31', -0.22, 0.86, 0);
+      B(R2_cylZ(0.06, 0.02, 10), 'metal', '#8E949A', -0.05, wr, 0.04); };
+    for (const z of [-3.9, -3.0]) P(R2_box(b - a - 0.2, 0.05, 0.08), 'metal', '#8E949A', (a + b) / 2, 0.025, z);
+    for (let k = 0; k < 3; k++) { const u = a + 1.0 + k * 1.9; if (u + 0.9 < b) bike(u, -3.9, ART_TOYS[(k * 3 + 1) % 8], 1); }
+    for (let k = 0; k < 2; k++) { const u = a + 2.0 + k * 1.9; if (u + 0.65 < b) bike(u, -3.0, ART_TOYS[(k * 3 + 4) % 8], 0.68); }
+    const su = a + 5.6;
+    if (su < b - 0.3) { const Sc = P.local(su, 0, -3.0, 0);                       // kick scooter
+      Sc(R2_box(0.55, 0.04, 0.12), 'plastic', acc, 0, 0.08, 0); Sc(R2_cyl(0.015, 0.015, 0.8, 6), 'metal', '#C9CCD0', 0.27, 0.48, 0, 0, { rz: -0.12 });
+      Sc(R2_cylZ(0.012, 0.3, 6), 'metal', '#2E3134', 0.32, 0.88, 0); for (const x of [-0.25, 0.27]) Sc(R2_cylZ(0.06, 0.04, 10), 'plastic', '#222', x, 0.06, 0); }
+    for (let k = 0; k < 4; k++) { const u = a + 0.7 + k * 0.9; if (u > b - 0.2) break;
+      P(R2_box(0.03, 0.03, 0.1), 'metal', '#8E949A', u, 1.6, bz + 0.05); P(R2_sph(0.13, 10, 6), 'plastic', ART_TOYS[(k * 2 + 3) % 8], u, 1.48, bz + 0.13, 0, { sy: 0.75 }); }
+    const pu = b - 0.25; P(R2_box(0.18, 0.03, 0.1), 'metal', '#2E3134', pu, 0.015, bz + 0.25); P(R2_cyl(0.03, 0.03, 0.6, 8), 'plastic', '#D23A2E', pu, 0.32, bz + 0.25);
+  } else {
+    const n = Math.max(2, Math.min(5, Math.floor((b - a - 1.6) / 0.64)));
+    const machine = (x, y0, dryer) => { P(R2_box(0.6, dryer ? 0.7 : 0.85, 0.6), 'plastic', '#F4F3EE', x, y0 + (dryer ? 0.35 : 0.425), bz + 0.32);
+      const yc = y0 + (dryer ? 0.33 : 0.4);
+      P(R2_box(0.58, 0.1, 0.02), 'plastic', '#D8D8D4', x, y0 + (dryer ? 0.62 : 0.78), bz + 0.625); P(R2_cylZ(0.035, 0.03, 10), 'plastic', '#9AA0A6', x + 0.18, y0 + (dryer ? 0.62 : 0.78), bz + 0.64);
+      P(R2_ring(0.19, 0.03, 20), 'plastic', '#B9BEC3', x, yc, bz + 0.63);
+      P(R2_cylZ(0.165, 0.01, 20), 'plasticNC', dryer ? '#E8E4DA' : '#6FA8D8', x, yc, bz + 0.626); P(R2_cylZ(0.17, 0.01, 20), 'glass', '#DCEAF0', x, yc, bz + 0.64); };
+    for (let k = 0; k < n; k++) { const x = a + 0.35 + k * 0.64; machine(x, 0, k % 2 === 1); if (k % 3 === 0) machine(x, 0.86, true); }
+    const t0 = a + 0.35 + n * 0.64, tc = (t0 + b) / 2;
+    if (b - t0 > 1.4) {
+      P(R2_box(1.2, 0.04, 0.6), 'wood', '#C9A46A', tc, 0.86, bz + 0.35); for (const sx of [-1, 1]) P(R2_box(0.04, 0.84, 0.56), 'metal', '#8E949A', tc + sx * 0.56, 0.42, bz + 0.35);
+      for (let k = 0; k < 3; k++) for (let j = 0; j < 3; j++) P(R2_box(0.3, 0.06, 0.3), 'fabric', ART_TOYS[(k * 3 + j) % 8], tc - 0.38 + k * 0.38, 0.91 + j * 0.065, bz + 0.35);
+      P(R2_box(0.5, 0.3, 0.36), 'plastic', acc, tc + 0.1, 0.15, -2.9); for (let k = 0; k < 3; k++) P(R2_sph(0.1, 8, 6), 'fabric', ART_TOYS[(k * 2 + 5) % 8], tc - 0.05 + k * 0.14, 0.32, -2.9);
+    }
+    const rk = a + 0.9;                                          // drying rack with washing on it
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) P(R2_box(0.025, 1.0, 0.025), 'metal', '#C9CCD0', rk + sx * 0.5, 0.5, -2.35 + sz * 0.18, 0, { rx: sz * -0.15 });
+    for (const sz of [-1, 1]) P(R2_cylX(0.012, 1.0, 6), 'metal', '#C9CCD0', rk, 0.98, -2.35 + sz * 0.1);
+    for (let k = 0; k < 5; k++) P(R2_box(0.16, 0.3 + (k % 2) * 0.1, 0.01), 'fabric', ART_TOYS[(k * 3 + 2) % 8], rk - 0.4 + k * 0.2, 0.82 - (k % 2) * 0.05, -2.3 + (k % 2) * -0.1);
+  }
+  return {};
+}
+
+/* indoor playground beside the roof garden: soft green floor, a slide with a ladder, a sandpit, two swings, clouds */
+function R2_playground(P, ctx, wing) {
+  const bz = ctx.backZ, acc = ctx.accent || '#35C24A';
+  const { W, CH } = R2_shell(P, ctx, { floor: 'carpet', floorCol: '#5DAA5A', wall: 'paint', wallCol: '#BFE0F0', skirt: '#4F8A4A', skirtMat: 'plasticNC', cornice: '#EEF4F6' });
+  R2_ceilingServices(P, ctx, W, CH, { lights: [W * 0.3, W * 0.7], duct: false });
+  for (const [f, y, s] of [[0.2, 2.2, 1], [0.5, 1.95, 0.7], [0.82, 2.25, 0.85]]) for (const [dx, dy, rr] of [[-0.22, 0, 0.16], [0, 0.06, 0.21], [0.24, 0, 0.15]])
+    P(R2_sph(rr * s, 10, 8), 'plasticNC', '#FBFBF8', W * f + dx * s, y + dy * s, bz + 0.02, 0, { sz: 0.15 });
+  const segs = R2_segs(ctx, W), big = segs[0] || [0.1, W - 0.1], small = segs[1] || null;
+  const G = R2_playPlan(ctx, W), px = G.px, pz = G.pz, ph = G.ph;
+  for (const [dx, dz] of [[-0.28, -0.28], [0.28, -0.28], [-0.28, 0.28], [0.28, 0.28]]) P(R2_box(0.06, ph + 0.75, 0.06), 'wood', '#C98B55', px + dx, (ph + 0.75) / 2, pz + dz);
+  P(R2_box(0.64, 0.06, 0.64), 'wood', '#B97A4C', px, ph, pz); P(R2_box(0.74, 0.05, 0.74), 'plastic', '#E8413A', px, ph + 0.76, pz);
+  for (const dz of [-0.3, 0.3]) P(R2_box(0.6, 0.05, 0.04), 'wood', '#C98B55', px, ph + 0.45, pz + dz);
+  for (const dz of [-0.22, 0.22]) P(R2_box(0.04, ph + 0.4, 0.04), 'wood', '#C98B55', px - 0.36, (ph + 0.4) / 2, pz + dz);
+  for (let y = 0.25; y < ph; y += 0.25) P(R2_box(0.04, 0.03, 0.44), 'wood', '#C98B55', px - 0.36, y, pz);
+  { const x0 = px + 0.31, x1 = Math.min(big[1] - 0.2, px + 1.85), run = x1 - x0, ang = -Math.atan2(ph - 0.12, run), len = Math.hypot(run, ph - 0.12), mx = (x0 + x1) / 2, my = (ph + 0.12) / 2;
+    P(R2_box(len, 0.04, 0.46), 'plastic', '#F2C230', mx, my, pz, 0, { rz: ang });
+    for (const dz of [-0.23, 0.23]) P(R2_box(len, 0.14, 0.03), 'plastic', '#F2A541', mx, my + 0.07, pz + dz, 0, { rz: ang });
+    P(R2_box(0.35, 0.04, 0.46), 'plastic', '#F2C230', x1 + 0.15, 0.12, pz); }
+  { const sc = G.sand, sz = -2.2;                                    // sandpit with a bucket and spade
+    for (const dz of [-0.42, 0.42]) P(R2_box(1.4, 0.16, 0.08), 'wood', '#C98B55', sc, 0.08, sz + dz);
+    for (const dx of [-0.66, 0.66]) P(R2_box(0.08, 0.16, 0.84), 'wood', '#C98B55', sc + dx, 0.08, sz);
+    P(R2_box(1.26, 0.1, 0.76), 'plasticNC', '#E8D49A', sc, 0.05, sz);
+    P(R2_cyl(0.08, 0.06, 0.12, 10), 'plastic', acc, sc + 0.35, 0.16, sz + 0.1); P(R2_box(0.05, 0.02, 0.22), 'plastic', '#E8635A', sc + 0.15, 0.115, sz - 0.12, 0.6); }
+  if (G.swing != null) { const c = G.swing, sz = -3.2;
+    for (const dx of [-1.0, 1.0]) for (const s of [-1, 1]) P(R2_box(0.06, 2.09, 0.06), 'metal', acc, c + dx, 1.0, sz + s * 0.3, 0, { rx: -s * 0.29 });
+    P(R2_cylX(0.04, 2.1), 'metal', acc, c, 2.0, sz);
+    for (const [dx, col] of [[-0.45, '#E8413A'], [0.45, '#5B8FD6']]) { for (const s of [-1, 1]) P(R2_cyl(0.008, 0.008, 1.45, 4), 'metalNC', '#555', c + dx + s * 0.18, 1.275, sz);
+      P(R2_box(0.42, 0.04, 0.18), 'plastic', col, c + dx, 0.55, sz); } }
+  R2_plant(P, big[1] - 0.3 > px + 2.2 ? big[1] - 0.3 : big[0] + 0.25, 0, -1.7, 1.0, '#C9A46A', 0);
+  return {};
+}
+function R2_playPlan(ctx, W) {          // shared by R2_playground and the playground's occupants
+  const segs = R2_segs(ctx, W), big = segs[0] || [0.1, W - 0.1], small = segs[1] || null;
+  return { px: big[0] + 0.45, pz: -3.7, ph: 1.05, sand: big[0] + Math.min(1.6, (big[1] - big[0]) / 2), swing: small && small[1] - small[0] >= 2.15 ? (small[0] + small[1]) / 2 : null };
+}
+
 /* ======== rooms2: entry point ======== */
 function R2_buildRoom(themeId, wing, ctx) {
   const group = new THREE.Group(), B = ctx.sharedBatch || new R2_Batch();      // sharedBatch: merged and flushed by the building
@@ -3477,10 +3898,15 @@ function R2_buildRoom(themeId, wing, ctx) {
   else if (themeId === 'restaurant') extra = R2_restaurant(Pc, ctx, wing) || {};
   else if (themeId === 'parking') extra = R2_parking(Pc, ctx, wing) || {};
   else if (themeId === 'subway') R2_subwayPlatform(Pc, ctx, wing);
+  else if (themeId === 'home') extra = R2_home(Pc, ctx, wing) || {};
+  else if (themeId === 'toilets') extra = R2_toilets(Pc, ctx, wing) || {};
+  else if (themeId === 'bikes' || themeId === 'laundry') extra = R2_utility(Pc, ctx, wing, themeId) || {};
+  else if (themeId === 'playground') extra = R2_playground(Pc, ctx, wing) || {};
   let tt = null;
   if (themeId === 'subway' && wing === 'L') tt = R2_tunnelAndTrain(group, ctx, B);
   const nTrain = group.children.length, meshes = ctx.sharedBatch ? [] : B.flush(group), h = { group, update: () => {}, meshes: meshes.length, tris: B.tris };
   if (extra.spawnPoints) h.spawnPoints = extra.spawnPoints;
+  if (extra.footXZ) h.footXZ = extra.footXZ;                // lower garage: where people walk in from its ramp
   if (extra.bays) { h.bays = extra.bays; h.ramp = extra.ramp; h.decor = extra.decor; }
   if (extra.steamAt) {                                       // kitchen steam: one merged puff mesh that rises and fades
     const sm = new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.0, depthWrite: false });
@@ -3607,7 +4033,8 @@ function computeLayout(level, nShaftsOld) {
     coreX0, coreX1, wingL: [x0, coreX0], wingR: [coreX1, x1], roomL: [x0 + STW, coreX0], roomR: [coreX1, x1],
     nBasement, groundIndex: nBasement, themes, ids,
     labels: themes.map((_, i) => String(i - nBasement)),   // lobby '0', above '1', '2'…, below '-1', '-2'
-    bottomY: -nBasement * FH, topY: (nFloors - nBasement) * FH, streetX: x0 + 0.3 };
+    bottomY: -nBasement * FH, topY: (nFloors - nBasement) * FH, streetX: x0 + 0.3,
+    wings: (level && level.wings) || {} };       // wing room swaps by theme id, e.g. { office: { R: 'toilets' } }
 }
 const fy = (f) => G.layout.floorY[f];                                              // floor index -> y
 const yToFloor = (y) => clamp(Math.round(y / ART.FLOOR_H) + G.layout.nBasement, 0, G.layout.nFloors - 1);
@@ -3777,9 +4204,9 @@ function spawnPerson(origin, dest, kind, from, startX, startZ) {
   const L = G.layout;
   from = from || 'room';
   const st = from === 'street' && startX == null ? streetH() : null;
-  const x = st ? (rng() < 0.5 ? st.leftX : st.rightX) : startX ?? (from === 'street' ? L.streetX : L.roomDoorXs[rint(2)]);
-  const fromDoor = !st && from === 'room' && startX == null && !L.themes[origin].basement;
-  const z0 = st ? paveZ(st) : fromDoor ? doorZ(origin, 'roomDoorZ', ROOM_DOOR_Z) : startZ ?? L.laneZ;
+  const fromDoor = !st && from === 'room' && startX == null && !L.themes[origin].basement;   // from inside a room (no doors)
+  const x = st ? (rng() < 0.5 ? st.leftX : st.rightX) : startX ?? (from === 'street' ? L.streetX : fromDoor ? roomSpotX(origin) : L.roomDoorXs[rint(2)]);
+  const z0 = st ? paveZ(st) : fromDoor ? ROOM_SPOT_Z : startZ ?? L.laneZ;
   const p = { id: G.nextId++, kind, seed, floor: origin, dest, x, z: z0, rot: Math.PI / 2, state: 'arriving', from,
     waited: 0, stage: 0, seats: K.seats, carIdx: -1, spots: [], patience: G.level.patience * K.patience, speed: WALK_SPEED * K.walk,
     move: K.move, art, alpha: 0, fade: 1, anim: 'walk', animT: 0, shakeT: 0, phase: 0, timer: 0, shownAlpha: -1, exitX: L.roomDoorX };
@@ -3788,45 +4215,59 @@ function spawnPerson(origin, dest, kind, from, startX, startZ) {
   else if (Math.abs(z0 - L.laneZ) > 0.01) { p.state = 'approach'; p.path = [[x, L.laneZ]]; }   // out of a door, then to the lane
   else joinQueue(p);
   G.people.push(p);
-  if (fromDoor) G.floors[origin].roomHold[doorWing(x)] = 0.7;
   if (from === 'parking' && !parkH()) building?.floors[origin]?.carArrive?.(x);
   G.spawnCount[from]++;
   return p;
 }
 
 function floorIdx(id) { return G.layout.ids.indexOf(id); }
-// a random floor above the lobby; office and hotel are twice as likely
-function upper(not) {
+// a random floor above the lobby. Destinations (asOrigin false): offices and hotels are twice as likely, weighted by
+// time of day with NIGHT_WEIGHTS (by day to the offices, at night home and to the hotel). Origins of trips that start
+// on an upper floor (asOrigin true): weighted with ORIGIN_WEIGHTS (by day people leave home, at dusk they leave work).
+function upper(not, asOrigin) {
   const L = G.layout, opts = [];
-  const tw = NIGHT_WEIGHTS[G.level.time] || {};
+  const tw = (asOrigin ? ORIGIN_WEIGHTS : NIGHT_WEIGHTS)[G.level.time] || {};
   let sum = 0;
   for (let f = L.groundIndex + 1; f < L.nFloors; f++) if (f !== not) {
-    const w = (L.themes[f].popular ? 2 : 1) * (tw[L.ids[f]] ?? 1); opts.push([f, w]); sum += w;
+    const th = L.themes[f], w = (th.popular ? 2 : 1) * (tw[th.kind || L.ids[f]] ?? 1); opts.push([f, w]); sum += w;
   }
   let r = rng() * sum;
   for (const [f, w] of opts) { r -= w; if (r <= 0) return f; }
   return opts.length ? opts[opts.length - 1][0] : L.groundIndex;
 }
-// going down: lobby, or the parking / subway sometimes
-function downDest() {
-  const L = G.layout;
-  if (L.nBasement && rng() < DOWN_TO_BASEMENT) return rint(L.nBasement);
+// going down: lobby, or the parking / subway sometimes (more often from a home floor by day: off to work or school)
+function downDest(from) {
+  const L = G.layout, home = from != null && L.themes[from]?.kind === 'home' && G.level.time === 'day';
+  if (L.nBasement && rng() < (home ? HOME_TO_BASEMENT : DOWN_TO_BASEMENT)) return rint(L.nBasement);
   return L.groundIndex;
 }
+// a spot inside one of the floor's two rooms: the art's clear spots if it has them, else anywhere in a wing
+function roomSpotX(f) { const sp = building?.floors?.[f]?.roomSpots; return sp && sp.length ? sp[rint(sp.length)].x : wingX(); }
 function wingX() { const L = G.layout, w = rint(2) ? L.roomR : L.roomL; return w[0] + 0.8 + rng() * Math.max(0.2, w[1] - w[0] - 1.6); }
+// where someone appears on a basement floor without its own car / train hooks: the lower garage's foot path from its
+// ramp (floor handle footXZ = [x, z]), else anywhere along a wing
+function basementStart(o) {
+  const L = G.layout, fp = building?.floors[o]?.footXZ, park = L.themes[o].kind === 'parking';
+  if (Array.isArray(fp) && fp.every(Number.isFinite)) return { from: 'parking', x: fp[0] + (rng() - 0.5) * 0.4, z: fp[1] };
+  return { from: park ? 'parking' : 'subway', x: wingX(), z: undefined };
+}
 function spawnRandom() {
-  const L = G.layout, g = L.groundIndex, park = floorIdx('parking');
+  const L = G.layout, g = L.groundIndex, park = floorIdx('parking'), park2 = floorIdx('parking2');
   if (!G.firstDone) { G.firstDone = true; spawnPerson(g, upper(), rng() < 0.5 ? 'adult' : 'kid', 'street'); return; }
   for (let tries = 0; tries < 6; tries++) {
-    const r = rng(); let o, d, from = 'room', x;
+    const r = rng(); let o, d, from = 'room', x, z;
     if (park >= 0 && r < PARK_SHARE) {
-      o = park; d = upper(); from = 'parking'; x = wingX();
-      if (parkH()) { if (parkArrival(o, d)) return; continue; }
+      d = upper();
+      if (park2 >= 0 && rng() < LOWER_PARK_SHARE) { o = park2; ({ from, x, z } = basementStart(o)); }   // walks up from the lower garage
+      else {
+        o = park; from = 'parking'; x = wingX();
+        if (parkH()) { if (parkArrival(o, d)) return; continue; }
+      }
     }
     else if (r < TRIP_MIX[0]) { o = g; d = upper(); from = 'street'; }
-    else if (r < TRIP_MIX[0] + TRIP_MIX[1] || L.nFloors - g < 3) { o = upper(); d = downDest(); }
-    else { o = upper(); d = upper(o); }
-    if (o !== d && G.floors[o].queue.length < QUEUE_MAX) { spawnPerson(o, d, null, from, x); return; }
+    else if (r < TRIP_MIX[0] + TRIP_MIX[1] || L.nFloors - g < 3) { o = upper(undefined, true); d = downDest(o); }
+    else { o = upper(undefined, true); d = upper(o); }
+    if (o !== d && G.floors[o].queue.length < QUEUE_MAX) { spawnPerson(o, d, null, from, x, z); return; }
   }
 }
 
@@ -3837,7 +4278,8 @@ function runWave(w) {
   let made = 0;
   for (let t = 0; t < w.n * 3 && made < w.n; t++) {
     const o = rint(L.nFloors); if (o === food) continue;
-    if (spawnPerson(o, food, null, o === g ? 'street' : L.themes[o].basement ? (L.ids[o] === 'parking' ? 'parking' : 'subway') : 'room', L.themes[o].basement ? wingX() : undefined)) made++;
+    const bs = L.themes[o].basement ? basementStart(o) : null;
+    if (spawnPerson(o, food, null, o === g ? 'street' : bs ? bs.from : 'room', bs ? bs.x : undefined, bs ? bs.z : undefined)) made++;
   }
 }
 
@@ -3949,10 +4391,12 @@ function planDeparture(p) {
     const x = xs.find((v) => !used.includes(v)) ?? xs[rint(xs.length)];
     p.platX = x; p.path = [[x, L.laneZ]]; p.end = 'platform'; return;
   }
-  if (p.floor !== L.groundIndex && !L.themes[p.floor].basement) {   // into a room: along the lane, then through its door
-    const x = L.roomDoorXs[rint(2)];
-    p.roomDoor = doorWing(x); p.path = [[x, L.laneZ], [x, doorZ(p.floor, 'roomDoorZ', ROOM_DOOR_Z)]]; return;
+  if (p.floor !== L.groundIndex && !L.themes[p.floor].basement) {   // into a room: along the lane, then to a spot inside it (fades there)
+    const x = roomSpotX(p.floor);
+    p.roomDoor = false; p.path = [[x, L.laneZ], [x, ROOM_SPOT_Z]]; return;
   }
+  const fp = L.themes[p.floor].basement ? building?.floors[p.floor]?.footXZ : null;   // lower garage: walk off up its ramp
+  if (Array.isArray(fp) && fp.every(Number.isFinite)) { p.path = [[fp[0], L.laneZ], [fp[0], fp[1]]]; return; }
   // old art without street / parking / train hooks: out through the lobby entrance, or into a basement wing
   const x = p.floor === L.groundIndex ? L.streetX : wingX();
   p.path = [[x, L.laneZ]];
@@ -4428,9 +4872,12 @@ function highestUnlocked() {
 function renderMap() {
   const s = loadStars(), u = highestUnlocked(), box = document.getElementById('levels');
   box.innerHTML = '';
+  const rows2 = Math.ceil(LEVELS.length / 2), rows3 = Math.ceil(LEVELS.length / 3);
+  box.style.setProperty('--rows2', String(rows2)); box.style.setProperty('--rows3', String(rows3));
   LEVELS.forEach((_, i) => {
     const b = document.createElement('button'); b.className = 'lv' + (i > u ? ' locked' : '');
-    b.style.gridRow = String(5 - Math.floor(i / 2)); b.style.gridColumn = String(1 + (i % 2));
+    b.style.setProperty('--r2', String(rows2 - Math.floor(i / 2))); b.style.setProperty('--c2', String(1 + (i % 2)));
+    b.style.setProperty('--r3', String(rows3 - Math.floor(i / 3))); b.style.setProperty('--c3', String(1 + (i % 3)));
     const n = s[i + 1] || 0;
     b.innerHTML = (i > u ? '🔒' : (i + 1) + '<small>' + [0, 1, 2].map((k) => k < n ? '<i>★</i>' : '☆').join('') + '</small>')
       + '<span class="tm" aria-hidden="true">' + (TIME_ICONS[LEVELS[i].time] || '') + '</span>';
