@@ -1210,7 +1210,9 @@ function buildSky(scene) {
   // SPEC4: nothing in front of the cut (z > 0) but the ground section; the street runs BEHIND the tower.
   // y = 0 is the lobby floor = both pavements; the road surface is at -0.12. Grass sits 5 mm low so it never z-fights.
   box(500, 0.2, 127.5, '#8FAE74', 0, -0.105, -12.5 - 127.5 / 2);                 // grass behind the far pavement
-  box(500, 0.2, 4.9, '#8FAE74', 0, -0.105, -2.45);                               // grass beside the tower (aprons cover it near the walls)
+  // grass beside the tower (aprons cover it near the walls); none over the car park ramp cut on the right (x 8.5 .. groundX, z > -2.45)
+  box(258.5, 0.2, 4.9, '#8FAE74', -120.75, -0.105, -2.45); box(226.5, 0.2, 4.9, '#8FAE74', 136.75, -0.105, -2.45);
+  box(ART_PARK.groundX - 8.5, 0.2, 2.45, '#8FAE74', (ART_PARK.groundX + 8.5) / 2, -0.105, -3.675);
   box(500, 0.2, 2.1, '#C9C3B8', 0, -0.1, -5.95, conc, [125, 1.05]);              // back pavement z -4.9 .. -7.0, top 0
   box(500, 0.12, 0.2, '#A9A398', 0, -0.06, -7.0, conc);                          // kerb down to the road
   box(500, 0.2, 4.0, '#4E535A', 0, -0.22, -9.0, conc, [60, 1]);                  // road z -7 .. -11, surface -0.12
@@ -1395,7 +1397,7 @@ const ART_R2_ROOMS = new Set(['office', 'hotel', 'restaurant', 'parking', 'subwa
 let artEntranceX = 0;                // x of the lobby's back door (left wing), set per building
 function buildBuilding(scene, layout) {
   artLabels = layout.labels || null; artThemes = layout.themes || null;
-  artEntranceX = (layout.roomL ? layout.roomL[0] : layout.x0 + ART.STAIR_W) + 3.3;
+  artEntranceX = (layout.roomL ? layout.roomL[0] : layout.x0 + ART.STAIR_W) + 4.4;
   if (artStreetMid) artStreetMid.visible = !(layout.nBasement > 0);   // over basements the section is cut open at the front
   const group = new THREE.Group(), owned = [], ticks = [];
   const { x0, x1, nFloors, nShafts } = layout;
@@ -1637,9 +1639,9 @@ function artBuildFloor(i, layout, parent, owned, ticks, SB, PB, R2B) {
     const sx = layout.shaftX[s];
     for (const dx of [-1.02, 1.02]) Ps(artBox(0.07, CH, 0.1), '#B7BCC1', sx + dx, CH / 2, -1.23, 0, 0, 0, 1, 1, 1, shiny);
     Ps(artBox(2.0, 0.02, 0.12), '#8E949A', sx, 0.01, -1.16, 0, 0, 0, 1, 1, 1, shiny);
-    S.add(artAtlasQuad(nFl, i, 'lift', 1.9, 1.18), artAtlasMat(nFl), artXf(sx, y + 2.38 + 0.59, 0.035), '#ffffff');   // lit floor sign above the landing
   }
-  S.add(artAtlasQuad(nFl, i, 'plaque', 1.7, 1.7), artAtlasMat(nFl), artXf(x0 - ART_WALL_T - 0.5, y + 1.4, 0.05), '#ffffff');   // big plaque on the left facade column
+  // the one floor marker: a big self-lit plaque at the left edge of the building, in front of the soil and kerb cut faces
+  S.add(artAtlasQuad(nFl, i, 'plaque', 1.7, 1.7), artAtlasMat(nFl), artXf(x0 - ART_WALL_T - 0.5, y + 1.4, 0.35), '#ffffff');
   // the two wing rooms
   const roomL = layout.roomL || [x0 + STW, layout.coreX0], roomR = layout.roomR || [layout.coreX1, layout.x1];
   const doors = [], anims = [], hooks = {};
@@ -1757,7 +1759,20 @@ function artParkingLife(bays, ramp, y, parent, owned, decor) {
     Q(R2_box(xw - xi + 0.12, 0.3, 2.3), 'concrete', '#A9A6A0', (xi + xw) / 2, y - 0.15 + 0.004, -1.15);    // floor through the wall
     Q(R2_box(Lr, rise + 0.3 + 0.85, 0.22), 'concrete', '#B4B0A8', xw + Lr / 2 - 0.2, (y - 0.3 + 0.85) / 2, -2.38);   // retaining wall
     Q(R2_box(Lr + 0.1, 0.06, 0.3), 'concrete', '#C9C6BF', xw + Lr / 2 - 0.2, 0.88, -2.38);
-    Q(R2_box(Lr - 0.2, 0.3, 0.16), 'concrete', '#B4B0A8', xw + Lr / 2 - 0.1, -0.15, -0.09);   // edge beam over the cut, flush with the ground
+    // covered ramp: a roof slab parallel to the ramp (2.3 m clear) along its whole length, rising out of the ground to the
+    // entrance at street level, a sloped back wall under it, and a concrete wedge filling the soil gap above the buried part
+    { const clr = 2.3, rt = 0.3;
+      along(clr + rt / 2, 0, RL + 0.12, rt, wd + 0.25, zc, 'concrete', '#B4B0A8');                                    // roof
+      Q(R2_box(RL, clr + 0.3, 0.22), 'concrete', '#B4B0A8', xw + Lr / 2, y + rise / 2 + (clr + 0.3) / 2 - 0.15, -2.38, 0, { rz: ang });   // back wall
+      const top0 = y + (clr + rt) / cs, xg = xw + Math.max(0, -top0) * Lr / rise;                                       // roof top meets y = 0 at xg
+      if (top0 < -0.02 && xg > xw + 0.05) {
+        const sh = new THREE.Shape(); sh.moveTo(xw, top0); sh.lineTo(xg, 0); sh.lineTo(xw, 0); sh.closePath();
+        const wedge = new THREE.ExtrudeGeometry(sh, { depth: wd + 0.25, bevelEnabled: false }); wedge.translate(0, 0, -(wd + 0.25) / 2);
+        Q(wedge, 'concrete', '#A9A6A0', 0, 0, zc);
+      }
+      Q(R2_box(0.25, clr + 0.3, 0.3), 'concrete', '#C9C6BF', top - 0.12, (clr + 0.3) / 2 - 0.02, zc + wd / 2 + 0.05);   // entrance post (front)
+      Q(R2_box(0.3, 0.3, wd + 0.25), 'concrete', '#C9C6BF', top - 0.12, clr + 0.15, zc);                              // entrance lintel
+    }
     for (let x = xw + 1.2; x < top - 1; x += 2.6) { Q(R2_box(0.3, 0.07, 0.08), 'metalNC', '#5A6068', x, y + (x - xw) * rise / Lr + 2.2, -2.24); Q(R2_box(0.26, 0.02, 0.05), 'glow', '#FFF2D6', x, y + (x - xw) * rise / Lr + 2.16, -2.22); }
     Q(R2_cyl(0.04, 0.04, 2.2, 8), 'metal', '#8E949A', top + 0.4, 1.1, -2.15); Q(R2_pln(0.5, 0.5), 'sign', '#ffffff', top + 0.4, 2.0, -2.11, 0, { rect: R2_ATLAS.park });
     Q(R2_box(3.6, 0.03, 2.2), 'concrete', '#55595F', top + 2.2, 0.0, -5.95);           // driveway across the back pavement (z -4.9 .. -7)
@@ -1888,7 +1903,7 @@ function artSignAtlas(n) {
     }
   });
 }
-function artAtlasMat(n) { return artMatC('atlasM|' + artSignAtlas(n).uuid, () => new THREE.MeshBasicMaterial({ vertexColors: true, map: artSignAtlas(n), transparent: true, toneMapped: false })); }
+function artAtlasMat(n) { return artMatC('atlasM|' + artSignAtlas(n).uuid, () => new THREE.MeshBasicMaterial({ vertexColors: true, map: artSignAtlas(n), transparent: true, toneMapped: false, depthTest: false, depthWrite: false })); }
 function artAtlasQuad(n, f, part, w, h) {        // a plane whose uvs pick one sign of floor f out of the atlas
   const g = new THREE.PlaneGeometry(w, h), uv = g.attributes.uv, H = 272 * n;
   const [px, py, pw, ph] = part === 'plaque' ? [0, 0, 256, 256] : part === 'lift' ? [256, 0, 256, 160] : [256, 160, 256, 112];
@@ -1902,7 +1917,6 @@ function artRoomDoor(i, dx, y, S, fg, owned) {
   for (const ox of [-0.47, 0.47]) S.add(artBox(0.06, 2.14, 0.08), wood, artXf(dx + ox, y + 1.07, -D + 0.04), '#4A3A2C');
   S.add(artBox(1.0, 0.06, 0.08), wood, artXf(dx, y + 2.15, -D + 0.04), '#4A3A2C');
   const nF = (artThemes || FLOOR_THEMES).length;
-  S.add(artAtlasQuad(nF, i, 'door', 0.62, 0.27), artAtlasMat(nF), artXf(dx, y + 2.42, -D + 0.03), '#ffffff');
   const door = new THREE.Group(); door.position.set(dx - 0.44, y, -D + 0.05); fg.add(door);
   const db = new ArtBatch();
   db.add(artBox(0.88, 2.06, 0.045), wood, artXf(0.44, 1.03, 0), '#8A6A4C');
@@ -1961,13 +1975,29 @@ function artWing(id, i, wing, rx0, rx1, y, doorX, fg, owned, anims, S, PB) {
     B.add(geo, mat, artXf(X(u), y + yy, z, rx, ry, rz, sx, sy, sz), hex);
   };
   const backDoor = id === 'lobby' && wing === 'L' && artEntranceX > rx0 + 1 && artEntranceX < rx1 - 1 ? artEntranceX : null;
-  if (backDoor == null) S.add(artPln(W, CH), artTexMat('wall' + id, artWallTex(id)), artXf(wc, y + CH / 2, -D), '#ffffff', [W / 4.95, 1]);
-  else {                                                      // wall with a 1.5 m opening for the back entrance
-    const a = backDoor - 0.75, b = backDoor + 0.75, wm = artTexMat('wall' + id, artWallTex(id));
-    S.add(artPln(a - rx0, CH), wm, artXf((rx0 + a) / 2, y + CH / 2, -D), '#ffffff', [(a - rx0) / 4.95, 1]);
-    S.add(artPln(rx1 - b, CH), wm, artXf((b + rx1) / 2, y + CH / 2, -D), '#ffffff', [(rx1 - b) / 4.95, 1]);
-    S.add(artPln(1.5, CH - 2.35), wm, artXf(backDoor, y + 2.35 + (CH - 2.35) / 2, -D), '#ffffff', [1.5 / 4.95, (CH - 2.35) / CH]);
-    anims.push(artBackEntrance(backDoor, y, fg, owned, S));
+  // the lobby (floor 0) gets a row of tall shop-front windows; other rooms two windows with a sill and radiator
+  const tall = id === 'lobby', wh = tall ? 2.0 : 1.1, wy = tall ? 1.38 : 1.72;
+  const slots = tall ? Array.from({ length: Math.max(0, Math.floor((W - 1.2) / 1.3)) }, (_, k) => rx0 + 0.6 + 0.65 + k * 1.3) : [0.32, 0.72].map((f) => rx0 + W * f);
+  const wins = slots.map((wx) => (!tall && doorX != null && Math.abs(wx - doorX) < 1.1 ? wx + (wx < doorX ? -0.6 : 0.6) : wx))
+    .filter((wx) => wx > rx0 + 0.6 && wx < rx1 - 0.6 && (backDoor == null || Math.abs(wx - backDoor) > 1.4) && (!tall || doorX == null || Math.abs(wx - doorX) > 1.15));
+  if (tall) {                                                  // lobby: wall pieces around see-through windows and the back door
+    const wm = artTexMat('wall' + id, artWallTex(id)), wb = wy - wh / 2, wt = wy + wh / 2;
+    const piece = (a, b, y0, y1) => { if (b - a > 0.01 && y1 - y0 > 0.01) S.add(artPln(b - a, y1 - y0), wm, artXf((a + b) / 2, y + (y0 + y1) / 2, -D), '#ffffff', [(b - a) / 4.95, (y1 - y0) / CH]); };
+    const open = wins.map((wx) => [wx - 0.5, wx + 0.5, wb]).concat(backDoor != null ? [[backDoor - 0.75, backDoor + 0.75, 0]] : []).sort((p, q) => p[0] - q[0]);
+    piece(rx0, rx1, wt, CH);                                   // above the windows and the door
+    let cx = rx0;
+    for (const [a, b, bottom] of open) { piece(cx, a, 0, wt); piece(a, b, 0, bottom); cx = b; }
+    piece(cx, rx1, 0, wt);
+    if (backDoor != null) anims.push(artBackEntrance(backDoor, y, fg, owned, S));
+  } else {
+    if (backDoor == null) S.add(artPln(W, CH), artTexMat('wall' + id, artWallTex(id)), artXf(wc, y + CH / 2, -D), '#ffffff', [W / 4.95, 1]);
+    else {                                                      // wall with a 1.5 m opening for the back entrance
+      const a = backDoor - 0.75, b = backDoor + 0.75, wm = artTexMat('wall' + id, artWallTex(id));
+      S.add(artPln(a - rx0, CH), wm, artXf((rx0 + a) / 2, y + CH / 2, -D), '#ffffff', [(a - rx0) / 4.95, 1]);
+      S.add(artPln(rx1 - b, CH), wm, artXf((b + rx1) / 2, y + CH / 2, -D), '#ffffff', [(rx1 - b) / 4.95, 1]);
+      S.add(artPln(1.5, CH - 2.35), wm, artXf(backDoor, y + 2.35 + (CH - 2.35) / 2, -D), '#ffffff', [1.5 / 4.95, (CH - 2.35) / CH]);
+      anims.push(artBackEntrance(backDoor, y, fg, owned, S));
+    }
   }
   S.add(artPln(W, D - 0.1), artTexMat('floor' + id, artFloorTex(id)), artXf(wc, y + 0.004, -0.1 - (D - 0.1) / 2, -Math.PI / 2), '#ffffff', [W / 4.95, 1]);
   Ps(artPln(W, D - 0.3), dark ? '#262C3A' : '#E9E5DC', wc, CH - 0.003, -0.3 - (D - 0.3) / 2, Math.PI / 2);
@@ -1978,13 +2008,14 @@ function artWing(id, i, wing, rx0, rx1, y, doorX, fg, owned, anims, S, PB) {
   S.add(artPln(W, 0.35), artAoM(), artXf(wc, y + 0.175, -D + 0.004, 0, 0, Math.PI), '#000000');
   S.add(artPln(W, 0.7), artAoM(), artXf(wc, y + 0.007, -D + 0.35, -Math.PI / 2), '#000000');
   // windows (kept off the door), radiators below
-  const wins = [0.32, 0.72].map((f) => rx0 + W * f).map((wx) => (doorX != null && Math.abs(wx - doorX) < 1.1 ? wx + (wx < doorX ? -0.6 : 0.6) : wx)).filter((wx) => wx > rx0 + 0.6 && wx < rx1 - 0.6 && (backDoor == null || Math.abs(wx - backDoor) > 1.4));
   for (const wx of wins) {
-    Ps(artBox(1.1, 1.2, 0.04), '#3B4148', wx, 1.72, -D + 0.02, 0, 0, 0, 1, 1, 1, shiny);
-    S.add(artPln(1.0, 1.1), artTexMat('win' + (dark ? 'n' : 'd'), artSkyWinTex(dark), true), artXf(wx, y + 1.72, -D + 0.045), '#ffffff');
-    Ps(artBox(0.035, 1.1, 0.03), '#3B4148', wx, 1.72, -D + 0.06, 0, 0, 0, 1, 1, 1, shiny); Ps(artBox(1.0, 0.035, 0.03), '#3B4148', wx, 2.0, -D + 0.06, 0, 0, 0, 1, 1, 1, shiny);
-    Ps(artBox(1.22, 0.05, 0.16), '#D8D0C2', wx, 1.1, -D + 0.08, 0, 0, 0, 1, 1, 1, conc);
-    if (id !== 'pool') { Ps(artBox(0.9, 0.5, 0.07), '#E8E6E0', wx, 0.42, -D + 0.07); for (let q = 0; q < 9; q++) Ps(artBox(0.04, 0.52, 0.09), '#D9D6CE', wx - 0.4 + q * 0.1, 0.42, -D + 0.08); }
+    if (!tall) Ps(artBox(1.1, wh + 0.1, 0.04), '#3B4148', wx, wy, -D + 0.02, 0, 0, 0, 1, 1, 1, shiny);
+    else for (const dx of [-0.53, 0.53]) Ps(artBox(0.06, wh + 0.1, 0.12), '#3B4148', wx + dx, wy, -D + 0.02, 0, 0, 0, 1, 1, 1, shiny);
+    if (tall) S.add(artPln(1.0, wh), artGlass(), artXf(wx, y + wy, -D + 0.02), '#BFD2DC');               // see-through: the street behind
+    else S.add(artPln(1.0, wh), artTexMat('win' + (dark ? 'n' : 'd'), artSkyWinTex(dark), true), artXf(wx, y + wy, -D + 0.045), '#ffffff');
+    Ps(artBox(0.035, wh, 0.03), '#3B4148', wx, wy, -D + 0.06, 0, 0, 0, 1, 1, 1, shiny); Ps(artBox(1.0, 0.035, 0.03), '#3B4148', wx, wy + wh * 0.25, -D + 0.06, 0, 0, 0, 1, 1, 1, shiny);
+    Ps(artBox(1.22, 0.05, 0.16), '#D8D0C2', wx, wy - wh / 2 - 0.02, -D + 0.08, 0, 0, 0, 1, 1, 1, conc);
+    if (id !== 'pool' && !tall) { Ps(artBox(0.9, 0.5, 0.07), '#E8E6E0', wx, 0.42, -D + 0.07); for (let q = 0; q < 9; q++) Ps(artBox(0.04, 0.52, 0.09), '#D9D6CE', wx - 0.4 + q * 0.1, 0.42, -D + 0.08); }
   }
   // ceiling services: duct with hangers, sprinklers, smoke detector, pendant lights with light pools
   Ps(artBox(W - 0.3, 0.24, 0.34), '#B9BEC3', wc, CH - 0.17, -D + 0.42, 0, 0, 0, 1, 1, 1, shiny);
@@ -2472,7 +2503,7 @@ function buildPerson(kind, seed, opts) {
         const still = name !== 'walk' && name !== 'run' && name !== 'stomp';
         if (inCar) bubbleLvl = group.position.z < -0.1 ? 1 : 0;
         else if (still || bubbleSnap) bubbleLvl = Math.abs(Math.round(group.position.x / 0.75)) % 2;
-        const tx = inCar ? group.position.x * 1.05 : 0, ty = height + sz * 0.42 + bubbleLvl * sz * 0.8;
+        const tx = inCar ? group.position.x * 1.05 : 0, ty = height + sz * 0.42 + bubbleLvl * sz * 0.45;
         const e = bubbleSnap ? 1 : 1 - Math.exp(-dt * 7);       // ease towards the target instead of jumping
         bubbleS += (sz - bubbleS) * e; bubbleX += (tx - bubbleX) * e; bubbleY += (ty - bubbleY) * e; bubbleSnap = false;
         bubble.scale.set(bubbleS, bubbleS, 1); bubble.position.set(bubbleX, bubbleY, 0);
@@ -3565,7 +3596,7 @@ function computeLayout(level, nShaftsOld) {
   const nBasement = themes.filter((t) => t.basement).length;
   const width = WL + nShafts * SW + WR, x0 = -width / 2, x1 = x0 + width;
   const coreX0 = x0 + WL, coreX1 = coreX0 + nShafts * SW;
-  const roomDoorXs = [x0 + STW + 1.1, coreX1 + WR * 0.55];
+  const roomDoorXs = [x0 + STW + 2.2, coreX1 + WR * 0.55];   // left door well away from the stair door, so it doesn't read as a second stair door
   return { nFloors, nShafts, width, height: nFloors * FH, x0, x1,
     floorY: themes.map((_, i) => (i - nBasement) * FH),
     shaftX: Array.from({ length: nShafts }, (_, s) => coreX0 + (s + 0.5) * SW),
@@ -3634,8 +3665,9 @@ function fitCamera() {
 
 function applyCamera() {
   const yaw = CAM_YAW * DEG, pitch = CAM_PITCH * DEG;
-  camera.position.set(view.camX + view.D * Math.sin(yaw) * Math.cos(pitch), view.camY + view.D * Math.sin(pitch), view.D * Math.cos(yaw) * Math.cos(pitch));
-  camera.lookAt(view.camX, view.camY, 0);
+  const o = window.__camOverride, cx = o?.x ?? view.camX, cy = o?.y ?? view.camY, D = o?.d ?? view.D;   // test hook: look anywhere
+  camera.position.set(cx + D * Math.sin(yaw) * Math.cos(pitch), cy + D * Math.sin(pitch), D * Math.cos(yaw) * Math.cos(pitch));
+  camera.lookAt(cx, cy, 0);
 }
 
 function updateCameraMotion(dt) {
@@ -3751,7 +3783,7 @@ function spawnPerson(origin, dest, kind, from, startX, startZ) {
   const p = { id: G.nextId++, kind, seed, floor: origin, dest, x, z: z0, rot: Math.PI / 2, state: 'arriving', from,
     waited: 0, stage: 0, seats: K.seats, carIdx: -1, spots: [], patience: G.level.patience * K.patience, speed: WALK_SPEED * K.walk,
     move: K.move, art, alpha: 0, fade: 1, anim: 'walk', animT: 0, shakeT: 0, phase: 0, timer: 0, shownAlpha: -1, exitX: L.roomDoorX };
-  art.setBubble(dest); art.setMood(0, 0); art.setOpacity(0);
+  art.setBubble(st ? null : dest); art.setMood(0, 0); art.setOpacity(0);   // street walkers show where they go once inside
   if (st) { p.state = 'approach'; p.path = [[st.entranceX, paveZ(st)], [st.entranceX, L.laneZ]]; G.debugLife.streetIn++; }
   else if (Math.abs(z0 - L.laneZ) > 0.01) { p.state = 'approach'; p.path = [[x, L.laneZ]]; }   // out of a door, then to the lane
   else joinQueue(p);
@@ -4040,7 +4072,7 @@ function updatePerson(p, dt) {
   }
   switch (p.state) {
     case 'approach':   // walking in from the street to the lobby lane, then joins the queue
-      if (followPath(p, dt)) { p.state = 'arriving'; joinQueue(p); }
+      if (followPath(p, dt)) { p.state = 'arriving'; p.art.setBubble(p.dest); joinQueue(p); }
       break;
     case 'arriving': case 'waiting': {
       const qs = p.side ? L.queueXR : L.queueX, slot = Math.max(0, fl.queues[p.side ? 1 : 0].indexOf(p));
@@ -4063,9 +4095,9 @@ function updatePerson(p, dt) {
     case 'riding': setAnim(p, 'idle'); break;
     case 'exiting':
       if (walkTo(p, p.x, L.laneZ, dt)) {
-        p.state = 'celebrating'; p.carIdx = -1; p.timer = CELEBRATE_TIME; p.rot = 0;
-        p.art.setBubble(null); p.art.setMood(0, 0); setAnim(p, 'cheer');
+        p.carIdx = -1; p.art.setBubble(null); p.art.setMood(0, 0);           // no hooray: walk straight on
         G.delivered++; sfx('chirp'); renderProgress(true); checkWin();
+        planDeparture(p);
       }
       break;
     case 'celebrating':
@@ -4593,6 +4625,7 @@ function tick(now, maxDt) {
   if (TICK) document.documentElement.dataset.dbg = innerWidth + 'x' + innerHeight + ' f=' + (++frameCount) + ' t=' + G.time.toFixed(1) + ' spawn=' + JSON.stringify(G.spawnCount).replace(/"/g, '') + ' life=' + JSON.stringify(G.debugLife).replace(/"/g, '') + ' train=' + G.train.phase + ' hooks=' + (parkH() ? 'P' : '') + (trainH() ? 'T' : '') + (streetH() ? 'S' : '') + ' people=' + G.people.length + ' ' + G.people.map((p) => p.state[0]).join('');
   renderer.render(scene, camera);
 }
+window.__renderNow = () => renderer.render(scene, camera);   // test hook: draw a frame now (screenshots from a background tab)
 
 addEventListener('resize', fitCamera);
 addEventListener('orientationchange', () => setTimeout(fitCamera, 200));
