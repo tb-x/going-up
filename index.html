@@ -220,6 +220,8 @@ const ROOM_SPOT_Z = -1.9;              // where people stand when they come out 
 const ROOM_LINGER = 2.2;               // s a person stands at the spot, facing out, before fading into the room
 const LOO_CHANCE = 1 / 6;              // someone getting up from a seat heads for the toilets instead (levels with a toilets wing)
 const LOO_TIME = [20, 40];             // s in the toilets before they come out again and ride back to their seat
+const LOO_EVERY = [15, 30];            // s between people from the toilets floor itself popping in to the toilets (walk in, out again)
+const LOO_AMBIENT_MAX = 2;             // at most this many of those at once
 const CHECKIN_TIME = 3;                // s a hotel guest from the street stands at the reception desk (gets a key)
 const STAIR_DOOR_Z = -2.6;              // just in front of the stair door (stair column, door at z -2.95)
 const PARK_DOOR_Z = -2.3;               // between two parked cars, beside the driver's door
@@ -1488,7 +1490,7 @@ function buildBuilding(scene, layout) {
   artLabels = layout.labels || null; artThemes = layout.themes || null;
   artEntranceX = (layout.roomL ? layout.roomL[0] : layout.x0 + ART.STAIR_W) + 4.4;
   artHotelLobby = (layout.ids || []).some((id) => ((typeof THEME_LIB !== 'undefined' && THEME_LIB[id] && THEME_LIB[id].kind) || id) === 'hotel');
-  artKeyAt = -99;
+  artKeyAt = -99; if (typeof ART_REST !== 'undefined') ART_REST.clear();   // restaurant flows belong to one building
   if (artStreetMid) artStreetMid.visible = !(layout.nBasement > 0);   // over basements the section is cut open at the front
   const group = new THREE.Group(), owned = [], ticks = [];
   const { x0, x1, nFloors, nShafts } = layout;
@@ -1753,7 +1755,8 @@ function artBuildFloor(i, layout, parent, owned, ticks, SB, PB, R2B) {
         buildingX0: x0 - ART_WALL_T, buildingX1: layout.x1 + ART_WALL_T, coreX0: layout.coreX0, coreX1: layout.coreX1, doorX,
         rng: artRng(3000 + i * 31 + wi * 7 + room.length + variant * 101), dynamicCars: true,
         variant, accent: th.color, parkLower: artLowerPark(layout), spotX: basement ? null : (layout.roomDoorXs ? layout.roomDoorXs[wi] : null),
-        sharedBatch: R2B && ART_R2_SHARED.has(room) ? R2B : null };
+        sharedBatch: R2B && ART_R2_SHARED.has(room) ? R2B : null,
+        otherRoom: (layout.wings && layout.wings[tid] && layout.wings[tid][wing === 'L' ? 'R' : 'L']) || id };   // what the other wing is
       const h = R2_buildRoom(room, wing, rctx);
       for (const f of artR2Occupants(room, wing, rctx, fg, i * 10 + wi)) anims.push(f);
       if (rctx.spotX != null) (hooks.roomSpots = hooks.roomSpots || []).push({ x: rctx.spotX, z: -2.3, wing });   // clear strip, see R2_doorClear
@@ -1764,7 +1767,7 @@ function artBuildFloor(i, layout, parent, owned, ticks, SB, PB, R2B) {
       if (h.trainArrive) hooks.trainArrive = h.trainArrive;
       if (h.doorXs) hooks.trainDoorXs = h.doorXs;
       if (h.spawnPoints) hooks.spawnPoints = (hooks.spawnPoints || []).concat(h.spawnPoints);
-      if (h.occupy) { hooks.occupyToilet = h.occupy; hooks.toiletWing = wing; }
+      if (h.toiletVisit) { hooks.toiletVisit = h.toiletVisit; hooks.toiletLife = h.toiletLife; hooks.toiletWing = wing; }
       const W = rx1 - rx0, wc = (rx0 + rx1) / 2;                  // ceiling finish + corner shading for rooms2 rooms
       if (room === 'parking' && variant === 1 && wing === 'R') {   // lower garage: leave the internal ramp's opening open
         const I2 = ART_PARK.in2, hz = I2.holeZ, cp = (x0c, x1c, za, zb) => Ps(artPln(x1c - x0c, za - zb), '#BDB9B1', (x0c + x1c) / 2, CH - 0.003, (za + zb) / 2, Math.PI / 2, 0, 0, 1, 1, 1, conc);
@@ -1777,6 +1780,7 @@ function artBuildFloor(i, layout, parent, owned, ticks, SB, PB, R2B) {
   if (fg.userData.roomSpots) (hooks.roomSpots = hooks.roomSpots || []).push(...fg.userData.roomSpots);   // classic rooms' clear spots (artWing)
   artSeatList = null;
   if (seats.length) { const api = artSeatApi(seats, i); anims.push(api.tick); hooks.takeSeat = api.takeSeat; hooks.freeSeat = api.freeSeat; hooks.fillSeat = api.fillSeat; }
+  { const RS = ART_REST.get(y.toFixed(2)); if (RS && RS.K) hooks.restaurantLife = RS.life; }   // ordersTaken / mealsServed / platesWashed
   if (fg.userData.reception) { hooks.reception = fg.userData.reception; hooks.checkIn = () => { artKeyAt = artNow; }; }   // hotel reception (lobby)
   if (!SB) S.flush(fg, owned, false, true);
   if (hooks._bays || hooks._decor) { const life = artParkingLife(hooks._bays || [], hooks._ramp, y, fg, owned, hooks._decor, hooks._inner); delete hooks._inner; anims.push(life.tick); Object.assign(hooks, life.api); delete hooks._bays; delete hooks._ramp; delete hooks._decor; }
@@ -2042,8 +2046,9 @@ function artWingOccupants(id, wing, X, y, parent, sd, inStrip) {
     if (!R) { add('adult', 68, { look: 'dress', top: '#C9A46A' }, 'wave', 2.95, -3.3, 0.3); add('kid', 69, null, 'play', 1.0, -3.55, 0, 0.05); }
     else add('kid', 70, null, 'play', 5.2, -3.35, 0);
   } else if (id === 'pool') {
-    if (!R) { add('kid', 71, { look: 'casual' }, 'swim', 4.3, -3.3, PI / 2, -0.25); add('adult', 72, { look: 'casual', top: '#C8322A' }, 'guard', 6.15, -2.75, -0.4); }
-    else { add('kid', 80, { look: 'casual' }, 'swim', 1.85, -3.35, PI / 2, -0.25); add('adult', 81, { look: 'casual', top: '#5B7A99' }, 'wave', 3.4, -3.25, -PI / 2); }
+    if (!R) { const sw = { x: X(4.3), z: -3.3 };               // the lane pool: X(4.3), z -3.3, 2.8 x 1.6 inside, water 0.5 deep (artThemeProps pool)
+      out.push(artSwimmer(parent, 71 + sd * 17, X(4.3), -3.3, 2.8, y + 0.5, sw)); add('adult', 72, { look: 'casual', top: '#C8322A', lookAt: sw }, 'guard', 6.15, -2.75, -0.4); }
+    else { out.push(artPaddler(parent, 80 + sd * 17, X(1.85) - 0.3, -3.45, y, 0.5)); add('adult', 81, { look: 'casual', top: '#5B7A99' }, 'wave', 3.4, -3.25, -PI / 2); }
   } else if (id === 'library') {
     if (!R) { add('adult', 65, null, 'read', 2.9, -3.38, -0.6); add('adult', 66, { look: 'casual', top: '#6F8A5E' }, 'look', 5.85, -3.75, PI); }
     else add('kid', 67, null, 'look', 3.1, -3.8, PI);
@@ -2502,8 +2507,10 @@ function artThemeProps(id, k) {
     for (const yy of [0.18, 0.36]) Pw(artCyl(0.012, 0.012, 0.4, 5), ART_CHROME, lx + 0.15, yy, pz + pd / 2 - 0.35, PI / 2, 0, 0, 1, 1, 1, shiny);
     for (const rz of ropes) for (let xx = px - pw / 2 + 0.06, q = 0; xx < px + pw / 2 - 0.03; xx += 0.11, q++) Pw(artSph(0.032, 6, 4), q % 3 ? '#F4F4F4' : '#19C2D6', xx, WT + 0.006, rz);
     if (kidPool) {                                                // floating ring and beach ball
-      Pw(artTor(0.18, 0.06, 8, 18), '#E53935', px + pw * 0.25, WT + 0.02, pz + 0.25, PI / 2);
-      for (let q = 0; q < 4; q++) Pw(artTor(0.18, 0.065, 8, 4, PI / 6), '#F4F4F4', px + pw * 0.25, WT + 0.02, pz + 0.25, PI / 2, 0, q * PI / 2 + PI / 6);
+      const ringG = sub(px + pw * 0.25, WT + 0.02, pz + 0.25);    // the rubber ring bobs on the ripples
+      { const rb = new ArtBatch(); rb.add(artTor(0.18, 0.06, 8, 18), clay, artXf(0, 0, 0, PI / 2), '#E53935');
+        for (let q = 0; q < 4; q++) rb.add(artTor(0.18, 0.065, 8, 4, PI / 6), clay, artXf(0, 0, 0, PI / 2, 0, q * PI / 2 + PI / 6), '#F4F4F4'); flushTo(rb, ringG); }
+      anims.push((t) => { ringG.position.y = y + WT + 0.02 + Math.sin(t * 1.9) * 0.025; ringG.rotation.set(Math.sin(t * 1.1) * 0.06, 0, Math.sin(t * 1.3) * 0.08); });
       Pw(artSph(0.13, 12, 8), '#F2CF4A', px - pw * 0.3, WT + 0.07, pz - 0.35); Pw(artSph(0.132, 12, 8, 0, PI / 2), '#C8322A', px - pw * 0.3, WT + 0.07, pz - 0.35); Pw(artSph(0.132, 12, 8, PI, PI / 2), '#2F6FE0', px - pw * 0.3, WT + 0.07, pz - 0.35);
     } else {
       const duck = sub(px + 0.5, 0.52, pz - 0.1);
@@ -3179,6 +3186,9 @@ function buildPerson(kind, seed, opts) {
         lL.rotation.x = s * a; lR.rotation.x = -s * a; aL.rotation.x = -s * a * 0.9; aR.rotation.x = s * a * 0.9;
         rig.position.y = Math.abs(Math.cos(t * f)) * (run ? 0.07 : 0.04); if (run) rig.rotation.x = 0.12;
         if (dog) dog.position.y = Math.abs(Math.sin(t * f * 1.3)) * 0.05;
+      } else if (name === 'wash' || name === 'dry') {           // at a sink / under the hand dryer: hands together, rubbing
+        const w = Math.sin(t * (name === 'wash' ? 10 : 7)), up = name === 'dry' ? -0.25 : 0;
+        aL.rotation.set(-1.0 + up + 0.1 * w, 0, 0.42 + 0.08 * w); aR.rotation.set(-1.0 + up - 0.1 * w, 0, -0.42 - 0.08 * w); headG.rotation.x = 0.25;
       } else if (name === 'rise' || name === 'sit') {           // getting up from / sitting down on a seat (0.5 s)
         const c0 = name === 'rise' ? 1 - Math.min(1, t / 0.5) : Math.min(1, t / 0.5), c = c0 * c0 * (3 - 2 * c0);
         lL.rotation.x = lR.rotation.x = -1.45 * c; rig.position.y = (ART_SEAT_HIP - hip) * c;
@@ -3260,13 +3270,13 @@ function buildPerson(kind, seed, opts) {
    head merged; arms stay animated), at a fixed spot doing its job. Per figure: body, face, 2 arms, contact shadow. */
 let artOccList = null;                                       // occupants of the building being built (disposed with it)
 const ART_SEAT_HIP = 0.44;                                   // hips of anyone seated (chair and sofa seats are 0.45-0.5 high)
-const ART_SIT_POSES = new Set(['type', 'read', 'sit']);
+const ART_SIT_POSES = new Set(['type', 'read', 'sit', 'splash']);
 let artKeyAt = -99;                                          // art time the hotel receptionist last handed over a key (floor.checkIn)
-const ART_OCC_ARMS = { talk: 'L', cook: 'R', swim: 'LR', wave: 'R', guard: 'R', wash: 'LR', recept: 'R' };   // arms that keep moving per pose
+const ART_OCC_ARMS = { talk: 'L', cook: 'R', swim: 'LR', wave: 'R', guard: 'R', wash: 'LR', recept: 'R', splash: 'LR' };   // arms that keep moving per pose
 function artOccupant(parent, kind, seed, opts, pose, x, y, z, ry) {
   const h = buildPerson(kind, seed, opts), p = h._p, sit = ART_SIT_POSES.has(pose);
   h.group.position.set(x, y, z); h.group.rotation.y = ry || 0; parent.add(h.group);
-  const [aL, aR] = p.arms, base = h.group.position.clone(), ph = (seed % 7) * 0.9, moving = ART_OCC_ARMS[pose] || '';
+  const [aL, aR] = p.arms, base = h.group.position.clone(), ph = (seed % 7) * 0.9, moving = ART_OCC_ARMS[pose] || '', look = (opts && opts.lookAt) || null;
   const tick = (t) => {
     t += ph; const s = Math.sin;
     aL.rotation.set(0, 0, 0.1); aR.rotation.set(0, 0, -0.1);
@@ -3285,9 +3295,15 @@ function artOccupant(parent, kind, seed, opts, pose, x, y, z, ry) {
     else if (pose === 'play') { const hop = Math.abs(s(t * 4.2)); p.rig.position.y = hop * 0.16; aL.rotation.set(0, 0, -2.3 + 0.4 * s(t * 8)); aR.rotation.set(0, 0, 2.3 - 0.4 * s(t * 8)); }
     else if (pose === 'recept') { const k = artNow - artKeyAt, give = k >= 0 && k < 2.6;   // hotel reception: hands at the desk, a key held out on check-in
       aL.rotation.set(-1.0, 0, 0.3); aR.rotation.set(give ? -1.5 + 0.06 * s(k * 4) : -1.0 + 0.05 * s(t * 1.7), 0, give ? -0.05 : -0.3); }
+    else if (pose === 'splash') { aL.rotation.set(-0.9 - 0.6 * Math.abs(s(t * 6)), 0, 0.45); aR.rotation.set(-0.9 - 0.6 * Math.abs(s(t * 6 + Math.PI / 2)), 0, -0.45); }   // slapping the water
     else if (pose === 'guard') { const w = s(t * 0.6) > 0.85; aR.rotation.set(0, 0, w ? 2.5 + 0.3 * s(t * 7) : -0.1); aL.rotation.set(w ? 0 : -1.0, 0, w ? 0.1 : 0.9); }
     else { aL.rotation.set(0.05 * s(t), 0, 0.1); aR.rotation.set(-0.05 * s(t), 0, -0.1); }
     if (pose === 'type' || pose === 'read') p.rig.position.y = rest + 0.006 * s(t * 3.1);       // small breathing bob
+    if (look) {                                                // now and then the head follows something (the lifeguard: the swimmer)
+      const k = (t % 7) / 7, w = k < 0.6 ? artEase(k / 0.1) * artEase((0.6 - k) / 0.1) : 0;
+      let yaw = Math.atan2(look.x - h.group.position.x, look.z - h.group.position.z) - h.group.rotation.y;
+      yaw = Math.atan2(Math.sin(yaw), Math.cos(yaw)); p.headG.rotation.y = Math.max(-1.2, Math.min(1.2, yaw)) * w;
+    }
   };
   // freeze: legs, torso, head and the still arms (in their pose) merge into one mesh
   const rest = sit ? ART_SEAT_HIP - p.hip : 0;                  // seated: hips at seat height, thighs level, shins down
@@ -3296,7 +3312,7 @@ function artOccupant(parent, kind, seed, opts, pose, x, y, z, ry) {
   const take = (m) => { if (!m || !m.isMesh) return; const g = m.geometry.clone(); g.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, m.matrixWorld)); geos.push(g); m.parent.remove(m); };
   if (sit) { for (const l of p.legs) [...l.children].forEach((m) => m.parent.remove(m)); geos.push(...artSitLegs(p, ART_SEAT_HIP)); }
   else for (const l of p.legs) [...l.children].forEach(take);
-  take(p.torso); take(p.headMesh);
+  take(p.torso); if (!look) take(p.headMesh);                  // a head that turns stays its own mesh
   if (!moving.includes('L')) [...aL.children].forEach(take);
   if (!moving.includes('R')) [...aR.children].forEach(take);
   const body = new THREE.Mesh(mergeGeometries(geos, false), p.bodyMat); body.castShadow = false; p.rig.add(body);
@@ -3422,8 +3438,9 @@ let artSeatList = null;                       // seats of the floor being built 
 function artSeatAdd(h, wing, sx, sz, ry, standZ, sitting, kind, seed, opts) {
   if (!artSeatList || !h) return;
   const at = standZ == null, z = at ? sz : standZ;
-  artSeatList.push({ id: artSeatList.length, h, wing, x: sx, z, face: at ? ry : artYaw(sx, z, sx, sz), sit: at && !!sitting, kind, seed, opts: opts || null,
-    a: 1, want: 1, taken: false, held: false, reserved: false });
+  const e = { id: artSeatList.length, h, wing, x: sx, z, face: at ? ry : artYaw(sx, z, sx, sz), sit: at && !!sitting, kind, seed, opts: opts || null,
+    a: 1, want: 1, taken: false, held: false, reserved: false };
+  artSeatList.push(e); return e;
 }
 // floor handle API over a floor's seats (contract in handoff/EXTENSIONS.md): takeSeat / freeSeat / fillSeat, and the fade tick
 function artSeatApi(seats, fi) {
@@ -3519,11 +3536,16 @@ function artHotelMaidR(ctx, parent, sd) {
     { a: 'towels', d: 2.4, ry: -sg * PI / 2 },
     Object.assign({ a: 'push', x: X(hx0), ry: -sg * PI / 2, cart: -sg }, slow),     // pull it back, walking backwards
   ];
+  S.push({ a: 'walk', z: -2.85 });                             // step back from the cart's end first, so she never walks through it
   if (vb - va > 0.5) S.push({ a: 'walk', x: X(va), z: -2.95 }, Object.assign({ a: 'vac', x: X(vb) }, vs), Object.assign({ a: 'vac', x: X(va) }, vs));
   if (du != null) S.push({ a: 'walk', x: X(du), z: ctx.backZ + 0.6 }, { a: 'knock', d: 1.6, ry: PI }, { a: 'stand', d: 0.6, fade: 'out' },
     { a: 'stand', d: 2.6, fade: 'gone' }, { a: 'stand', d: 0.7, fade: 'in', ry: 0 });
-  if (!inStrip(c0 + 0.3, c0 + 0.9)) S.push({ a: 'walk', x: X(c0 + 0.6), z: -1.95 }, { a: 'wipe', d: 3.4, ry: 0, bend: 0.12, reach: -0.75 }, { a: 'walk', x: X(hx0), z: -1.85 });
-  else if (trolley != null) S.push({ a: 'walk', x: X(trolley), z: -3.0 }, { a: 'wipe', d: 3.4, ry: PI, bend: 0, reach: -1.45 });   // polish the brass rail
+  const cartL = cc - amp - 0.5;                                  // the console needs room to get past it, clear of the cart
+  const front = !inStrip(c0 + 0.3, c0 + 0.9) && cartL > c0 + 1.35;
+  if (front) S.push({ a: 'walk', x: X(c0 + 0.6), z: -1.95 }, { a: 'wipe', d: 3.4, ry: 0, bend: 0.12, reach: -0.75 },
+    { a: 'walk', x: X(c0 + 1.2) }, { a: 'walk', z: -1.72 }, { a: 'walk', x: X(hx0) });
+  else if (trolley != null) S.push({ a: 'walk', z: -2.95 }, { a: 'walk', x: X(trolley), z: -3.0 }, { a: 'wipe', d: 3.4, ry: PI, bend: 0, reach: -1.45 });   // polish the brass rail
+  if (!front) S.push({ a: 'walk', x: X(hx0), z: -2.85 });         // back round behind the cart to her end of it
   S.push({ a: 'walk', x: X(hx0), z: cz });
   let cx = X(cc + sg * amp); for (const s of S) { s.cartX = cx; if (s.cart) cx = s.x + s.cart * 0.85; }
   return [artHousekeeper(parent, 31 + sd * 17, ctx.y, S, X(hx0), cz, cz, [])];
@@ -3557,7 +3579,7 @@ function artHotelMaidL(ctx, parent, sd, v) {
   return [artHousekeeper(parent, 36 + sd * 17, ctx.y, S, X(rooms[0].ex), fz, null, beds)];
 }
 /* -------- restaurant: diners, the waiter, the chef -------- */
-function artDiner(parent, kind, seed, opts, x, y, z, ry) {
+function artDiner(parent, kind, seed, opts, x, y, z, ry, mode) {   // mode(): 'call' | 'eat' | 'idle' from the restaurant flow (optional)
   const h = buildPerson(kind, seed, Object.assign({ bare: true }, opts)), p = h._p, [aL, aR] = p.arms, hg = p.headG;
   hg.rotation.set(0, 0, 0);
   const off = artDinerRig(h, ART_SEAT_HIP), hy = -p.arm + p.armR * 0.3, mesh = (a) => a.children.find((o) => o.isMesh);
@@ -3567,10 +3589,12 @@ function artDiner(parent, kind, seed, opts, x, y, z, ry) {
   const rest = -Math.acos(Math.max(-1, Math.min(1, (p.shY + off - 0.8) / p.arm)));    // hands resting at table height
   const len = 3.0 + artHash01(seed * 7 + 3) * 1.8, ph = artHash01(seed * 13 + 5) * 30, sk = seed * 131;
   const acts = ['eat', 'eat', 'chat', 'eat', 'drink', 'chat', 'chat', 'raise', 'eat', 'drink', 'chat', 'eat'];
+  const eatActs = ['eat', 'eat', 'eat', 'drink', 'eat', 'chat'], idleActs = ['chat', 'chat', 'drink', 'chat', 'rest'];
   const tick = (t) => {
     t += ph;
     const sn = Math.sin, seg = Math.floor(t / len), u = t - seg * len, e = artEase(u / 0.5) * artEase((len - u) / 0.5);
-    const act = acts[Math.floor(artHash01(sk + seg * 977) * acts.length) % acts.length];
+    const md = mode ? mode() : null, list = md === 'eat' ? eatActs : md ? idleActs : acts;
+    const act = md === 'call' ? 'raise' : list[Math.floor(artHash01(sk + seg * 977) * list.length) % list.length];
     let lx = rest, lz = 0.18, rx = rest, rz = -0.18, hx = 0.06, hyw = 0;
     if (act === 'eat') { const q = (u % 1.7) / 1.7, b = artEase((q - 0.2) / 0.22) * (1 - artEase((q - 0.6) / 0.22)); rx = rest + (-2.25 - rest) * b; rz = -0.18 - 0.2 * b; hx = 0.2 - 0.25 * b; }
     else if (act === 'drink') { const b = artEase((u - 0.5) / 0.6) * (1 - artEase((u - len + 1.1) / 0.6)); lx = rest + (-2.2 - rest) * b; lz = 0.18 + 0.2 * b; hx = 0.06 - 0.3 * b; }
@@ -3640,11 +3664,17 @@ function artDiningRoom(ctx, parent, sd) {
   const chairs = []; for (const t of tables) for (const c of t.chairs) chairs.push({ c, t });
   const n = Math.min(5, Math.max(Math.min(chairs.length, 3), chairs.length - 1));   // one chair stays free when there are 4+
   const who = [['adult', { look: 'dress', top: '#B5655A' }], ['kid', null], ['grandma', null], ['adult', { look: 'suit', top: '#3E4B5E' }], ['adult', { look: 'casual', top: '#6F8A5E' }]];
+  const flow = ctx.otherRoom === 'restaurant';                  // the kitchen is the other wing: orders, cooking, serving, clearing, washing-up
+  for (const t of tables) { t.diners = []; t.F = { x: X(t.u + 0.28), z: t.z + 0.64, ry: artYaw(t.u + 0.28, t.z + 0.64, t.u, t.z) }; }
   for (let i = 0; i < n; i++) {                                 // hips a little forward of the chair centre: close to the table
-    const { c, t } = chairs[i], x = X(c.u + 0.03 * Math.sin(c.ry)), z = c.z + 0.03 * Math.cos(c.ry), sdd = 401 + i * 7 + sd * 17, tk = artDiner(parent, who[i][0], sdd, who[i][1], x, y, z, c.ry);
-    out.push(tk); artSeatAdd(tk.h, 'L', x, z, c.ry, Math.abs(c.ry) < 0.1 ? t.z + 0.62 : null, true, who[i][0], sdd, who[i][1]);   // behind a table: in and out in front of it
+    const { c, t } = chairs[i], x = X(c.u + 0.03 * Math.sin(c.ry)), z = c.z + 0.03 * Math.cos(c.ry), sdd = 401 + i * 7 + sd * 17;
+    const back = Math.abs(c.ry) < 0.1, d = { table: t, plate: null, px: back ? x : X(t.u + Math.sign(c.u - t.u) * 0.24), pz: back ? t.z - 0.12 : t.z };
+    const tk = artDiner(parent, who[i][0], sdd, who[i][1], x, y, z, c.ry, flow ? () => artDinerMode(d) : null);
+    out.push(tk); d.seat = artSeatAdd(tk.h, 'L', x, z, c.ry, back ? t.z + 0.62 : null, true, who[i][0], sdd, who[i][1]);   // behind a table: in and out in front of it
+    t.diners.push(d);
   }
   const px = ns >= 2 ? (stools[0] + stools[1]) / 2 : Math.min(W - 0.4, bu + bw / 2 + 0.35), pz = ns >= 2 ? -1.95 : -1.8;
+  if (flow) { out.push(artRestFlow(ctx, parent, sd, tables.filter((t) => t.diners.length), null, px, pz)); return out; }
   const F = tables.map((t) => ({ x: X(t.u + 0.28), z: t.z + 0.64, ry: artYaw(t.u + 0.28, t.z + 0.64, t.u, t.z) })), nT = F.length, S = [];
   for (let r = 0; r < nT; r++) {                                // serve one table, take the next one's order, clear the last one
     const A = r, B = (r + 1) % nT, C = (r + nT - 1) % nT;
@@ -3655,6 +3685,7 @@ function artDiningRoom(ctx, parent, sd) {
   out.push(artWaiter(parent, 41 + sd * 17, y, S, X(px), pz, tables.map((t) => [X(t.u), t.z])));
   return out;
 }
+function artDinerMode(d) { const tb = d.table; return tb.st === 'call' && tb.caller === d ? 'call' : tb.st === 'eating' && d.plate && d.plate.food > 0 ? 'eat' : 'idle'; }
 function artChef(parent, seed, y, S, x0, z0, flameAt) {
   let ladle = null, panG = null, food = null, knife = null, flame = null;
   const pose = (W, s, u, e) => {
@@ -3684,6 +3715,8 @@ function artChef(parent, seed, y, S, x0, z0, flameAt) {
 }
 // kitchen (restaurant right wing): stir the pot, toss a pan over a little flame, chop, plate up at the pass
 function artKitchen(ctx, parent, sd) {
+  const R = ctx.otherRoom === 'restaurant' ? ART_REST.get(ctx.y.toFixed(2)) : null;
+  if (R && artKitchenFlow(ctx, parent, sd, R)) return [];       // the dining wing's tick runs the cook
   const W = ctx.x1 - ctx.x0, X = (u) => ctx.x0 + u, PI = Math.PI, bz = ctx.backZ;
   const rc = (R2_fit(ctx, W * 0.42 - 0.6, 1.2, W) ?? 0.2) + 0.6, pw = Math.min(2.6, W * 0.45), pu = R2_fit(ctx, 0.3, pw, W), bu = R2_fit(ctx, W * 0.72, 0.5, W);   // as R2_restaurant
   const sz = -3.3, S = [{ a: 'stir', d: 4.5, ry: PI }, { a: 'flip', d: 3.9, ry: PI }];   // at the range: half a step back (the hood)
@@ -3691,6 +3724,264 @@ function artKitchen(ctx, parent, sd) {
   if (pu != null) S.push({ a: 'walk', x: X(pu + pw / 2), z: -2.62 }, { a: 'plate', d: 4.0, ry: 0 });
   S.push({ a: 'walk', x: X(rc - 0.1), z: sz });
   return [artChef(parent, 42 + sd * 17, ctx.y, S, X(rc - 0.1), sz, [X(rc - 0.3), ctx.y + 0.97, bz + 0.53])];
+}
+/* -------- restaurant flow: diners call, the waiter takes the order to the kitchen pass across the lane, the cook
+   fetches, cooks and plates it, the waiter serves, the diners eat (the food shrinks in steps), the waiter clears and the
+   cook washes the plates into the rack. All driven by state (tables, a plate pool), no timers that make food appear. */
+const ART_REST = new Map();                                     // per restaurant floor (key: floor y): dining wing + kitchen wing
+const ART_REST_EAT = 18;                                        // s for a diner to finish a plate
+const ART_REST_IDLE = [10, 25];                                 // s between a table's meals (after the plates are cleared)
+const ART_REST_LZ = -1.0, ART_REST_KZ = -3.0;                   // the waiter's line across the core (behind the queues) | the cook's line
+function artMoveStep(m, dt) {                                   // walk m along m.path; true once there
+  while (m.path.length) {
+    const q = m.path[0], dx = q[0] - m.x, dz = q[1] - m.z, d = Math.hypot(dx, dz);
+    if (d < 0.01) { m.x = q[0]; m.z = q[1]; m.path.shift(); continue; }
+    const st = Math.min(d, m.speed * dt); m.x += dx / d * st; m.z += dz / d * st; m.ry = Math.atan2(dx, dz); m.moving = true; return false;
+  }
+  m.moving = false; return true;
+}
+function artRunOps(w, dt) {                                     // a worker's job: ops { go: [[x, z]...] } | { act, t, face, start, end }
+  while (w.ops.length) {
+    const o = w.ops[0];
+    if (o.go) { if (!o.on) { o.on = true; w.m.path = o.go; } if (!artMoveStep(w.m, dt)) { w.act = 'walk'; return false; } w.ops.shift(); continue; }
+    if (!o.on) { o.on = true; o.left = o.t; w.actT = 0; if (o.start) o.start(); }
+    w.act = o.act; if (o.face != null) w.m.ry = o.face; w.actT += dt; o.left -= dt;
+    if (o.left > 0) return false;
+    w.ops.shift(); if (o.end) o.end();
+  }
+  w.act = 'idle'; return true;
+}
+// pose a staff rig (artStaffRig) for its mover and act; returns the forward unit vector (for carried things)
+function artPoseStaff(W, m, y, act, t, carry) {
+  const [lL, lR] = W.legs, [aL, aR] = W.arms;
+  W.h.group.position.set(m.x, y, m.z); W.h.group.rotation.y = m.ry;
+  lL.rotation.set(0, 0, 0); lR.rotation.set(0, 0, 0); aL.rotation.set(0, 0, 0.1); aR.rotation.set(0, 0, -0.1);
+  W.upper.rotation.set(0, 0, 0); W.headG.rotation.set(0, 0, 0); W.rig.position.y = 0;
+  if (act === 'walk') {
+    const w = Math.sin(t * 7.5) * 0.42; lL.rotation.x = w; lR.rotation.x = -w; W.rig.position.y = Math.abs(Math.cos(t * 7.5)) * 0.03;
+    if (carry) { aL.rotation.set(-1.15, 0, 0.25); aR.rotation.set(-1.15, 0, -0.25); } else { aL.rotation.x = -w * 0.8; aR.rotation.x = w * 0.8; }
+  } else if (carry) { aL.rotation.set(-1.15, 0, 0.25); aR.rotation.set(-1.15, 0, -0.25); }
+}
+// the dining wing (left): diners on the chairs, the waiter; joined by the kitchen wing (artKitchenFlow) on the same floor
+function artRestFlow(ctx, parent, sd, tables, diners, hx, hz) {
+  const X = (u) => ctx.x0 + u, y = ctx.y, PI = Math.PI;
+  const R = { y, tables, diners, K: null, cook: null, queue: [], dirty: [], life: { ordersTaken: 0, mealsServed: 0, platesWashed: 0 }, rnd: sd * 31 + 7 };
+  ART_REST.set(y.toFixed(2), R);
+  const rand = () => artHash01(++R.rnd * 7919);
+  const present = (tb) => { for (const d of tb.diners) if (d.seat && d.seat.taken) return false; return true; };   // someone away (lift, loo): the table waits
+  tables.forEach((tb, k) => { tb.st = 'idle'; tb.t = 4 + k * 9 + rand() * 4; tb.caller = null; tb.plates = []; });
+  // the waiter (staff rig), his tray and notepad
+  const h = buildPerson('adult', 41 + sd * 17, { look: 'suit', top: '#2E3236', bare: true }), W = artStaffRig(h), p = W.p;
+  parent.add(h.group); if (artOccList) artOccList.push(h);
+  const hy = -p.arm + p.armR * 0.3;
+  const tray = artPropMesh(parent, p.owned, [[artCyl(0.22, 0.21, 0.02, 16), '#C9CCD0', 0, 0, 0]]); tray.visible = false;
+  const pad = artPropMesh(W.arms[0], p.owned, [[artBox(0.1, 0.14, 0.012), '#FBFBF2', 0, hy - 0.05, p.armR + 0.01], [artBox(0.1, 0.025, 0.016), '#C84A3A', 0, hy + 0.01, p.armR + 0.012]]); pad.visible = false;
+  const w = { m: { x: X(hx), z: hz, ry: 0, path: [], speed: 1.25, moving: false }, ops: [], act: 'idle', actT: 0, job: null, home: true };
+  // plate pool: one instanced mesh for the plates, one for the food on them (scaled by what's left)
+  const N = Math.max(6, tables.reduce((n, t) => n + t.diners.length, 0) + 2), plates = [];
+  const pb = new ArtBatch(), fb = new ArtBatch(), pm = artPropMat();
+  pb.add(artCyl(0.1, 0.085, 0.016, 14), pm, artXf(0, 0.008, 0), '#FBFBF8'); pb.add(artTor(0.085, 0.006, 3, 16), pm, artXf(0, 0.016, 0, Math.PI / 2), '#E8E4DA');
+  fb.add(artSph(0.06, 8, 6), pm, artXf(0, 0.02, 0, 0, 0, 0, 1, 0.45, 1), '#F2C230'); fb.add(artSph(0.028, 6, 4), pm, artXf(0.012, 0.04, 0.01), '#D23A2E'); fb.add(artSph(0.02, 6, 4), pm, artXf(-0.03, 0.03, -0.015), '#6F8A5E');
+  const geoOf = (b) => { const l = b.parts.get(pm), g = mergeGeometries(l, false); l.forEach((q) => q.dispose()); p.owned.push(g); return g; };
+  const plateIM = new THREE.InstancedMesh(geoOf(pb), pm, N), foodIM = new THREE.InstancedMesh(geoOf(fb), pm, N);
+  for (const im of [plateIM, foodIM]) { im.frustumCulled = false; im.castShadow = false; parent.add(im); }
+  for (let i = 0; i < N; i++) plates.push({ st: 'rack', i, food: 0, d: null });
+  R.plates = plates; R.N = N;
+  const mtx = new THREE.Matrix4(), pos = new THREE.Vector3(), quat = new THREE.Quaternion(), scl = new THREE.Vector3(), eul = new THREE.Euler(), UP = new THREE.Quaternion();
+  const freeSlot = (st, n) => { for (let i = 0; i < n; i++) { let used = false; for (const q of plates) if (q.st === st && q.i === i) { used = true; break; } if (!used) return i; } return 0; };
+  R.freeSlot = freeSlot;
+  // waiter routes: everything via his line in front of the tables and across the core (ART_REST_LZ)
+  const via = (tx, tz) => [[w.m.x, ART_REST_LZ], [tx, ART_REST_LZ], [tx, tz]];
+  const passFront = () => [R.K.X(R.K.pu + 0.55), -1.42];       // in front of the pass's left end, where the plates are
+  const pickTable = (st) => { for (const tb of tables) if (tb.st === st && present(tb)) return tb; return null; };
+  const startJob = () => {
+    let tb = R.K ? pickTable('ready') : null;
+    if (tb) { tb.st = 'delivering'; const [fx, fz] = passFront();
+      w.ops = [{ go: via(fx, fz) }, { act: 'pick', t: 1, face: PI, end: () => { let k = 0; for (const q of tb.plates) { q.st = 'tray'; q.i = k++; } } },
+        { go: [[fx, ART_REST_LZ], [tb.F.x, ART_REST_LZ], [tb.F.x, tb.F.z]] },
+        { act: 'serve', t: 1.5, face: tb.F.ry, end: () => { for (const q of tb.plates) { q.st = 'table'; } tb.st = 'eating'; R.life.mealsServed++; } }];
+      return true; }
+    tb = R.K ? pickTable('empty') : null;
+    if (tb) { tb.st = 'clearing'; const [fx, fz] = passFront();
+      w.ops = [{ go: via(tb.F.x, tb.F.z) }, { act: 'clear', t: 1.5, face: tb.F.ry, end: () => { let k = 0; for (const q of tb.plates) { q.st = 'tray'; q.i = k++; q.food = 0; } } },
+        { go: [[tb.F.x, ART_REST_LZ], [fx, ART_REST_LZ], [fx, fz]] },
+        { act: 'drop', t: 1, face: PI, end: () => { for (const q of tb.plates) { q.i = -1; q.st = 'pass'; q.i = R.freeSlot('pass', R.K.slots); if (q.d) q.d.plate = null; q.d = null; R.dirty.push(q); }
+          tb.plates = []; tb.st = 'idle'; tb.t = ART_REST_IDLE[0] + rand() * (ART_REST_IDLE[1] - ART_REST_IDLE[0]); } }];
+      return true; }
+    tb = R.K ? pickTable('call') : null;
+    if (tb) { tb.st = 'ordering'; const [fx, fz] = passFront();
+      w.ops = [{ go: via(tb.F.x, tb.F.z) }, { act: 'order', t: 3, face: tb.F.ry, end: () => { R.life.ordersTaken++; tb.caller = null; } },
+        { go: [[tb.F.x, ART_REST_LZ], [fx, ART_REST_LZ], [fx, fz]] },
+        { act: 'ticket', t: 1, face: PI, end: () => { tb.st = 'cooking'; R.queue.push(tb); } }];
+      return true; }
+    return false;
+  };
+  const tick = (t, dt) => {
+    dt = Math.max(0, Math.min(0.1, dt || 0));
+    if (R.K) {
+      for (const tb of tables) {
+        if (!present(tb)) continue;                               // frozen while one of them is away
+        if (tb.st === 'idle') { tb.t -= dt; if (tb.t <= 0) { tb.st = 'call'; tb.caller = tb.diners[Math.floor(rand() * tb.diners.length) % tb.diners.length]; } }
+        else if (tb.st === 'eating') { let left = 0; for (const q of tb.plates) { q.food = Math.max(0, q.food - dt / ART_REST_EAT); left += q.food; } if (left <= 0) tb.st = 'empty'; }
+      }
+      if (!w.ops.length) { if (startJob()) w.home = false; else if (!w.home) { w.home = true; w.ops = [{ go: via(X(hx), hz) }, { act: 'idle', t: 0.5, face: 0 }]; } }
+      artRunOps(w, dt);
+      if (R.cook) R.cook.tick(t, dt);
+    }
+    // waiter pose, tray, notepad
+    let carry = false; for (const q of plates) if (q.st === 'tray') { carry = true; break; }
+    artPoseStaff(W, w.m, y, w.act, t, carry);
+    const [aL, aR] = W.arms, fx = Math.sin(w.m.ry), fz = Math.cos(w.m.ry);
+    if (w.act === 'order') { aL.rotation.set(-1.25, 0, 0.45); aR.rotation.set(-1.15 + 0.05 * Math.sin(t * 16), 0, -0.4 + 0.06 * Math.sin(t * 7)); W.headG.rotation.x = Math.sin(t * 1.7) > -0.3 ? 0.32 : 0.02; }
+    else if (w.act === 'ticket') aR.rotation.set(-1.45, 0, -0.1);
+    else if (w.act === 'pick' || w.act === 'serve' || w.act === 'clear' || w.act === 'drop') { W.upper.rotation.x = 0.15; aL.rotation.set(-1.1, 0, 0.25); aR.rotation.set(-1.1, 0, -0.25); }
+    pad.visible = w.act === 'order';
+    tray.visible = carry || w.act === 'pick' || w.act === 'serve' || w.act === 'clear' || w.act === 'drop';
+    const tx = w.m.x + fx * 0.42, tz = w.m.z + fz * 0.42, ty = y + 1.02;
+    tray.position.set(tx, ty, tz);
+    // plates: rack / cook's hands / pass / tray / table, food scaled by what's left (in thirds)
+    const rx = R.cook ? R.cook.m.x : 0, rz = R.cook ? R.cook.m.z : 0, cfx = R.cook ? Math.sin(R.cook.m.ry) : 0, cfz = R.cook ? Math.cos(R.cook.m.ry) : 1;
+    for (let i = 0; i < N; i++) {
+      const q = plates[i]; let upright = false;
+      if (!R.K) { pos.set(0, -50, 0); }
+      else if (q.st === 'rack') { pos.set(R.K.X(R.K.rack) - 0.2 + q.i * (0.4 / Math.max(1, N - 1)), y + 1.0, R.K.bz + 0.38); upright = true; }
+      else if (q.st === 'cook') { pos.set(rx + cfx * 0.4 + (q.n > 1 ? (q.i - (q.n - 1) / 2) * 0.2 * cfz : 0), y + 1.0 + (q.n > 1 ? 0 : q.i * 0.02), rz + cfz * 0.4 - (q.n > 1 ? (q.i - (q.n - 1) / 2) * 0.2 * cfx : 0)); }
+      else if (q.st === 'pass') { pos.set(R.K.X(R.K.pu + 0.25 + q.i * 0.24), y + 0.99, -1.95); }
+      else if (q.st === 'tray') { const dirty = q.food <= 0; pos.set(tx + (dirty ? 0 : (q.i - 0.5) * 0.12 * fz), ty + 0.012 + (dirty ? q.i * 0.02 : 0), tz - (dirty ? 0 : (q.i - 0.5) * 0.12 * fx)); }
+      else if (q.st === 'table' && q.d) { pos.set(q.d.px, y + 0.775, q.d.pz); }
+      else if (q.st === 'wash') { pos.set(R.K.X(R.K.sink), y + 0.95, R.K.bz + 0.38); }
+      eul.set(0, 0, upright ? Math.PI / 2 : 0); quat.setFromEuler(eul); scl.set(1, 1, 1);
+      mtx.compose(pos, quat, scl); plateIM.setMatrixAt(i, mtx);
+      const f = q.food > 0 ? Math.ceil(q.food * 3 - 1e-6) / 3 : 0;
+      scl.set(f > 0 ? 0.6 + 0.4 * f : 0, f > 0 ? f : 0, f > 0 ? 0.6 + 0.4 * f : 0); mtx.compose(pos, upright ? UP : quat, scl); foodIM.setMatrixAt(i, mtx);
+    }
+    plateIM.instanceMatrix.needsUpdate = true; foodIM.instanceMatrix.needsUpdate = true;
+  };
+  return tick;
+}
+// the kitchen wing (right) of a restaurant floor with a dining wing: the cook works the orders and the washing-up
+function artKitchenFlow(ctx, parent, sd, R) {
+  const X = (u) => ctx.x0 + u, y = ctx.y, PI = Math.PI, KP = R2_kitchenPlan(ctx);
+  if (KP.pc == null || KP.sink == null) return false;
+  R.K = Object.assign({ X, bz: ctx.backZ, slots: Math.max(4, Math.floor((KP.pw - 0.4) / 0.24) + 1) }, KP);
+  const h = buildPerson('adult', 42 + sd * 17, { look: 'chef', bare: true }), W = artStaffRig(h), p = W.p;
+  parent.add(h.group); if (artOccList) artOccList.push(h);
+  const hy = -p.arm + p.armR * 0.3, aR0 = W.arms[1];
+  const ladle = artPropMesh(aR0, p.owned, [[artCyl(0.012, 0.012, 0.34, 6), '#C9CCD0', 0, hy - 0.02, -0.15, Math.PI / 2], [artSph(0.045, 8, 6), '#C9CCD0', 0, hy - 0.02, -0.32]]);
+  const panG = new THREE.Group(); panG.position.set(0, hy, 0); aR0.add(panG);
+  artPropMesh(panG, p.owned, [[artCyl(0.11, 0.095, 0.035, 14), '#2A2A2A', 0, 0, 0.1], [artBox(0.03, 0.02, 0.12), '#2A2A2A', 0, 0.005, -0.04]]);
+  const pfood = artPropMesh(panG, p.owned, [[artCyl(0.075, 0.075, 0.02, 12), '#E8C84A', 0, 0, 0]]); pfood.position.set(0, 0.035, 0.1);
+  const flame = artPropMesh(parent, p.owned, [[artCone(0.07, 0.16, 8), '#FF7A1A', 0, 0.08, 0], [artCone(0.04, 0.1, 8), '#FFD84A', 0, 0.06, 0]], artFlameMat());
+  flame.position.set(X(KP.rc - 0.3), y + 0.97, ctx.backZ + 0.53);
+  ladle.visible = panG.visible = flame.visible = false;
+  const KZ = ART_REST_KZ, stove = [X(KP.rc - 0.1), -3.3], fridge = KP.fu != null ? [X(KP.fu + 0.5), -3.35] : null, board = KP.bu != null ? [X(KP.bu + 0.45), -3.55] : stove;
+  const sink = [X(KP.sink), -3.35], back = [X(KP.pu + 0.55), -2.62];
+  const c = { m: { x: stove[0], z: stove[1], ry: PI, path: [], speed: 1.1, moving: false }, ops: [], act: 'idle', actT: 0 };
+  const via = (pt) => [[c.m.x, KZ], [pt[0], KZ], [pt[0], pt[1]]];
+  const inRack = () => { let n = 0; for (const q of R.plates) if (q.st === 'rack') n++; return n; };
+  const job = () => {
+    const tb = R.queue[0];
+    if (tb && inRack() >= tb.diners.length) {                   // cook this table's order: fridge, pan, plates, pass
+      R.queue.shift(); const mine = [];
+      c.ops = [];
+      if (fridge) c.ops.push({ go: via(fridge) }, { act: 'fetch', t: 1.6, face: PI });
+      c.ops.push({ go: via(stove) }, { act: 'fry', t: 3.2, face: PI }, { act: 'stir', t: 2, face: PI },
+        { go: via([X(KP.rack), -3.35]) }, { act: 'take', t: 0.8, face: PI, end: () => { let k = 0; for (const q of R.plates) if (q.st === 'rack' && k < tb.diners.length) { q.st = 'cook'; q.i = k++; q.n = tb.diners.length; mine.push(q); } } },
+        { go: via(board) }, { act: 'plate', t: 1.6, face: PI, end: () => { for (const q of mine) q.food = 1; } },
+        { go: via(back) }, { act: 'set', t: 1, face: 0, end: () => { mine.forEach((q, k) => { q.i = -1; q.st = 'pass'; q.i = R.freeSlot('pass', R.K.slots); q.d = tb.diners[k]; q.d.plate = q; }); tb.plates = mine; tb.st = 'ready'; } });
+      return;
+    }
+    if (R.dirty.length) {                                        // the washing-up: from the pass to the sink, one by one into the rack
+      const mine = R.dirty.splice(0, R.dirty.length);
+      c.ops = [{ go: via(back) }, { act: 'take', t: 0.8, face: 0, end: () => mine.forEach((q, k) => { q.st = 'cook'; q.i = k; q.n = 1; }) }, { go: via(sink) }];
+      mine.forEach((q) => c.ops.push({ act: 'wash', t: 1.4, face: PI, start: () => { q.st = 'wash'; }, end: () => { q.i = -1; q.st = 'rack'; q.i = R.freeSlot('rack', R.N); R.life.platesWashed++; } }));
+      return;
+    }
+    c.ops = [{ go: via(stove) }, { act: 'stir', t: 2.5, face: PI }];   // nothing to do: keep the stock pot going
+  };
+  R.cook = { m: c.m, tick(t, dt) {
+    if (!c.ops.length) job();
+    artRunOps(c, dt);
+    let carry = false; for (const q of R.plates) if (q.st === 'cook') { carry = true; break; }
+    artPoseStaff(W, c.m, y, c.act, t, carry);
+    const [aL, aR] = W.arms, up = W.upper, sn = Math.sin, u = c.actT;
+    ladle.visible = c.act === 'stir'; panG.visible = flame.visible = c.act === 'fry';
+    if (c.act === 'stir') { up.rotation.x = 0.25; aR.rotation.set(-1.45 + 0.1 * sn(u * 4), 0, -0.25 + 0.2 * Math.cos(u * 4)); aL.rotation.set(-0.85, 0, 0.25); }
+    else if (c.act === 'fry') {
+      const qq = (u % 1.3) / 1.3, toss = qq < 0.22 ? Math.sin(qq / 0.22 * Math.PI) : 0, f = Math.min(1, Math.max(0, (qq - 0.1) / 0.45));
+      up.rotation.x = 0.15; aR.rotation.set(-1.2 - 0.3 * toss, 0, -0.2); aL.rotation.set(-0.8, 0, 0.2);
+      panG.quaternion.copy(up.quaternion).multiply(aR.quaternion).invert(); panG.rotateX(-0.3 * toss);
+      pfood.position.y = 0.035 + 0.3 * Math.sin(f * Math.PI); pfood.rotation.x = f * Math.PI * 2;
+      flame.scale.set(1, 0.8 + 0.4 * Math.abs(sn(u * 17)) + 0.6 * toss, 1);
+    }
+    else if (c.act === 'fetch') { up.rotation.x = 0.15; aL.rotation.set(-1.35 + 0.15 * sn(u * 5), 0, 0.2); aR.rotation.set(-1.35 - 0.15 * sn(u * 5), 0, -0.2); }
+    else if (c.act === 'take' || c.act === 'set') { up.rotation.x = 0.15; aL.rotation.set(-1.2, 0, 0.25); aR.rotation.set(-1.2, 0, -0.25); }
+    else if (c.act === 'plate') { up.rotation.x = 0.12; W.headG.rotation.x = 0.3; aL.rotation.set(-1.2, 0, 0.25); aR.rotation.set(-1.4 + 0.05 * sn(u * 19), 0, -0.3); }
+    else if (c.act === 'wash') { up.rotation.x = 0.25; aL.rotation.set(-0.95 + 0.12 * sn(u * 9), 0, 0.35); aR.rotation.set(-0.95 - 0.12 * sn(u * 9), 0, -0.35); }
+  } };
+  return true;
+}
+/* -------- pool: a child swimming lengths of the lane pool, a child splashing in the paddling pool -------- */
+function artSplashFx(parent, n) {                               // n pooled white puffs (one instanced mesh)
+  const fx = new THREE.InstancedMesh(artSph(1, 6, 4), artMatC('splash', () => new THREE.MeshBasicMaterial({ color: '#FFFFFF', transparent: true, opacity: 0.8, depthWrite: false })), n);
+  fx.frustumCulled = false; fx.renderOrder = 4; fx.castShadow = false; parent.add(fx); return fx;
+}
+// front crawl along the lane pool [px - pw/2, px + pw/2] at z pz: body level at the surface wy (water at the shoulders),
+// head up looking ahead, arms in alternating strokes, fast flutter kicks, the body rolling with each stroke; it slows at
+// each end, turns round (facing the room) and swims back. Splash puffs at the hands and feet, a faint wake ring.
+function artSwimmer(parent, seed, px, pz, pw, wy, shared) {
+  const h = buildPerson('kid', seed, { look: 'casual' }), p = h._p, g = h.group, S = 0.8, PI = Math.PI;
+  for (const o of [p.steam, p.blob]) if (o.parent) o.parent.remove(o);
+  g.traverse((o) => { o.castShadow = false; }); g.scale.setScalar(S); parent.add(g); if (artOccList) artOccList.push(h);
+  const { rig, legs, arms, headG } = p, half = h.height / 2;
+  rig.rotation.x = PI / 2; rig.position.set(0, 0, -half);        // lying face down, feet behind, head ahead (+z of the group)
+  const A = Math.max(0.15, pw / 2 - (half + 0.34) * S - 0.06), D = (2 * A) / 0.3, TURN = 1.5, PER = 2 * (D + TURN), ph = artHash01(seed * 7 + 1) * PER;
+  const fx = artSplashFx(parent, 6), ringM = new THREE.MeshBasicMaterial({ color: '#FFFFFF', transparent: true, opacity: 0.3, depthWrite: false });
+  const ring = new THREE.Mesh(artTor(0.45, 0.018, 3, 28), ringM); ring.rotation.x = PI / 2; ring.renderOrder = 4; parent.add(ring); p.owned.push(ringM);
+  const m4 = new THREE.Matrix4(), v = new THREE.Vector3(), q = new THREE.Quaternion(), sc = new THREE.Vector3();
+  let cx = px, cz = pz, hd = PI / 2;
+  const puff = (k, lx, lz, r) => {                               // a puff at the swimmer's local (lx, lz) on the water
+    v.set(cx + lz * Math.sin(hd) + lx * Math.cos(hd), wy + 0.02, cz + lz * Math.cos(hd) - lx * Math.sin(hd)); sc.set(r, r * 0.6, r);
+    m4.compose(v, q, sc); fx.setMatrixAt(k, m4);
+  };
+  const tick = (t) => {
+    t += ph;
+    const c = t % PER, back = c >= D + TURN, u = back ? c - D - TURN : c, dir = back ? -1 : 1;
+    let x, dip = 0, go = 1;
+    if (u < D) { x = dir * (-A + 2 * A * artEase(u / D)); hd = dir * PI / 2; go = 0.35 + 0.65 * Math.sin(PI * u / D); }   // slows at the ends
+    else { const k = artEase((u - D) / TURN); x = dir * A; hd = dir * PI / 2 * (1 - 2 * k); dip = Math.sin(PI * k) * 0.07; go = 0.3; }   // turn round, facing the room
+    cx = px + x; cz = pz; if (shared) { shared.x = cx; shared.z = cz; }
+    g.position.set(cx, wy - 0.07 - dip, cz); g.rotation.y = hd;
+    const f = (t * 0.75) % 1, aL = -PI + 2 * PI * f;            // reach ahead, pull down through the water, push back, recover over it
+    arms[0].rotation.set(aL, 0, 0.15); arms[1].rotation.set(aL + PI, 0, -0.15);   // the other arm half a stroke later
+    const kick = Math.sin(t * 13) * 0.32 * (0.5 + 0.5 * go);
+    legs[0].rotation.set(kick, 0, 0); legs[1].rotation.set(-kick, 0, 0);
+    rig.rotation.set(PI / 2, 0.28 * Math.sin(2 * PI * f), 0);  // roll with the stroke
+    headG.rotation.set(-1.15, -0.2 * Math.sin(2 * PI * f), 0);   // head up, eyes ahead, steadier than the body
+    // splash: a hand entering the water ahead (first quarter of its stroke), the kicking feet, two drops trailing behind
+    const front = (half + 0.25) * S, feet = -half * S;
+    for (let s2 = 0; s2 < 2; s2++) { const a = (f + s2 * 0.5) % 1, k2 = a < 0.22 ? Math.sin(PI * a / 0.22) : 0; puff(s2, (s2 ? -0.17 : 0.17) * S, front, 0.065 * k2 * (0.4 + 0.6 * go) + 0.0001); }
+    const kr = 0.03 + 0.02 * Math.abs(Math.sin(t * 13)); puff(2, 0.05, feet, kr * go + 0.0001); puff(3, -0.05, feet - 0.04, kr * go + 0.0001);
+    for (let s2 = 0; s2 < 2; s2++) { const a = (t * 1.3 + s2 * 0.5) % 1; puff(4 + s2, (s2 ? 0.08 : -0.08), feet - 0.1 - 0.35 * a, 0.035 * (1 - a) * go + 0.0001); }
+    fx.instanceMatrix.needsUpdate = true;
+    const w = (t * 0.8) % 1; ring.position.set(cx, wy + 0.004, cz); ring.scale.set(0.7 + 0.7 * w, 0.7 + 0.7 * w, 1); ringM.opacity = 0.32 * (1 - w) * go;
+  };
+  tick.h = h; tick(0);
+  return tick;
+}
+// paddling pool: a child sitting in the water (at the shoulders) slapping it with both hands; puffs where the hands land
+function artPaddler(parent, seed, x, z, y, wy) {
+  const tk = artOccupant(parent, 'kid', seed, { look: 'casual' }, 'splash', x, y + wy - 0.74, z, 0), ph = (seed % 7) * 0.9;
+  const fx = artSplashFx(parent, 4), m4 = new THREE.Matrix4(), v = new THREE.Vector3(), q = new THREE.Quaternion(), sc = new THREE.Vector3();
+  const f = (t) => {
+    tk(t); const tt = t + ph;
+    for (let k = 0; k < 2; k++) {
+      const s = Math.abs(Math.sin(tt * 6 + k * Math.PI / 2)), r = Math.max(0, 1 - s * 4) * 0.075 + 0.0001;   // the moment a hand slaps the water
+      for (let j = 0; j < 2; j++) { v.set(x + (k ? -0.24 : 0.24) + (j ? 0.06 : -0.04), y + wy + 0.03 + j * r * 0.6, z + 0.28 + j * 0.05); sc.set(r * (j ? 0.6 : 1), r * 0.7, r); m4.compose(v, q, sc); fx.setMatrixAt(k * 2 + j, m4); }
+    }
+    fx.instanceMatrix.needsUpdate = true;
+  };
+  f.h = tk.h; return f;
 }
 /* ======== art: time of day ======== */
 // artSetTime('day' | 'dusk' | 'night'): sky, sun/moon, fill, fog, lit windows, lamps; no rebuild. Bubbles, glow
@@ -4236,6 +4527,18 @@ function R2_hotel(P, ctx, wing) {
 }
 
 /* ======== rooms2: restaurant ======== */
+// kitchen layout (right wing), shared by R2_restaurant and the cook (artKitchenFlow): range, fridge, pass, board, and a
+// sink with a dish rack on a free stretch of the back counter (outside the door strip, clear of the range/fridge/board)
+function R2_kitchenPlan(ctx) {
+  const W = ctx.x1 - ctx.x0, d = R2_doorClear(ctx);
+  const rc = (R2_fit(ctx, W * 0.42 - 0.6, 1.2, W) ?? 0.2) + 0.6, fu = R2_fit(ctx, W - 1.15, 1.05, W);
+  const pw = Math.min(2.6, W * 0.45), pu = R2_fit(ctx, 0.3, pw, W), bu = R2_fit(ctx, W * 0.72, 0.5, W);
+  const segs = d ? [[0.1, d[0]], [d[1], W - 0.1]] : [[0.1, W - 0.1]], busy = [[rc - 0.65, rc + 0.65]];
+  if (fu != null) busy.push([fu - 0.05, fu + 1.1]); if (bu != null) busy.push([bu - 0.05, bu + 0.55]);
+  let sink = null;
+  for (const [a, b] of segs) for (let u = a + 0.4; u <= b - 0.85 && sink == null; u += 0.05) if (!busy.some(([p, q]) => u + 0.85 > p && u - 0.35 < q)) sink = u;
+  return { W, rc, fu, pu, pw, pc: pu != null ? pu + pw / 2 : null, bu, sink, rack: sink != null ? sink + 0.55 : null };
+}
 // dining tables (left wing) as [{ u, z, chairs: [{ u, z, ry }] }]: a chair each side where a table and two chairs fit
 // between the wall, the door strip and the bar (bu), else a two-seat table with both chairs behind it (facing the room)
 function R2_restTables(ctx, bu) {
@@ -4281,7 +4584,7 @@ function R2_restaurant(P, ctx, wing) {
       const { u, z } = tabs[k];
       P(R2_box(0.8, 0.04, 0.8), 'fabric', '#F6F3EC', u, 0.75, z); P(R2_box(0.84, 0.25, 0.84), 'fabric', '#F2EEE6', u, 0.62, z, 0, { sy: 1 });
       P(R2_cyl(0.04, 0.05, 0.5, 8), 'wood', '#3A2A1E', u, 0.25, z); P(R2_box(0.5, 0.03, 0.5), 'wood', '#3A2A1E', u, 0.015, z);
-      for (const s of [-1, 1]) { P(R2_cyl(0.11, 0.09, 0.015, 14), 'plastic', '#FBFBF8', u + s * 0.24, 0.775, z); P(R2_box(0.12, 0.01, 0.09), 'fabric', acc, u + s * 0.24, 0.79, z + 0.15, 0.3);
+      for (const s of [-1, 1]) { if (ctx.otherRoom !== 'restaurant') P(R2_cyl(0.11, 0.09, 0.015, 14), 'plastic', '#FBFBF8', u + s * 0.24, 0.775, z);   // real plates come from the kitchen P(R2_box(0.12, 0.01, 0.09), 'fabric', acc, u + s * 0.24, 0.79, z + 0.15, 0.3);
         P(R2_box(0.012, 0.005, 0.17), 'metal', '#C9CCD0', u + s * 0.38, 0.775, z); P(R2_cyl(0.03, 0.02, 0.13, 8), 'glass', '#F0F4F4', u + s * 0.2, 0.84, z - 0.18);
       }
       for (const c of tabs[k].chairs) R2_chair(P.local(c.u, 0, c.z, c.ry), '#5A3E2A', true, true);
@@ -4309,6 +4612,12 @@ function R2_restaurant(P, ctx, wing) {
       P(R2_box(w, 0.03, 0.3), 'metal', '#C9CCD0', c, 1.75, bz + 0.16); // wall shelf
       for (let x = s + 0.2; x < e - 0.1; x += 0.35) { const pk = ((x * 7) | 0) % 3; P(pk ? R2_cyl(0.09, 0.08, 0.14, 10) : R2_box(0.18, 0.1, 0.16), 'metal', pk ? '#A9ADB2' : '#D0D4D8', x, 1.84, bz + 0.16); }
     }
+    { const KP = R2_kitchenPlan(ctx);                           // sink and dish rack (the cook washes the plates here)
+      if (KP.sink != null) { const su = KP.sink, ru = KP.rack;
+        P(R2_box(0.62, 0.025, 0.55), 'metal', '#B9BEC3', su, 0.905, bz + 0.36); P(R2_box(0.5, 0.012, 0.4), 'plastic', '#3A3D42', su, 0.918, bz + 0.38);
+        P(R2_cyl(0.015, 0.015, 0.3, 8), 'metal', '#C9CCD0', su, 1.05, bz + 0.12); P(R2_cylZ(0.012, 0.16, 8), 'metal', '#C9CCD0', su, 1.2, bz + 0.2);
+        P(R2_box(0.46, 0.02, 0.32), 'metal', '#B7BCC1', ru, 0.915, bz + 0.38);
+        for (let k = 0; k < 9; k++) P(R2_box(0.006, 0.17, 0.3), 'metal', '#B7BCC1', ru - 0.22 + k * 0.055, 1.0, bz + 0.38); } }
     // range with 4 burners, oven door, hood + duct
     const ru = R2_fit(ctx, W * 0.42 - 0.6, 1.2, W) ?? 0.2, rc = ru + 0.6;
     P(R2_box(1.2, 0.9, 0.7), 'metal', '#A9ADB2', rc, 0.45, bz + 0.36); P(R2_box(1.2, 0.04, 0.72), 'plastic', '#1E1F21', rc, 0.92, bz + 0.36);
@@ -4330,7 +4639,7 @@ function R2_restaurant(P, ctx, wing) {
       P(R2_box(pw, 0.95, 0.55), 'metal', '#B9BEC3', pc, 0.475, pz); P(R2_box(pw + 0.04, 0.04, 0.6), 'metal', '#D0D4D8', pc, 0.97, pz);
       P(R2_box(pw, 0.03, 0.5), 'metal', '#D0D4D8', pc, 0.43, pz); for (const s of [-1, 1]) P(R2_box(0.04, 0.55, 0.04), 'metal', '#A9ADB2', pc + s * (pw / 2 - 0.05), 1.25, pz);
       P(R2_box(pw, 0.06, 0.4), 'metal', '#A9ADB2', pc, 1.55, pz); for (let k = 0; k < 3; k++) P(R2_box(0.3, 0.02, 0.1), 'glow', '#FFB070', pc - pw / 3 + k * pw / 3, 1.515, pz);
-      for (let k = 0; k < 3; k++) { const x = pc - pw / 3 + k * pw / 3; P(R2_cyl(0.13, 0.1, 0.02, 14), 'plastic', '#FBFBF8', x, 1.0, pz); P(R2_sph(0.06, 8, 6), 'plastic', ['#D8A040', '#C84A3A', '#6F8A5E'][k], x, 1.03, pz, 0, { sy: 0.5 }); }
+      if (ctx.otherRoom !== 'restaurant') for (let k = 0; k < 3; k++) { const x = pc - pw / 3 + k * pw / 3; P(R2_cyl(0.13, 0.1, 0.02, 14), 'plastic', '#FBFBF8', x, 1.0, pz); P(R2_sph(0.06, 8, 6), 'plastic', ['#D8A040', '#C84A3A', '#6F8A5E'][k], x, 1.03, pz, 0, { sy: 0.5 }); }
       P(R2_box(pw - 0.2, 0.02, 0.02), 'metal', '#8E949A', pc, 1.45, pz + 0.18); for (let k = 0; k < 5; k++) P(R2_box(0.08, 0.12, 0.003), 'plasticNC', '#FBFBF2', pc - 0.6 + k * 0.28, 1.38, pz + 0.19, (k - 2) * 0.05);
       P(R2_box(0.04, 0.25, 0.04), 'glow', '#FF5A3A', pc + pw / 2 - 0.15, 1.15, pz); }
     const bu = R2_fit(ctx, W * 0.72, 0.5, W); if (bu != null) { P(R2_box(0.45, 0.03, 0.3), 'wood', '#C9A46A', bu + 0.25, 0.915, bz + 0.4); for (let k = 0; k < 3; k++) P(R2_sph(0.045, 8, 6), 'plastic', '#D23A2E', bu + 0.12 + k * 0.09, 0.96, bz + 0.38);
@@ -4944,86 +5253,147 @@ function R2_toilets(P, ctx, wing) {
   P(R2_box(0.2, 0.36, 0.3), 'plastic', '#ECEBE6', dryX, 1.25, -3.45); P(R2_box(0.1, 0.04, 0.12), 'plastic', '#3A3D42', dryX + 0.03, 1.05, -3.45);
   P(R2_box(0.14, 0.4, 0.32), 'plastic', '#ECEBE6', towX, 1.35, -3.45); P(R2_box(0.02, 0.12, 0.2), 'plasticNC', '#FBFBF2', towX - 0.06, 1.12, -3.45);
   P(R2_cyl(0.15, 0.13, 0.45, 12), 'metal', '#B9BEC3', towX - 0.12, 0.225, -3.0);
-  // ---- animated parts: own meshes in the room group (no sun shadows)
+  // ---- animated parts: own meshes in the room group (no sun shadows). Nothing here appears or vanishes in view: every
+  // toilet user is a game person walking a visit (visit()), the cubicles are busy only while someone is inside, and
+  // the cleaner comes in from the core-side end of the room and leaves the same way.
   const g = ctx.group, Mt = R2_toiletMats(), mesh = (geo, mat, x, yy, z, parent = g) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, yy, z); m.castShadow = false; parent.add(m); return m; };
-  const cubs = T.items.filter((i) => i.kind === 'cub').map((it, k) => {
-    const dw = it.w - 0.14, hinge = new THREE.Group(); hinge.position.set(X(it.u0 + 0.07), y, fz); g.add(hinge);
+  const DOOR_OPEN = 1.45, CLZ = -1.95;                         // free doors stand open against the side wall; CLZ: the walking line in front of the partitions
+  const cubs = T.items.filter((i) => i.kind === 'cub').map((it) => {
+    const dw = it.w - 0.14, hinge = new THREE.Group(); hinge.position.set(X(it.u0 + 0.07), y, fz); hinge.rotation.y = DOOR_OPEN; g.add(hinge);
     mesh(R2_box(dw, 1.72, 0.03), Mt.door, dw / 2, 1.04, 0, hinge);
-    const lock = mesh(R2_cylZ(0.028, 0.012, 10), Mt.red, dw - 0.1, 1.2, 0.022, hinge);
-    const feet = new THREE.Group(); feet.position.set(X(it.u0 + it.w / 2), y, fz - 0.32); g.add(feet);
+    const lock = mesh(R2_cylZ(0.028, 0.012, 10), Mt.green, dw - 0.1, 1.2, 0.022, hinge);
+    const feet = new THREE.Group(); feet.position.set(X(it.u0 + it.w / 2), y, fz - 0.32); feet.visible = false; g.add(feet);
     for (const sx of [-0.07, 0.07]) mesh(R2_box(0.08, 0.06, 0.2), Mt.shoe, sx, 0.03, 0.04, feet);
-    return { hinge, lock, feet, a: 0, busy: k % 2 === 0, t: 2 + k * 3.1 + r() * 4, set: null };
+    return { x: X(it.u0 + it.w / 2), hinge, lock, feet, a: DOOR_OPEN, user: null };
   });
-  const water = T.sinks.map((x) => { const m = mesh(R2_cyl(0.012, 0.012, 0.16, 6), Mt.water, X(x), y + 0.98, bz + 0.205); m.visible = false; return m; });
+  const uris = T.items.filter((i) => i.kind === 'uri').map((it) => ({ x: X(it.u0 + it.w / 2), user: null }));
+  const binU = towX - 0.12;                                    // the bin in the wash area (z -3.0): sink users stand clear of it
+  const sinks = T.sinks.map((u) => { const m = mesh(R2_cyl(0.012, 0.012, 0.16, 6), Mt.water, X(u), y + 0.98, bz + 0.205); m.visible = false;
+    return { x: X(Math.min(binU - 0.42, Math.max(wa[0] + 0.35, u))), water: m, user: null }; });
+  const dryer = { x: X(wa[0] + 0.5), z: -3.2, user: null };   // stands facing the dryer on the partition (-x)
   const dryLit = mesh(R2_box(0.05, 0.02, 0.02), Mt.lit, X(dryX + 0.06), y + 1.4, -3.3); dryLit.visible = false;
-  const seed = (r() * 1e6) | 0;
-  const person = (kind, k, opts, pose, u, z, ry) => { const tk = artOccupant(g, kind, seed + k * 7919, opts, pose, X(u), y, z, ry); const h = tk.h; h.setOpacity(0); return { tk, h, a: 0, want: 0, shown: 0 }; };
-  const wA = person('adult', 1, { look: 'casual' }, 'wash', T.sinks[0], -3.55, PI), wB = person('kid', 2, null, 'wash', T.sinks[1], -3.6, PI);
-  const dry = person('adult', 3, { look: 'dress' }, 'wash', dryX + 0.42, -3.45, -PI / 2);
-  const cl = person('adult', 4, { look: 'casual', top: '#5FB8A6' }, 'push', s, -2.3, PI / 2);
-  // cleaner's cart and mop (R2 batch flushed into small groups), wet patch, wet-floor sign
-  const cart = new THREE.Group(), mop = new THREE.Group(); g.add(cart); g.add(mop); cart.visible = mop.visible = false;
-  { const CB = new R2_Batch(), Q = R2_placer(CB, { x0: 0, y: 0 });
-    Q(R2_box(0.5, 0.04, 0.36), 'plastic', '#F2C230', 0, 0.12, 0); Q(R2_box(0.32, 0.26, 0.3), 'plastic', '#F2C230', -0.06, 0.27, 0);
-    Q(R2_box(0.3, 0.02, 0.28), 'plastic', '#5FB8E8', -0.06, 0.39, 0); Q(R2_box(0.12, 0.16, 0.24), 'plastic', '#3A3D42', 0.16, 0.48, 0);
-    Q(R2_box(0.04, 0.6, 0.04), 'metal', '#C9CCD0', 0.22, 0.42, 0); Q(R2_cylZ(0.015, 0.36, 6), 'metal', '#C9CCD0', 0.22, 0.72, 0);
-    for (const [x, z] of [[-0.22, -0.15], [0.22, -0.15], [-0.22, 0.15], [0.22, 0.15]]) Q(R2_sph(0.035, 6, 4), 'plastic', '#222', x, 0.035, z);
-    CB.flush(cart);
-    const MB = new R2_Batch(), Qm = R2_placer(MB, { x0: 0, y: 0 });
-    Qm(R2_cyl(0.014, 0.014, 1.25, 6), 'metal', '#C9CCD0', 0, 0.62, 0); Qm(R2_box(0.32, 0.06, 0.12), 'fabric', '#ECEAE2', 0, 0.03, 0);
-    MB.flush(mop); }
-  const CLZ = -1.95;                                           // the cleaner's line: in front of the partitions and cubicles (they reach z -2.25)
+  const life = { visits: 0, inNow: 0, done: 0 }, ex = X(s);   // ex: in and out at the wing's clear spot, on the CLZ line
+  const walk = (v, dt) => {                                    // along v.path at v.speed; true once there
+    while (v.path.length) {
+      const q = v.path[0], dx = q[0] - v.x, dz = q[1] - v.z, d = Math.hypot(dx, dz);
+      if (d < 0.01) { v.x = q[0]; v.z = q[1]; v.path.shift(); continue; }
+      const st = Math.min(d, v.speed * dt); v.x += dx / d * st; v.z += dz / d * st; v.rot = Math.atan2(dx, dz); v.anim = 'walk'; return false;
+    }
+    return true;
+  };
+  const nearest = (list, x) => { let b = null, bd = 1e9; for (const q of list) if (!q.user && Math.abs(q.x - x) < bd) { bd = Math.abs(q.x - x); b = q; } return b; };
+  const outTo = (v) => { v.ph = 'out'; v.path.push([v.x, CLZ], [ex, CLZ]); };
+  // one visit: in from the lane to CLZ -> a free cubicle (door opens, in, door shuts: hidden, red lock, feet; out again)
+  // or a urinal -> a free sink (2-3 s) -> the dryer (2 s) -> back to the spot on CLZ (done; the game walks them on)
+  const step = (v, dt) => {
+    if (v.done) return;
+    v.t -= dt;
+    switch (v.ph) {
+      case 'in': if (walk(v, dt)) v.ph = 'pick'; break;
+      case 'pick': {
+        v.anim = 'idle'; v.rot = Math.PI;
+        let tgt = !v.kid && r() < 0.45 ? nearest(uris, v.x) : null, uri = !!tgt;
+        if (!tgt) tgt = nearest(cubs, v.x);
+        if (!tgt && !v.kid) { tgt = nearest(uris, v.x); uri = !!tgt; }
+        if (!tgt) { v.wait += dt; if (v.wait > 12) { v.wait = 0; v.ph = 'sink'; } break; }   // all busy: wait a little, then just wash
+        tgt.user = v; v.res = tgt; v.path.push([tgt.x, CLZ], [tgt.x, uri ? bz + 0.62 : fz + 0.45]); v.ph = uri ? 'toUri' : 'toCub'; break;
+      }
+      case 'toCub': if (walk(v, dt)) { v.ph = 'enter'; v.path.push([v.res.x, fz - 0.42]); } break;
+      case 'enter': if (walk(v, dt)) { v.ph = 'close'; v.t = 0.6; } break;
+      case 'close': v.rot = 0; v.anim = 'idle'; if (v.t <= 0) { v.hidden = true; v.ph = 'inside'; v.t = v.stay; } break;
+      case 'inside': if (v.t <= 0) { v.hidden = false; v.ph = 'open'; v.t = 0.6; } break;
+      case 'open': v.rot = 0; v.anim = 'idle'; if (v.t <= 0) { v.ph = 'leave'; v.path.push([v.res.x, fz + 0.45], [v.res.x, CLZ]); } break;
+      case 'toUri': if (walk(v, dt)) { v.ph = 'uri'; v.t = Math.max(4, v.stay * 0.4); } break;
+      case 'uri': v.rot = Math.PI; v.anim = 'idle'; if (v.t <= 0) { v.ph = 'leave'; v.path.push([v.res.x, CLZ]); } break;
+      case 'leave': if (walk(v, dt)) { v.res.user = null; v.res = null; v.ph = 'sink'; } break;
+      case 'sink': {
+        const k = nearest(sinks, v.x); v.anim = 'idle'; v.rot = Math.PI;
+        if (!k) { v.wait += dt; if (v.wait > 6) outTo(v); break; }
+        k.user = v; v.sk = k; v.path.push([k.x, CLZ], [k.x, -3.62]); v.ph = 'toSink'; break;
+      }
+      case 'toSink': if (walk(v, dt)) { v.ph = 'wash'; v.t = 2 + r(); } break;
+      case 'wash': v.rot = Math.PI; v.anim = 'wash';
+        if (v.t <= 0) { v.sk.user = null; v.sk = null; if (!dryer.user) { dryer.user = v; v.path.push([dryer.x, dryer.z]); v.ph = 'toDry'; } else outTo(v); }
+        break;
+      case 'toDry': if (walk(v, dt)) { v.ph = 'dry'; v.t = 2; } break;
+      case 'dry': v.rot = -Math.PI / 2; v.anim = 'dry'; if (v.t <= 0) { dryer.user = null; outTo(v); } break;
+      case 'out': if (walk(v, dt)) { v.done = true; v.anim = 'idle'; life.inNow--; life.done++; } break;
+    }
+  };
+  const visit = (o) => {                                         // o: { x, z (where they are: the lane at the spot), kid, stay (s inside), speed }
+    const v = { x: o.x, z: o.z, rot: Math.PI, anim: 'walk', hidden: false, done: false, ph: 'in', t: 0, wait: 0, res: null, sk: null,
+      kid: !!o.kid, stay: o.stay || 10, speed: o.speed || 1.3, path: [[o.x, CLZ]] };
+    v.update = (dt) => step(v, Math.max(0, Math.min(0.25, dt || 0)));
+    life.visits++; life.inNow++;
+    return v;
+  };
+  // the cleaner (a walking figure) with her cart and mop (one fading material) and the wet-floor sign
+  const cartM = R2_MAT.tl_cart || (R2_MAT.tl_cart = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, envMapIntensity: 0.6, transparent: true }));
+  const junk = [], cart = new THREE.Group(), mop = new THREE.Group(); g.add(cart); g.add(mop); cart.visible = mop.visible = false;
+  artPropMesh(cart, junk, [[artBox(0.5, 0.04, 0.36), '#F2C230', 0, 0.12, 0], [artBox(0.32, 0.26, 0.3), '#F2C230', -0.06, 0.27, 0], [artBox(0.3, 0.02, 0.28), '#5FB8E8', -0.06, 0.39, 0],
+    [artBox(0.12, 0.16, 0.24), '#3A3D42', 0.16, 0.48, 0], [artBox(0.04, 0.6, 0.04), '#C9CCD0', 0.22, 0.42, 0], [artCyl(0.015, 0.015, 0.36, 6), '#C9CCD0', 0.22, 0.72, 0, Math.PI / 2],
+    ...[[-0.22, -0.15], [0.22, -0.15], [-0.22, 0.15], [0.22, 0.15]].map(([x, z]) => [artSph(0.035, 6, 4), '#222222', x, 0.035, z])], cartM);
+  artPropMesh(mop, junk, [[artCyl(0.014, 0.014, 1.25, 6), '#C9CCD0', 0, 0.62, 0], [artBox(0.32, 0.06, 0.12), '#ECEAE2', 0, 0.03, 0]], cartM);
+  const clH = buildPerson('adult', ((r() * 1e6) | 0) + 4 * 7919, { look: 'casual', top: '#5FB8A6', bare: true }); g.add(clH.group); clH.setOpacity(0);
+  if (artOccList) artOccList.push(clH);
   const wet = mesh(R2_plnUp(1, 0.9), Mt.wet, 0, y + 0.012, CLZ); wet.visible = false;
   const sign = new THREE.Group(); g.add(sign); sign.visible = false;
   for (const sd of [-1, 1]) { const m = mesh(R2_pln(0.32, 0.48), Mt.sign, 0, 0.23, sd * 0.07, sign); m.rotation.x = sd * -0.25; }
-  const C = { ph: 'wait', t: 10 + r() * 25, x: X(s), z: CLZ, face: 1, side: 0, x0: 0, x1: 0, sx: 0, wet: 0 };
-  const fadeTo = (o, w) => { o.want = w; };
-  let wT = r() * 8, kT = 5 + r() * 10;
-  return { tick(t, dt) {
-    dt = Math.max(0, Math.min(0.1, dt || 0));
-    // cubicles: closed with a red lock and feet under the door for a while, then open with a green lock
-    for (const c of cubs) {
-      c.t -= dt; if (c.t <= 0) { c.busy = !c.busy; c.t = c.busy ? 6 + r() * 8 : 3 + r() * 6; }
-      c.a += ((c.busy ? 0 : 0.95) - c.a) * Math.min(1, dt * 4); c.hinge.rotation.y = c.a;
-      const lk = c.busy ? Mt.red : Mt.green; if (c.lock.material !== lk) c.lock.material = lk;
-      c.feet.visible = c.busy && c.a < 0.05;
-    }
-    // hand washing: an adult at an outer sink (then at the dryer), a child now and then at the middle sink
-    wT += dt; if (wT > 14) { wT = 0; const k = r() < 0.5 ? 0 : 2; wA.h.group.position.x = X(T.sinks[k]); }
-    fadeTo(wA, wT < 5 ? 1 : 0); fadeTo(dry, wT > 5.6 && wT < 9.5 ? 1 : 0);
-    kT -= dt; if (kT < -6) kT = 12 + r() * 14; fadeTo(wB, kT < 0 ? 1 : 0);
-    // the cleaner
-    const sp = 1.0, go = (tx, v) => { const d = tx - C.x; if (Math.abs(d) < 0.02) { C.x = tx; return true; } C.face = Math.sign(d); C.x += Math.sign(d) * Math.min(Math.abs(d), v * dt); return false; };
-    if (C.ph === 'wait') { C.t -= dt; fadeTo(cl, 0);
-      if (C.t <= 0 && cl.a < 0.02) { const seg = C.side ? T.gents : T.ladies; C.side ^= 1;
-        if (seg[1] - seg[0] < 0.8) { C.t = 20; } else {
-          const nearL = Math.abs(seg[0] - s) < Math.abs(seg[1] - s);
-          C.x0 = X(nearL ? seg[0] + 0.35 : seg[1] - 0.35); C.x1 = X(nearL ? seg[1] - 0.3 : seg[0] + 0.3); C.x = X(s); C.z = CLZ; C.ph = 'in'; } } }
-    else if (C.ph === 'in') { fadeTo(cl, 1); if (cl.a > 0.9 && go(C.x0, sp)) { C.ph = 'mop'; C.sx = C.x0 - Math.sign(C.x1 - C.x0) * 0.4; sign.position.set(C.sx, y, CLZ + 0.1); sign.rotation.y = 0.4; sign.visible = true; C.wet = 0.55; } }
-    else if (C.ph === 'mop') { if (go(C.x1, 0.35)) { C.ph = 'dry'; C.t = 7; } }
+  // she comes in at the core-side end and keeps her cart on the room side of her (pushed going in, pulled going out),
+  // its whole footprint (0.5 x 0.36) on the CLZ line, in front of the partitions and between the end walls
+  const inDir = wing === 'R' ? 1 : -1, coreU = wing === 'R' ? 0.3 : W - 0.3, CART = 0.6, cMin = 0.1 + 0.25, cMax = W - 0.1 - 0.25;
+  const jobs = [T.A, T.B].map((seg) => {                        // mop each half from its core-side end outwards
+    let a = inDir > 0 ? seg[0] + 0.3 : seg[1] - 0.3, b = inDir > 0 ? seg[1] - 0.3 : seg[0] + 0.3;
+    a = inDir > 0 ? Math.max(a, coreU + 0.5) : Math.min(a, coreU - 0.5);
+    b = inDir > 0 ? Math.min(b, cMax - CART) : Math.max(b, cMin + CART);
+    return (b - a) * inDir > 0.6 ? { a, b } : null;
+  }).filter(Boolean);
+  const C = { ph: 'off', t: 12 + r() * 20, u: coreU, face: inDir, a: 0, job: 0, wet: 0, su: 0 };
+  const go = (tu, v, dt) => { const d = tu - C.u; if (Math.abs(d) < 0.01) { C.u = tu; return true; } C.face = Math.sign(d); C.u += Math.sign(d) * Math.min(Math.abs(d), v * dt); return false; };
+  const cleaner = (t, dt) => {
+    let moving = false, mopping = false;
+    if (C.ph === 'off') { C.t -= dt; if (C.t <= 0 && jobs.length) { C.ph = 'appear'; C.u = coreU; C.face = inDir; C.J = jobs[C.job++ % jobs.length]; } }
+    else if (C.ph === 'appear') { C.a = Math.min(1, C.a + dt / 0.5); if (C.a >= 1) C.ph = 'go'; }
+    else if (C.ph === 'go') { moving = true; if (go(C.J.a, 0.9, dt)) { C.ph = 'mop'; C.su = C.J.a - inDir * 0.4; sign.position.set(X(C.su), y, CLZ + 0.1); sign.rotation.y = 0.4; sign.visible = true; C.wet = 0.55; } }
+    else if (C.ph === 'mop') { moving = mopping = true; if (go(C.J.b, 0.35, dt)) { C.ph = 'dry'; C.t = 7; } }
     else if (C.ph === 'dry') { C.t -= dt; C.wet = Math.max(0, 0.55 * C.t / 7); if (C.t <= 0) C.ph = 'back'; }
-    else if (C.ph === 'back') { if (go(C.sx + Math.sign(C.x1 - C.x0) * 0.4, sp)) { sign.visible = false; C.ph = 'out'; } }
-    else if (C.ph === 'out') { if (go(X(s), sp)) { fadeTo(cl, 0); C.ph = 'wait'; C.t = 30 + r() * 20; } }
-    const moving = C.ph === 'in' || C.ph === 'mop' || C.ph === 'back' || C.ph === 'out';
-    cl.h.group.position.set(C.x, y + (moving && cl.a > 0.9 ? Math.abs(Math.sin(t * 9)) * 0.02 : 0), C.z); cl.h.group.rotation.y = C.face * PI / 2;
-    cart.visible = mop.visible = cl.a > 0.3; cart.position.set(C.x + C.face * 0.6, y, C.z); cart.rotation.y = 0;
-    mop.position.set(C.x - C.face * 0.45, y, C.z); mop.rotation.z = C.face * (0.35 + (C.ph === 'mop' ? 0.15 * Math.sin(t * 5) : 0));
-    if (C.ph === 'mop' || C.ph === 'dry') { const a = Math.min(C.x0, C.x - C.face * 0.3), b = Math.max(C.x0, C.x - C.face * 0.3);
-      if (C.ph === 'mop') { wet.position.x = (a + b) / 2; wet.scale.x = Math.max(0.01, b - a); } }
-    wet.visible = C.wet > 0.01 && (C.ph === 'mop' || C.ph === 'dry'); Mt.wet.opacity = C.wet;
-    // fades and the occupants' own arm animation; water runs while someone washes, the dryer lamp while it's used
-    for (const o of [wA, wB, dry, cl]) {
-      o.a += (o.want - o.a) * Math.min(1, dt * 5); if (o.a < 0.01) o.a = o.want ? o.a : 0;
-      const q = Math.round(o.a * 50) / 50; if (q !== o.shown) { o.shown = q; o.h.setOpacity(q); }
-      if (o.a > 0.01) o.tk(t);
+    else if (C.ph === 'back') { moving = true; if (go(C.su + inDir * 0.35, 0.9, dt)) { sign.visible = false; C.ph = 'leave'; } }
+    else if (C.ph === 'leave') { moving = true; if (go(coreU, 0.9, dt)) C.ph = 'vanish'; }
+    else if (C.ph === 'vanish') { C.a = Math.max(0, C.a - dt / 0.5); if (C.a <= 0) { C.ph = 'off'; C.t = 30 + r() * 20; } }
+    const on = C.a > 0.001, x = X(C.u), cu = Math.min(cMax, Math.max(cMin, C.u + inDir * CART));
+    clH.group.visible = on; cart.visible = mop.visible = on;
+    if (on) {
+      if (C.shownA !== C.a) { C.shownA = C.a; clH.setOpacity(C.a); }
+      cartM.opacity = C.a;
+      clH.group.position.set(x, y, CLZ); clH.group.rotation.y = C.face * PI / 2;
+      clH.setAnim(moving ? 'walk' : 'idle', t);
+      const [aL, aR] = clH._p.arms;
+      if (mopping) { aL.rotation.set(-0.7 + 0.15 * Math.sin(t * 5), 0, 0.2); aR.rotation.set(-0.5 + 0.15 * Math.sin(t * 5), 0, -0.2); }
+      else if (C.face === inDir) { aL.rotation.set(-1.2, 0, 0.12); aR.rotation.set(-1.2, 0, -0.12); }   // pushing the cart in front
+      else aR.rotation.set(0.45, 0, -0.1);                                                                // pulling it behind
+      cart.position.set(X(cu), y, CLZ); cart.rotation.y = 0;
+      if (mopping) { mop.position.set(x - C.face * 0.45, y, CLZ); mop.rotation.set(0, 0, C.face * (0.35 + 0.15 * Math.sin(t * 5))); }
+      else { mop.position.set(X(cu) - 0.06, y + 0.3, CLZ - 0.08); mop.rotation.set(0, 0, 0.12); }   // in the bucket
     }
-    water.forEach((m, k) => { m.visible = (wA.a > 0.5 && Math.abs(wA.h.group.position.x - X(T.sinks[k])) < 0.05) || (k === 1 && wB.a > 0.5); });
-    dryLit.visible = dry.a > 0.5;
-  },
-  occupy(sec) {                                                // a game visitor: a free cubicle closes (red lock, feet) for sec seconds
-    const c = cubs.find((q) => !q.busy) || cubs[0]; if (!c) return false;
-    c.t = c.busy ? Math.max(c.t, sec || 20) : sec || 20; c.busy = true; return true;
-  } };
+    if (C.ph === 'mop' || C.ph === 'dry') { if (C.ph === 'mop') { const a0 = Math.min(X(C.su), x - C.face * 0.3), b0 = Math.max(X(C.su), x - C.face * 0.3); wet.position.x = (a0 + b0) / 2; wet.scale.x = Math.max(0.01, b0 - a0); } }
+    wet.visible = C.wet > 0.01 && (C.ph === 'mop' || C.ph === 'dry'); Mt.wet.opacity = C.wet;
+  };
+  return {
+    tick(t, dt) {
+      dt = Math.max(0, Math.min(0.1, dt || 0));
+      for (const c of cubs) {                                    // doors: shut (red lock, feet under the door) only while someone is inside
+        const u = c.user, shut = !!u && (u.ph === 'close' || u.ph === 'inside');
+        c.a += ((shut ? 0 : DOOR_OPEN) - c.a) * Math.min(1, dt * 5); c.hinge.rotation.y = c.a;
+        const lk = shut ? Mt.red : Mt.green; if (c.lock.material !== lk) c.lock.material = lk;
+        c.feet.visible = !!u && u.ph === 'inside';
+      }
+      for (const k of sinks) k.water.visible = !!k.user && k.user.ph === 'wash';
+      dryLit.visible = !!dryer.user && dryer.user.ph === 'dry';
+      cleaner(t, dt);
+    },
+    visit, life,
+    _test: { cubs, uris, sinks, dryer, C, jobs, cart, coreU, inDir, cMin, cMax, CLZ, step, visit },
+  };
 }
 
 /* basement wing for residents: a bike room (bikes in a floor rack, helmets, a pump, a scooter) or a laundry
@@ -5132,7 +5502,7 @@ function R2_buildRoom(themeId, wing, ctx) {
   const nTrain = group.children.length, meshes = ctx.sharedBatch ? [] : B.flush(group), h = { group, update: () => {}, meshes: meshes.length, tris: B.tris };
   if (extra.spawnPoints) h.spawnPoints = extra.spawnPoints;
   if (extra.tick) ticks.push(extra.tick);                    // a builder's own animation (toilets: doors, washing, cleaner)
-  if (extra.occupy) h.occupy = extra.occupy;                 // toilets: a game visitor keeps a cubicle busy
+  if (extra.visit) { h.toiletVisit = extra.visit; h.toiletLife = extra.life; }   // toilets: game people walk a visit
   if (extra.bays) { h.bays = extra.bays; h.ramp = extra.ramp; h.decor = extra.decor; if (extra.inner) h.inner = extra.inner; }
   if (extra.steamAt) {                                       // kitchen steam: one merged puff mesh that rises and fades
     const sm = new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.0, depthWrite: false });
@@ -5386,7 +5756,10 @@ function setupLevel(i) {
   G.trainTimer = 8; G.trainPending = null; G.spawnCount = { street: 0, room: 0, parking: 0, subway: 0 };
   G.later = []; G.train = { phase: 'gap', t: 6, min: 0 };
   if (params.has('mockhooks')) installMockHooks(L);
-  G.debugLife = { carIn: 0, carOut: 0, carBoard: 0, carAlight: 0, trains: 0, trainAlight: 0, trainBoard: 0, streetIn: 0, streetOut: 0, queueL: 0, queueR: 0, boardL: 0, boardR: 0 };
+  G.looTimer = 8;
+  G.debugLife = { looIn: 0, looOut: 0, ordersTaken: 0, mealsServed: 0, platesWashed: 0, carIn: 0, carOut: 0, carBoard: 0, carAlight: 0, trains: 0, trainAlight: 0, trainBoard: 0, streetIn: 0, streetOut: 0, queueL: 0, queueR: 0, boardL: 0, boardR: 0 };
+  for (const k of ['ordersTaken', 'mealsServed', 'platesWashed']) Object.defineProperty(G.debugLife, k, { enumerable: true, configurable: true,
+    get: () => (building?.floors || []).reduce((n, f) => n + (f?.restaurantLife?.[k] || 0), 0) });
   setupParking();
   G.people = []; G.lastInputTime = 0; G.cardShown = false; G.resumable = false; G.glow = new Array(L.nFloors).fill(0);
   G.floors = L.floorY.map(() => ({ queues: [[], []], get queue() { return [...this.queues[0], ...this.queues[1]].sort((a, b) => a.id - b.id); }, stairHold: 0, stairOpen: 0, roomHold: { L: 0, R: 0 }, roomOpen: { L: 0, R: 0 }, shownRoom: { L: -1, R: -1 } }));
@@ -5428,7 +5801,7 @@ function pickKind() {
 function spawnPerson(origin, dest, kind, from, startX, startZ, extra) {
   if (G.people.length >= MAX_PEOPLE || origin === dest) return null;
   const q = G.floors[origin].queue;
-  if (q.length + G.people.filter((o) => (o.state === 'approach' || o.state === 'checkin') && o.floor === origin).length >= QUEUE_MAX) return null;
+  if (q.length + G.people.filter((o) => (o.state === 'approach' || o.state === 'checkin') && o.floor === origin && !o.ambient).length >= QUEUE_MAX) return null;
   const L = G.layout;
   from = from || 'room';
   const st = from === 'street' && startX == null ? streetH() : null;
@@ -5475,6 +5848,40 @@ function looFloor() {
 }
 function looSpot(f, wing) { const sp = building?.floors?.[f]?.roomSpots?.find((o) => o.wing === wing); return sp ? sp.x : roomSpotX(f); }
 // a toilet visit is over: the same person comes out of the toilets and rides back to their seat (retries while the floor is full)
+// into the toilets: the art's visit routine walks them to a cubicle or urinal, a sink and the dryer (state 'loo')
+function startLoo(p) {
+  const fh = building?.floors?.[p.floor];
+  p.visit = fh.toiletVisit({ x: p.x, z: p.z, kid: p.kind === 'kid', stay: 6 + rng() * 10, speed: p.speed });
+  p.state = 'loo'; p.looNext = false; p.path = null; G.debugLife.looIn++;
+}
+function looDone(p) {
+  const L = G.layout; p.visit = null; p.fade = p.alpha = 1; G.debugLife.looOut++;
+  if (p.ambient) {                                               // back into the room they came from: their seat, or that wing's spot
+    const a = p.ambient, sp = looSpot(p.floor, a.wing);
+    p.state = 'leaving'; p.end = 'fade'; p.roomDoor = false;
+    if (a.seat) { p.seat = { id: a.seat.id, x: a.seat.x, z: a.seat.z, face: a.seat.face, sit: !!a.seat.rise }; p.path = [[p.x, L.laneZ], [a.seat.x, L.laneZ], [a.seat.x, a.seat.z]]; }
+    else { p.intoRoom = true; p.linger = ROOM_LINGER; p.path = [[p.x, L.laneZ], [sp, L.laneZ], [sp, ROOM_SPOT_Z]]; }
+    return;
+  }
+  const t = p.trip; t.back = true;                               // a rider on a loo trip: back to the lift, home to their seat
+  p.dest = t.home; p.waited = 0; p.stage = 0; p.art.setMood(0, 0);
+  p.state = 'approach'; p.path = [[p.x, L.laneZ]];
+}
+// someone from the toilets floor itself (the other wing's seat or spot) walks along the lane to the toilets and back
+function spawnLooVisitor() {
+  const lf = looFloor(); if (!lf || G.people.length >= MAX_PEOPLE) return;
+  const L = G.layout, f = lf.f, fh = building?.floors?.[f]; if (!fh?.toiletVisit) return;
+  if (G.people.filter((o) => o.ambient && o.floor === f).length >= LOO_AMBIENT_MAX) return;
+  const other = lf.wing === 'R' ? 'L' : 'R', seat = fh.takeSeat?.(other, true) || null, sp = looSpot(f, other);
+  const kind = seat && KINDS[seat.kind] ? seat.kind : rng() < 0.3 ? 'kid' : 'adult', K = KINDS[kind], seed = seat ? seat.seed : 1 + rint(1e9);
+  const art = buildPerson(kind, seed, seat ? seat.opts : null); scene.add(art.group);
+  art.setBubble(null); art.setMood(0, 0); art.setOpacity(0);
+  const x = seat ? seat.x : sp, z = seat ? seat.z : ROOM_SPOT_Z, lx = looSpot(f, lf.wing);
+  G.people.push({ id: G.nextId++, kind, seed, opts: seat ? seat.opts : null, floor: f, dest: f, x, z, rot: seat ? seat.face : 0, state: 'approach', from: 'room',
+    waited: 0, stage: 0, seats: K.seats, carIdx: -1, spots: [], patience: 1e9, speed: WALK_SPEED * K.walk, move: K.move, art, alpha: 0, fade: 1,
+    anim: 'walk', animT: 0, shakeT: 0, phase: 0, timer: 0, shownAlpha: -1, exitX: L.roomDoorX, riseT: seat && seat.rise ? 0.5 : 0,
+    ambient: { wing: other, seat }, looNext: true, path: [[x, L.laneZ], [lx, L.laneZ]] });
+}
 function looReturn(p) {
   const b = building, t = p.trip, trip = Object.assign({}, t, { back: true }), x = looSpot(t.loo, t.wing);
   let tries = 0;
@@ -5631,8 +6038,10 @@ function planDeparture(p) {
   const L = G.layout, id = L.ids[p.floor];
   p.state = 'leaving'; p.end = 'fade'; p.roomDoor = false;
   const t = p.trip;
-  if (t && !t.back && p.floor === t.loo) {                       // a toilet visit: into the toilets at their spot
-    const x = looSpot(t.loo, t.wing); p.intoRoom = true; p.linger = 0.5; p.looIn = true; p.path = [[x, L.laneZ], [x, ROOM_SPOT_Z]]; return;
+  if (t && !t.back && p.floor === t.loo) {                       // a toilet visit: along the lane to the toilets, then the visit routine
+    const x = looSpot(t.loo, t.wing);
+    if (building?.floors?.[t.loo]?.toiletVisit) { p.end = 'loo'; p.path = [[x, L.laneZ]]; return; }
+    p.intoRoom = true; p.linger = 0.5; p.looIn = true; p.path = [[x, L.laneZ], [x, ROOM_SPOT_Z]]; return;   // old art: fades at the spot
   }
   if (t && t.back && p.floor === t.home) {                        // back from the toilets: to their own seat
     p.seat = { id: t.seatId, x: t.x, z: t.z, face: t.face, sit: t.sit }; p.path = [[t.x, L.laneZ], [t.x, t.z]]; return;
@@ -5790,10 +6199,17 @@ function updatePerson(p, dt) {
     case 'approach':   // walking in from the street (or out of a room) to the lane, then joins the queue
       if (p.riseT > 0) { p.riseT -= dt; setAnim(p, 'rise'); break; }   // getting up from their seat first
       if (followPath(p, dt)) {
+        if (p.looNext) { startLoo(p); break; }
         if (p.rec && !p.checked) { p.checked = true; p.state = 'checkin'; p.timer = CHECKIN_TIME; building?.floors[p.floor]?.checkIn?.(); break; }
         p.state = 'arriving'; p.art.setBubble(p.dest); joinQueue(p);
       }
       break;
+    case 'loo': {      // in the toilets: the art's visit moves them (cubicle or urinal, sink, dryer), then they walk on
+      const v = p.visit; v.update(dt);
+      p.x = v.x; p.z = v.z; p.rot = v.rot; setAnim(p, v.anim); p.alpha = p.fade = v.hidden ? 0 : 1;   // hidden only behind a shut cubicle door
+      if (v.done) looDone(p);
+      break;
+    }
     case 'checkin': {  // hotel guest at the reception desk: the receptionist hands over a key, then off to the lifts
       setAnim(p, 'idle'); p.rot = Math.PI; p.timer -= dt;
       if (p.timer <= 0) { const ex = streetH()?.entranceX ?? p.x; p.state = 'approach'; p.path = [[ex, p.rec.z], [ex, L.laneZ]]; }
@@ -5830,6 +6246,7 @@ function updatePerson(p, dt) {
       break;
     case 'leaving': {
       if (!followPath(p, dt)) break;
+      if (p.end === 'loo') { startLoo(p); break; }
       if (p.seat) {                                              // at a seat: turn, sit down (or step in), fade while the occupant fades back in
         if (!p.seated) { p.seated = true; p.fade = 0; building?.floors[p.floor]?.fillSeat?.(p.seat.id); }
         p.rot = p.seat.face; setAnim(p, p.seat.sit ? 'sit' : 'idle');
@@ -5991,6 +6408,8 @@ function simStep(dt) {
   if (G.phase === 'play') {
     G.spawnTimer -= dt;
     if (G.spawnTimer <= 0) { G.spawnTimer = G.level.every * (1 + (rng() * 2 - 1) * ARRIVE_JITTER); spawnRandom(); }
+    G.looTimer = (G.looTimer ?? 8) - dt;
+    if (G.looTimer <= 0) { G.looTimer = LOO_EVERY[0] + rng() * (LOO_EVERY[1] - LOO_EVERY[0]); spawnLooVisitor(); }
     G.level.waves.forEach((w, i) => { G.waveTimers[i] -= dt; if (G.waveTimers[i] <= 0) { G.waveTimers[i] = w.every; runWave(w); } });
     if (DEMO) { G.botT -= dt; if (G.botT <= 0) { G.botT = BOT_EVERY; const m = suggestMove(); if (m) tap(m.car, m.floor); } }
   }

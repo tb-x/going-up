@@ -66,6 +66,15 @@ Play it at <https://tb-x.github.io/going-up/> (once published).
   diner, an office worker, a hotel guest, someone at home) and walks out to the lift; someone arriving walks to an
   empty seat and sits back down. Now and then (about 1 in 6) they're only off to the toilets: they ride there, go in
   (a cubicle locks red), come out 20-40 seconds later and ride back to their own seat.
+- The toilets are a real room: people walk in from the lane, go into a free cubicle (the door shuts, the lock turns
+  red and their feet show) or to a urinal, wash their hands, use the dryer and walk out again. Nobody appears or vanishes
+  in there; a cubicle is only busy while someone is inside. Now and then someone from the same floor pops in too, and a
+  cleaner comes in from the lift side with her cart, mops behind a wet-floor sign and leaves the same way.
+- The restaurant runs for real: a diner raises a hand, the waiter takes the order and carries it across to the kitchen
+  pass, the cook fetches from the fridge, fries, plates up and puts the plate on the pass, the waiter serves it, the food
+  gets smaller as they eat, and the empty plates go back to the kitchen to be washed and racked.
+- In the pool a child swims lengths (front crawl, splashes, turning at each end) while the lifeguard watches, and in the
+  paddling pool a child sits and splashes next to a bobbing rubber ring.
 - In a building with a hotel, the lobby desk is a hotel reception (a rack of keys, a key sign, a luggage trolley).
   Hotel guests come in from the street with a little suitcase, wait at the desk for their key, then queue for the lift.
 - On level 1 a pulsing hand shows what to tap if nothing has been tapped for a couple of seconds (later levels: 8 s).
@@ -129,6 +138,8 @@ At the top of the script in `index.html`:
 | `LEVEL_TIMES` | | day, dusk or night for each level |
 | `ROOM_DOOR_Z`, `STAIR_DOOR_Z`, `PARK_DOOR_Z`, `TRAIN_EDGE_Z`, `PAVEMENT_Z` | | where people stand when they go through a room door, the stair door, into a car or a train, and the line they walk along the pavement |
 | `LOO_CHANCE` / `LOO_TIME` | 1 in 6 / 20-40 s | how often someone getting up goes to the toilets instead (levels with toilets), and how long they stay |
+| `LOO_EVERY` / `LOO_AMBIENT_MAX` | 15-30 s / 2 | how often someone from the toilets floor itself pops in, and how many at once |
+| `ART_REST_EAT` / `ART_REST_IDLE` | 18 s / 10-25 s | (art) how long a plate lasts, and the pause between a table's meals |
 | `CHECKIN_TIME` | 3 s | how long a hotel guest waits at the reception desk |
 | `FAST_MULT` | 4 | speed-up for `?fast` |
 | `BUBBLE_PX` / `RIDER_BUBBLE` | 44 px / 0.7 | bubble size on screen, and how much smaller they are inside a lift |
