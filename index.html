@@ -1180,12 +1180,13 @@ function VEH_build(kind, seed = 1, opts = {}) {
   else if (kind === 'truck') { col = ['#EEEEEA', '#A3242A', '#1F3560', '#2E4A3C', '#E0A030'][(r() * 5) | 0]; K = VEH_truckGeo(col === '#EEEEEA' ? '#2F6FE0' : col); }
   else { col = kind === 'taxi' ? '#F0B400' : kind === 'police' || kind === 'ambulance' ? '#F2F2EE' : opts.color || VEH_COLS[(r() * VEH_COLS.length) | 0]; K = VEH_carGeo(kind); }
   const sc = opts.scale || 1, group = new THREE.Group(); group.name = 'vehicle-' + kind; group.scale.setScalar(sc);
-  const mk = (geo, mat, cast = true, parent = group) => { const m = new THREE.Mesh(geo, mat); m.castShadow = cast; m.receiveShadow = true; parent.add(m); return m; };
-  const paint = mk(K.paint, VEH_paintMat(col)), glass = mk(K.glass, VEH_glassMat(0, !!K.see), !K.see), trim = mk(K.trim, VEH_trimMat(0, 0));
+  // only the body casts a sun shadow (one shadow draw per vehicle instead of six); the contact shadow does the rest
+  const mk = (geo, mat, cast = false, parent = group) => { const m = new THREE.Mesh(geo, mat); m.castShadow = cast; m.receiveShadow = true; parent.add(m); return m; };
+  const paint = mk(K.paint, VEH_paintMat(col), true), glass = mk(K.glass, VEH_glassMat(0, !!K.see)), trim = mk(K.trim, VEH_trimMat(0, 0));
   if (K.see) glass.renderOrder = 2;
-  const wheels = new THREE.InstancedMesh(K.wheel, VEH_trimMat(0, 0), K.wheels.length); wheels.castShadow = true; wheels.receiveShadow = true; group.add(wheels);
+  const wheels = new THREE.InstancedMesh(K.wheel, VEH_trimMat(0, 0), K.wheels.length); wheels.castShadow = false; wheels.receiveShadow = true; group.add(wheels);
   let hinge = null, leafA = null, leafB = null, sign = null;
-  if (K.door) { hinge = new THREE.Group(); hinge.position.set(K.hinge[0], K.hinge[1], K.hinge[2]); group.add(hinge); mk(K.door, VEH_paintMat(col), true, hinge); }
+  if (K.door) { hinge = new THREE.Group(); hinge.position.set(K.hinge[0], K.hinge[1], K.hinge[2]); group.add(hinge); mk(K.door, VEH_paintMat(col), false, hinge); }
   if (K.leafA) { leafA = mk(K.leafA, VEH_trimMat(0, 0)); leafB = mk(K.leafB, VEH_trimMat(0, 0)); leafA.position.z = leafB.position.z = K.leafZ; }
   if (K.sign) sign = mk(K.sign, VEH_signMat(route), false);
   const shadow = new THREE.Mesh(VEH_plane(), VEH_shadowMat()); shadow.scale.set(K.L * 1.08, 1, K.W * 1.22); shadow.position.y = 0.012; shadow.renderOrder = 1; group.add(shadow);
@@ -5169,7 +5170,11 @@ function floorWord(f) { const n = +G.layout.labels[f]; return (n < 0 ? MINUS_WOR
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
 window.__tbxRenderer = renderer;   // read by the local telemetry collector (draw calls); nothing on Pages
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+// pixel density: phones (short side under 500 css px) render at 1.5x at most, the rest at 2x: far fewer pixels to fill
+const MAX_DPR_PHONE = 1.5, MAX_DPR = 2;
+const dprCap = () => Math.min(window.devicePixelRatio || 1, Math.min(innerWidth, innerHeight) < 500 ? MAX_DPR_PHONE : MAX_DPR);
+renderer.setPixelRatio(dprCap());
+addEventListener('resize', () => { const d = dprCap(); if (renderer.getPixelRatio() !== d) renderer.setPixelRatio(d); });
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(CAM_FOV, 1, 0.5, 400);
 const sky = buildSky(scene);

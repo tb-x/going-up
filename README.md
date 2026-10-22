@@ -93,6 +93,7 @@ At the top of the script in `index.html`:
 | `CAR_SPEED` | 5.5 | lift top speed (a floor is 3 units) |
 | `CAR_ACCEL` | 9 | how quickly a lift speeds up and slows down |
 | `DOOR_TIME` | 0.45 s | doors opening or closing |
+| `MAX_DPR_PHONE` / `MAX_DPR` | 1.5 / 2 | sharpness cap on phones / bigger screens (lower = faster, a little softer) |
 | `DWELL_MIN` | 0.9 s | doors stay open at least this long |
 | `BOARD_GAP` | 0.3 s | gap between two people stepping in |
 | `WALK_SPEED` | 1.6 | how fast people walk |
