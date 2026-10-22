@@ -218,6 +218,9 @@ const ROOM_DOOR_Z = -4.1;              // (old: in front of a back-wall room doo
 const ROOM_SPOT_Z = -1.9;              // where people stand when they come out of / go into a room: just in front of the furniture
                                         // (no doors: the back wall is the outside wall), so they step sideways, not towards the back wall
 const ROOM_LINGER = 2.2;               // s a person stands at the spot, facing out, before fading into the room
+const LOO_CHANCE = 1 / 6;              // someone getting up from a seat heads for the toilets instead (levels with a toilets wing)
+const LOO_TIME = [20, 40];             // s in the toilets before they come out again and ride back to their seat
+const CHECKIN_TIME = 3;                // s a hotel guest from the street stands at the reception desk (gets a key)
 const STAIR_DOOR_Z = -2.6;              // just in front of the stair door (stair column, door at z -2.95)
 const PARK_DOOR_Z = -2.3;               // between two parked cars, beside the driver's door
 const TRAIN_EDGE_Z = -0.15;             // platform edge in front of the train doors (the train runs at z > 0)
@@ -1480,9 +1483,12 @@ const ART_R2_ROOMS = new Set(['office', 'hotel', 'restaurant', 'parking', 'subwa
 // rooms2 rooms merged into one batch per building (and wing swaps from LEVELS[].wings: toilets, bikes, laundry, playground)
 const ART_R2_SHARED = new Set(['office', 'hotel', 'restaurant', 'home', 'toilets', 'bikes', 'laundry', 'playground']);
 let artEntranceX = 0;                // x of the lobby's back door (left wing), set per building
+let artHotelLobby = false;           // the level has hotel floors: the lobby's reception desk is a hotel reception
 function buildBuilding(scene, layout) {
   artLabels = layout.labels || null; artThemes = layout.themes || null;
   artEntranceX = (layout.roomL ? layout.roomL[0] : layout.x0 + ART.STAIR_W) + 4.4;
+  artHotelLobby = (layout.ids || []).some((id) => ((typeof THEME_LIB !== 'undefined' && THEME_LIB[id] && THEME_LIB[id].kind) || id) === 'hotel');
+  artKeyAt = -99;
   if (artStreetMid) artStreetMid.visible = !(layout.nBasement > 0);   // over basements the section is cut open at the front
   const group = new THREE.Group(), owned = [], ticks = [];
   const { x0, x1, nFloors, nShafts } = layout;
@@ -1736,7 +1742,7 @@ function artBuildFloor(i, layout, parent, owned, ticks, SB, PB, R2B) {
   S.add(artAtlasQuad(nFl, i, 'plaque', 1.7, 1.7), artAtlasMat(nFl), artXf(x0 - ART_WALL_T - 0.5, y + 1.4, 0.35), '#ffffff');
   // the two wing rooms
   const roomL = layout.roomL || [x0 + STW, layout.coreX0], roomR = layout.roomR || [layout.coreX1, layout.x1];
-  const doors = [], anims = [], hooks = {};
+  const doors = [], anims = [], hooks = {}, seats = artSeatList = [];   // seats: occupants the game can swap with real people
   [[roomL, 'L', 0], [roomR, 'R', 1]].forEach(([[rx0, rx1], wing, wi]) => {
     if (rx1 - rx0 < 0.5) return;
     const doorX = null;   // no back-wall room doors: the back wall is the outside wall (street behind); people use spots inside the room
@@ -1758,6 +1764,7 @@ function artBuildFloor(i, layout, parent, owned, ticks, SB, PB, R2B) {
       if (h.trainArrive) hooks.trainArrive = h.trainArrive;
       if (h.doorXs) hooks.trainDoorXs = h.doorXs;
       if (h.spawnPoints) hooks.spawnPoints = (hooks.spawnPoints || []).concat(h.spawnPoints);
+      if (h.occupy) { hooks.occupyToilet = h.occupy; hooks.toiletWing = wing; }
       const W = rx1 - rx0, wc = (rx0 + rx1) / 2;                  // ceiling finish + corner shading for rooms2 rooms
       if (room === 'parking' && variant === 1 && wing === 'R') {   // lower garage: leave the internal ramp's opening open
         const I2 = ART_PARK.in2, hz = I2.holeZ, cp = (x0c, x1c, za, zb) => Ps(artPln(x1c - x0c, za - zb), '#BDB9B1', (x0c + x1c) / 2, CH - 0.003, (za + zb) / 2, Math.PI / 2, 0, 0, 1, 1, 1, conc);
@@ -1768,6 +1775,9 @@ function artBuildFloor(i, layout, parent, owned, ticks, SB, PB, R2B) {
     if (doorX != null) doors.push({ wing, d: artRoomDoor(i, doorX, y, S, fg, owned) });
   });
   if (fg.userData.roomSpots) (hooks.roomSpots = hooks.roomSpots || []).push(...fg.userData.roomSpots);   // classic rooms' clear spots (artWing)
+  artSeatList = null;
+  if (seats.length) { const api = artSeatApi(seats, i); anims.push(api.tick); hooks.takeSeat = api.takeSeat; hooks.freeSeat = api.freeSeat; hooks.fillSeat = api.fillSeat; }
+  if (fg.userData.reception) { hooks.reception = fg.userData.reception; hooks.checkIn = () => { artKeyAt = artNow; }; }   // hotel reception (lobby)
   if (!SB) S.flush(fg, owned, false, true);
   if (hooks._bays || hooks._decor) { const life = artParkingLife(hooks._bays || [], hooks._ramp, y, fg, owned, hooks._decor, hooks._inner); delete hooks._inner; anims.push(life.tick); Object.assign(hooks, life.api); delete hooks._bays; delete hooks._ramp; delete hooks._decor; }
   if (id === 'subway') {                                     // lane spots to wait for a train, clear of the lift queue
@@ -1965,21 +1975,23 @@ function artParkingLife(bays, ramp, y, parent, owned, decor, inner) {
 /* Occupants of the rooms2 rooms, placed next to the props R2 draws (same fitting rules as R2). */
 function artR2Occupants(id, wing, ctx, parent, sd) {
   const W = ctx.x1 - ctx.x0, X = (u) => ctx.x0 + u, y = ctx.y, out = [], PI = Math.PI;
-  const add = (kind, seed, opts, pose, u, z, ry, yy = 0) => out.push(artOccupant(parent, kind, seed + sd * 17, opts, pose, X(u), y + yy, z, ry));
+  // seat: undefined = not a seat; null = a seat people get up from / sit down on in place; a number = the z where they stand to go in
+  const add = (kind, seed, opts, pose, u, z, ry, yy = 0, seat) => { const tk = artOccupant(parent, kind, seed + sd * 17, opts, pose, X(u), y + yy, z, ry); out.push(tk);
+    if (seat !== undefined) artSeatAdd(tk.h, wing, X(u), z, ry || 0, seat, ART_SIT_POSES.has(pose), kind, seed + sd * 17, opts); };
   const v = ctx.variant || 0, lay = id === 'office' && v ? (wing === 'L' ? 'R' : 'L') : wing;   // office2 swaps its wings' layouts
   if (id === 'office' && lay === 'L') {
     const n = W > 6.2 ? 3 : 2, step = (W - 0.4) / n;
-    if (v) R2_deskUs(ctx, W).slice(0, 2).forEach((u, k) => add('adult', 11 + k, { look: k ? 'suit' : 'casual' }, 'type', u + 0.75, -3.05, PI));
-    else for (let k = 0; k < Math.min(n, 2); k++) { const u = R2_fit(ctx, 0.2 + step * k + (step - 1.5) / 2, 1.5, W); if (u != null) add('adult', 11 + k, { look: k ? 'suit' : 'casual' }, 'type', u + 0.75, -3.05, PI); }
+    if (v) R2_deskUs(ctx, W).slice(0, 2).forEach((u, k) => add('adult', 11 + k, { look: k ? 'suit' : 'casual' }, 'type', u + 0.75, -3.05, PI, 0, -2.55));
+    else for (let k = 0; k < Math.min(n, 2); k++) { const u = R2_fit(ctx, 0.2 + step * k + (step - 1.5) / 2, 1.5, W); if (u != null) add('adult', 11 + k, { look: k ? 'suit' : 'casual' }, 'type', u + 0.75, -3.05, PI, 0, -2.55); }
   } else if (id === 'office') {
     const d = R2_doorClear(ctx); let a = 0.15, b = W - 0.15;
     if (d) { if (d[0] - 0.15 > W - 0.15 - d[1]) b = d[0] - 0.05; else a = d[1] + 0.05; }
     const mw = Math.min(b - a, 4.6), m0 = a + (b === W - 0.15 ? 0 : (b - a - mw)), cu = m0 + mw / 2, tw = Math.min(2.4, mw - 1.2);
-    add('adult', 21, { look: 'suit' }, 'talk', cu - tw / 2 - 0.35, -3.05, PI / 2);
-    add('adult', 22, { look: 'dress' }, 'talk', cu + tw / 2 + 0.35, -3.05, -PI / 2);
-    add('adult', 23, { look: 'casual' }, 'phone', m0 > (v ? 1.8 : W / 2) ? 0.7 : W - 0.7, -2.1, 0);
+    add('adult', 21, { look: 'suit' }, 'talk', cu - tw / 2 - 0.35, -3.05, PI / 2, 0, null);
+    add('adult', 22, { look: 'dress' }, 'talk', cu + tw / 2 + 0.35, -3.05, -PI / 2, 0, null);
+    add('adult', 23, { look: 'casual' }, 'phone', m0 > (v ? 1.8 : W / 2) ? 0.7 : W - 0.7, -2.1, 0, 0, null);
   } else if (id === 'hotel' && wing === 'L') {
-    if (v) add('adult', 33, { look: 'casual', top: '#C9A46A' }, 'phone', W - 1.0, -2.0, 0);      // hotel2: a guest by the bed
+    if (v) add('adult', 33, { look: 'casual', top: '#C9A46A' }, 'phone', W - 1.0, -2.0, 0, 0, null);      // hotel2: a guest by the bed
     out.push(...artHotelMaidL(ctx, parent, sd, v));             // housekeeper: makes beds, wipes, vacuums (art: staff & diners)
   } else if (id === 'hotel' && wing === 'R') {
     out.push(...artHotelMaidR(ctx, parent, sd));                // housekeeper pushing her cart along the corridor
@@ -1993,15 +2005,15 @@ function artR2Occupants(id, wing, ctx, parent, sd) {
     const H = R2_homePlan(ctx, wing), sg = H.sgn;
     if (H.room === 'living') {
       const s = H.sofa;
-      add(H.v === 2 ? 'grandma' : 'adult', 81 + H.v, H.v === 0 ? { look: 'casual', top: '#B5655A' } : null, 'read', s.u - sg * s.w * 0.22, -3.85, s.ry);
+      add(H.v === 2 ? 'grandma' : 'adult', 81 + H.v, H.v === 0 ? { look: 'casual', top: '#B5655A' } : null, 'read', s.u - sg * s.w * 0.22, -3.85, s.ry, 0, -2.35);   // in and out in front of the coffee table
       if (H.v === 1) add('kid', 84, null, 'play', H.table.u + 0.75, -2.25, 0);
     } else if (H.room === 'kitchen') {
       const K = H.kit;
-      add('adult', 86 + H.v, { look: 'casual', top: H.v ? '#6F8A5E' : '#C9A46A' }, 'cook', K.hob, -3.45, PI);
-      if (K.dc != null) add(H.v ? 'adult' : 'kid', 88 + H.v, null, H.v ? 'read' : 'sit', K.dc - sg * 0.85, -3.0, sg * PI / 2);
+      add('adult', 86 + H.v, { look: 'casual', top: H.v ? '#6F8A5E' : '#C9A46A' }, 'cook', K.hob, -3.45, PI, 0, null);
+      if (K.dc != null) add(H.v ? 'adult' : 'kid', 88 + H.v, null, H.v ? 'read' : 'sit', K.dc - sg * 0.85, -3.0, sg * PI / 2, 0, null);
     } else {
       add('kid', 90, null, 'play', H.rugU, -2.3, 0);
-      if (H.desk != null) add('kid', 91, { look: 'casual' }, 'read', H.desk, -3.62, PI);
+      if (H.desk != null) add('kid', 91, { look: 'casual' }, 'read', H.desk, -3.62, PI, 0, -3.1);
     }
   } else if (id === 'bikes') {                                  // (the toilets make and animate their own people)
     const [a] = R2_segs(ctx, W)[0] || [0.1];
@@ -2021,7 +2033,7 @@ function artWingOccupants(id, wing, X, y, parent, sd, inStrip) {
   const out = [], PI = Math.PI, R = wing === 'R';
   const add = (kind, seed, opts, pose, u, z, ry, yy = 0) => { if (inStrip && inStrip(X(u), 0.3, z)) return; out.push(artOccupant(parent, kind, seed + sd * 17, opts, pose, X(u), y + yy, z, ry)); };
   if (id === 'lobby') {
-    if (!R) { add('adult', 61, { look: 'suit', top: '#3E4B5E' }, 'talk', 5.65, -4.25, 0); add('adult', 77, { look: 'casual', top: '#8C5A4A' }, 'read', 2.15, -3.88, 0); }
+    if (!R) { if (artHotelLobby) add('adult', 61, { look: 'suit', top: '#6B3FA0', bare: true }, 'recept', 5.65, -4.25, 0); else add('adult', 61, { look: 'suit', top: '#3E4B5E' }, 'talk', 5.65, -4.25, 0); add('adult', 77, { look: 'casual', top: '#8C5A4A' }, 'read', 2.15, -3.88, 0); }
     else { add('adult', 78, { look: 'suit', top: '#2F3A4F' }, 'look', 0.6, -4.22, 0); add('grandma', 62, null, 'read', 5.35, -3.3, 0); }
   } else if (id === 'cafe') {
     if (!R) { add('adult', 63, { look: 'casual', top: '#3E4B5E' }, 'cook', 5.55, -4.3, 0); add('adult', 64, null, 'read', 0.43, -3.55, PI / 2); }
@@ -2670,7 +2682,32 @@ function artThemeProps(id, k) {
       Pw(artBox(1.2, 0.012, 0.7), '#4A4038', X(4.4), 0.006, -4.1, 0, 0, 0, 1, 1, 1, fab);                   // mat inside the back door
       desk(X(5.9), -3.75, 1.2, '#8A6A4C'); officeChair(X(6.25), -4.27); monitor(X(5.6), -3.86, 1.0); potPlant(X(5.4), -3.72, 1.0, '#E8E2D6');
       Pw(artCyl(0.08, 0.08, 0.015, 12), ART_BRASS, X(6.25), 1.008, -3.6, 0, 0, 0, 1, 1, 1, shiny); Pw(artSph(0.06, 12, 6, 0, PI * 2, 0, PI / 2), ART_BRASS, X(6.25), 1.015, -3.6, 0, 0, 0, 1, 1, 1, shiny);
-      ropes(X(5.35), X(6.3), -2.95); clock(X(5.9), 2.15); picture(X(0.35), 1.6, 0.36, 0.5, ['#6F8A5E', '#C9A46A']);
+      if (!artHotelLobby) { ropes(X(5.35), X(6.3), -2.95); clock(X(5.9), 2.15); }
+      else {                                                   // hotel reception: key rack + key pictogram on the wall, a luggage trolley
+        const rx = X(5.9), wz = -D;
+        wallP(rx, 0.5, () => {
+          Pw(artBox(0.96, 0.62, 0.05), '#5A3825', rx, 1.5, wz + 0.035, 0, 0, 0, 1, 1, 1, wood);
+          for (let q = 0; q <= 4; q++) Pw(artBox(0.02, 0.62, 0.08), '#7A5232', rx - 0.48 + q * 0.24, 1.5, wz + 0.06, 0, 0, 0, 1, 1, 1, wood);
+          for (let q = 0; q <= 3; q++) Pw(artBox(0.96, 0.02, 0.08), '#7A5232', rx, 1.19 + q * 0.207, wz + 0.06, 0, 0, 0, 1, 1, 1, wood);
+          for (let cI = 0; cI < 4; cI++) for (let rI = 0; rI < 3; rI++) if ((cI * 3 + rI) % 4 !== 1) {     // keys hanging in most of the pigeon-holes
+            const kx = rx - 0.36 + cI * 0.24, ky = 1.293 + rI * 0.207;
+            Pw(artTor(0.018, 0.006, 4, 10), ART_BRASS, kx, ky + 0.03, wz + 0.08, 0, 0, 0, 1, 1, 1, shiny); Pw(artBox(0.028, 0.06, 0.008), '#C84A3A', kx, ky - 0.02, wz + 0.08); }
+          Pw(artBox(0.38, 0.38, 0.03), '#9A55E6', rx, 2.15, wz + 0.03, 0, 0, 0, 1, 1, 1, glow);            // pictogram: a big white key
+          Pw(artTor(0.07, 0.022, 6, 16), '#FFFFFF', rx - 0.08, 2.15, wz + 0.05); Pw(artBox(0.17, 0.035, 0.015), '#FFFFFF', rx + 0.05, 2.15, wz + 0.05);
+          for (const dx of [0.09, 0.12]) Pw(artBox(0.022, 0.05, 0.015), '#FFFFFF', rx + dx, 2.12, wz + 0.05);
+        });
+        const tx = X(6.2), tz = -2.85;
+        if (free(tx, 0.38, tz, 0.24)) {
+          Pw(artBox(0.7, 0.05, 0.42), '#8A2E3A', tx, 0.16, tz, 0, 0, 0, 1, 1, 1, fab);
+          for (const sx of [-0.33, 0.33]) Pw(artCyl(0.018, 0.018, 1.5, 8), ART_BRASS, tx + sx, 0.9, tz, 0, 0, 0, 1, 1, 1, shiny);
+          for (const hh of [1.2, 1.65]) Pw(artCyl(0.016, 0.016, 0.7, 8), ART_BRASS, tx, hh, tz, 0, 0, PI / 2, 1, 1, 1, shiny);
+          for (const sx of [-0.28, 0.28]) for (const sz of [-0.17, 0.17]) Pw(artCyl(0.05, 0.05, 0.03, 10), '#222222', tx + sx, 0.05, tz + sz, PI / 2);
+          Pw(artRB(0.3, 0.45, 0.2, 0.03, 1), '#2F3A4F', tx - 0.15, 0.41, tz); Pw(artRB(0.26, 0.36, 0.18, 0.03, 1), '#C9A46A', tx + 0.17, 0.365, tz + 0.02);
+          blob(tx, tz, 0.95, 0.65);
+        }
+        fg.userData.reception = { x: X(5.6), z: -3.15 };       // the guest's spot at the desk (in along the back-door line, see floor.reception)
+      }
+      picture(X(0.35), 1.6, 0.36, 0.5, ['#6F8A5E', '#C9A46A']);
     } else {                                                   // lift side: security desk + CCTV, armchairs by the glass, mailboxes, directory, bench
       desk(X(0.75), -3.75, 1.1, '#4A4F57'); cctv(X(0.7), 1.7); officeChair(X(1.05), -4.27); monitor(X(0.5), -3.86, 1.0);
       plant(X(1.85), -4.0, 1.0);
@@ -2960,6 +2997,7 @@ function buildPerson(kind, seed, opts) {
   else if (kind === 'dogwalker') look = 'walker';
   if (opts && opts.look) look = opts.look;
   const bare = !!(opts && opts.bare);                            // room staff and diners: nothing in their hands
+  const luggage = !!(opts && opts.luggage) && look !== 'courier', lugR = look === 'dress';   // hotel guests: a small suitcase (dress: right hand)
   if (look === 'worker') { hat = 'hard'; top = '#FF8A1F'; pants = '#3B4A6B'; }
   if (look === 'chef') { hat = 'toque'; top = '#F7F7F7'; pants = '#3A3A48'; }
   if (look === 'doctor') { top = '#F7F7F7'; }
@@ -3013,6 +3051,11 @@ function buildPerson(kind, seed, opts) {
       if (look === 'balloon') { const bc = artPick(r, ['#FF5FAE', '#FFC928', '#6FA8FF', '#35C24A']); ap(artCyl(0.005, 0.005, 0.85, 6), '#6B5B4E', 0.12, hy + 0.42, 0, 0, 0, -0.28); ap(artSph(0.16, 8, 7), bc, 0.24, hy + 0.98, 0, 0, 0, 0, 1, 1.15, 1); ap(artCone(0.03, 0.05, 6), bc, 0.24, hy + 0.79, 0, Math.PI); }
       if (look === 'grandma' || look === 'grandpa') { const ch = shY + hy; ap(artCyl(0.018, 0.018, ch, 6), '#8A5A3C', 0.02, hy - ch / 2, 0.05); ap(artTor(0.06, 0.018, 3, 8, Math.PI), '#8A5A3C', -0.04, hy, 0.05); }
     } else if (look === 'dress' && !bare) { ap(artRB(0.2, 0.15, 0.08, 0.03, 1), '#FF5FAE', -0.02, hy - 0.12, 0); ap(artTor(0.07, 0.01, 3, 8, Math.PI), '#C0397A', -0.02, hy - 0.04, 0); }
+    if (luggage && (sd > 0) === lugR) {                         // suitcase hanging from the hand by its handle
+      const k = kind === 'kid' ? 0.6 : 1, lc = ['#2F3A4F', '#8C3B2E', '#3E5F5A', '#C9A46A', '#5A3F5E'][Math.abs(seed | 0) % 5];
+      ap(artRB(0.3 * k, 0.4 * k, 0.16 * k, 0.03, 1), lc, 0, hy - 0.07 - 0.2 * k, 0.02); ap(artBox(0.12 * k, 0.02, 0.03), '#2B2B3A', 0, hy - 0.03, 0.02);
+      for (const dx of [-0.05, 0.05]) ap(artBox(0.02, 0.05, 0.02), '#2B2B3A', dx * k, hy - 0.05, 0.02);
+    }
     mk(ab, g); return g;
   });
   // head: sphere + hair/hat + nose/ears (headMat, tinted red when angry) and a face overlay
@@ -3067,7 +3110,7 @@ function buildPerson(kind, seed, opts) {
   let bubbleSnap = true, bubbleT = 0, bubbleLvl = 0, bubbleS = 0, bubbleX = 0, bubbleY = 0;
   const blinkPeriod = 2.8 + r() * 2.4, blinkOff = r() * 5, sm = new THREE.Matrix4(), sv = new THREE.Vector3(), sq = new THREE.Quaternion(), pv = new THREE.Vector3();
   // idle (waiting people): a gesture every few seconds, picked per person (seeded) from the mood's list; angry keeps stomping
-  const busyR = kind === 'dogwalker' || ['suit', 'worker', 'chef', 'balloon', 'grandma', 'grandpa', 'courier'].includes(look), busyL = look === 'courier' || look === 'dress';
+  const busyR = kind === 'dogwalker' || (luggage && lugR) || ['suit', 'worker', 'chef', 'balloon', 'grandma', 'grandpa', 'courier'].includes(look), busyL = look === 'courier' || look === 'dress' || (luggage && !lugR);
   const freeSide = !busyR ? 1 : !busyL ? -1 : 0;                 // the hand that waves or holds the phone (1 = arms[1])
   const IDLE = [
     ['look', 'hum', 'look'].concat(freeSide ? ['wave'] : [], freeSide && kind !== 'kid' ? ['phone'] : [], !busyR && !busyL ? ['book'] : [], kind === 'kid' ? ['hop', 'hop'] : []),
@@ -3136,6 +3179,10 @@ function buildPerson(kind, seed, opts) {
         lL.rotation.x = s * a; lR.rotation.x = -s * a; aL.rotation.x = -s * a * 0.9; aR.rotation.x = s * a * 0.9;
         rig.position.y = Math.abs(Math.cos(t * f)) * (run ? 0.07 : 0.04); if (run) rig.rotation.x = 0.12;
         if (dog) dog.position.y = Math.abs(Math.sin(t * f * 1.3)) * 0.05;
+      } else if (name === 'rise' || name === 'sit') {           // getting up from / sitting down on a seat (0.5 s)
+        const c0 = name === 'rise' ? 1 - Math.min(1, t / 0.5) : Math.min(1, t / 0.5), c = c0 * c0 * (3 - 2 * c0);
+        lL.rotation.x = lR.rotation.x = -1.45 * c; rig.position.y = (ART_SEAT_HIP - hip) * c;
+        aL.rotation.set(-0.6 * c, 0, 0.1); aR.rotation.set(-0.6 * c, 0, -0.1);
       } else if (name === 'stomp') {
         const f = 6.5, s = Math.sin(t * f);
         lL.rotation.x = -Math.max(0, s) * 0.9; lR.rotation.x = -Math.max(0, -s) * 0.9;
@@ -3212,10 +3259,12 @@ function buildPerson(kind, seed, opts) {
 /* Room occupants (not game people): a person builder figure with its body frozen into one mesh (legs, torso and
    head merged; arms stay animated), at a fixed spot doing its job. Per figure: body, face, 2 arms, contact shadow. */
 let artOccList = null;                                       // occupants of the building being built (disposed with it)
-const ART_OCC_ARMS = { talk: 'L', cook: 'R', swim: 'LR', wave: 'R', guard: 'R', wash: 'LR' };   // arms that keep moving per pose
+const ART_SEAT_HIP = 0.44;                                   // hips of anyone seated (chair and sofa seats are 0.45-0.5 high)
+const ART_SIT_POSES = new Set(['type', 'read', 'sit']);
+let artKeyAt = -99;                                          // art time the hotel receptionist last handed over a key (floor.checkIn)
+const ART_OCC_ARMS = { talk: 'L', cook: 'R', swim: 'LR', wave: 'R', guard: 'R', wash: 'LR', recept: 'R' };   // arms that keep moving per pose
 function artOccupant(parent, kind, seed, opts, pose, x, y, z, ry) {
-  const h = buildPerson(kind, seed, opts), p = h._p, sit = pose === 'type' || pose === 'read' || pose === 'sit';
-  if (sit) for (const l of p.legs) l.rotation.x = -1.45;
+  const h = buildPerson(kind, seed, opts), p = h._p, sit = ART_SIT_POSES.has(pose);
   h.group.position.set(x, y, z); h.group.rotation.y = ry || 0; parent.add(h.group);
   const [aL, aR] = p.arms, base = h.group.position.clone(), ph = (seed % 7) * 0.9, moving = ART_OCC_ARMS[pose] || '';
   const tick = (t) => {
@@ -3234,16 +3283,19 @@ function artOccupant(parent, kind, seed, opts, pose, x, y, z, ry) {
     else if (pose === 'look') { aL.rotation.set(-0.95, 0, 0.3); aR.rotation.set(-1.1, 0, -0.2); }
     else if (pose === 'wave') { aR.rotation.set(0, 0, 2.45 + 0.35 * s(t * 6)); }
     else if (pose === 'play') { const hop = Math.abs(s(t * 4.2)); p.rig.position.y = hop * 0.16; aL.rotation.set(0, 0, -2.3 + 0.4 * s(t * 8)); aR.rotation.set(0, 0, 2.3 - 0.4 * s(t * 8)); }
+    else if (pose === 'recept') { const k = artNow - artKeyAt, give = k >= 0 && k < 2.6;   // hotel reception: hands at the desk, a key held out on check-in
+      aL.rotation.set(-1.0, 0, 0.3); aR.rotation.set(give ? -1.5 + 0.06 * s(k * 4) : -1.0 + 0.05 * s(t * 1.7), 0, give ? -0.05 : -0.3); }
     else if (pose === 'guard') { const w = s(t * 0.6) > 0.85; aR.rotation.set(0, 0, w ? 2.5 + 0.3 * s(t * 7) : -0.1); aL.rotation.set(w ? 0 : -1.0, 0, w ? 0.1 : 0.9); }
     else { aL.rotation.set(0.05 * s(t), 0, 0.1); aR.rotation.set(-0.05 * s(t), 0, -0.1); }
     if (pose === 'type' || pose === 'read') p.rig.position.y = rest + 0.006 * s(t * 3.1);       // small breathing bob
   };
   // freeze: legs, torso, head and the still arms (in their pose) merge into one mesh
-  const rest = sit ? -(p.hip - 0.47) : 0;
+  const rest = sit ? ART_SEAT_HIP - p.hip : 0;                  // seated: hips at seat height, thighs level, shins down
   tick(0); p.rig.position.y = 0; p.rig.updateMatrixWorld(true);
   const inv = new THREE.Matrix4().copy(p.rig.matrixWorld).invert(), geos = [];
   const take = (m) => { if (!m || !m.isMesh) return; const g = m.geometry.clone(); g.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, m.matrixWorld)); geos.push(g); m.parent.remove(m); };
-  for (const l of p.legs) [...l.children].forEach(take);
+  if (sit) { for (const l of p.legs) [...l.children].forEach((m) => m.parent.remove(m)); geos.push(...artSitLegs(p, ART_SEAT_HIP)); }
+  else for (const l of p.legs) [...l.children].forEach(take);
   take(p.torso); take(p.headMesh);
   if (!moving.includes('L')) [...aL.children].forEach(take);
   if (!moving.includes('R')) [...aR.children].forEach(take);
@@ -3251,6 +3303,8 @@ function artOccupant(parent, kind, seed, opts, pose, x, y, z, ry) {
   geos.forEach((g) => g.dispose());
   for (const a of [aL, aR]) a.traverse((o) => { o.castShadow = false; });
   for (const o of [p.steam, pose === 'swim' || sit ? p.blob : null]) if (o && o.parent) o.parent.remove(o);
+  if (pose === 'recept') { const am = aR.children.find((o) => o.isMesh), hy = -p.arm + p.armR * 0.3;   // room key with a red tag
+    if (am) artMergeInto(am, [[artTor(0.025, 0.008, 4, 10), ART_BRASS, 0, hy - 0.06, 0.05], [artBox(0.012, 0.09, 0.012), ART_BRASS, 0, hy - 0.12, 0.05], [artBox(0.035, 0.05, 0.006), '#C84A3A', 0, hy - 0.02, 0.06]], p.owned); }
   p.rig.position.y = rest; tick(0);
   if (artOccList) artOccList.push(h);
   tick.h = h;                                                  // rooms that move or fade their occupants (toilets) use the handle
@@ -3295,17 +3349,22 @@ function artStaffRig(h) {
   return { p, h, rig, upper, legs: p.legs, arms, headG, x: 0, z: 0, alpha: 1, T: 1, tick: null };
 }
 // diner figure: new sitting legs (thigh forward, shin down; a kid's feet dangle) merged with the torso; hips at seatY
-function artDinerRig(h, seatY) {
-  const p = h._p, { rig, legs, torso, hip, legR, tor } = p;
-  rig.position.set(0, 0, 0); rig.rotation.set(0, 0, 0); rig.scale.set(1, 1, 1);
-  const thigh = hip * 0.62, shin = Math.min(seatY - 0.06, hip * 0.85), b = new ArtBatch();
+// sitting legs in rig space (the rig is then lowered by seatY - hip): thighs level forward, shins down to the floor (a
+// child's feet dangle), shoes; returns the geometries (vertex colours, bodyMat attributes) for merging
+function artSitLegs(p, seatY) {
+  const { hip, legR, tor } = p, thigh = hip * 0.62, shin = Math.min(seatY - 0.06, hip * 0.85), b = new ArtBatch();
   for (const sd of [-1, 1]) {
     const x = sd * tor * 0.45;
     b.add(artCap(legR, thigh, 2, 8), p.bodyMat, artXf(x, hip, thigh / 2, Math.PI / 2), p.legCol);
     b.add(artCap(legR, shin, 2, 8), p.bodyMat, artXf(x, hip - shin / 2, thigh), p.legCol);
     b.add(artRB(legR * 2.3, 0.11, legR * 3.2, 0.04, 1), p.bodyMat, artXf(x, hip - shin - 0.02, thigh + legR * 0.5), p.shoes);
   }
-  const list = b.parts.get(p.bodyMat), tg = torso.geometry.clone(), g = mergeGeometries([tg, ...list], false);
+  return b.parts.get(p.bodyMat);
+}
+function artDinerRig(h, seatY) {
+  const p = h._p, { rig, legs, torso, hip } = p;
+  rig.position.set(0, 0, 0); rig.rotation.set(0, 0, 0); rig.scale.set(1, 1, 1);
+  const list = artSitLegs(p, seatY), tg = torso.geometry.clone(), g = mergeGeometries([tg, ...list], false);
   tg.dispose(); list.forEach((q) => q.dispose()); p.owned.push(g);
   torso.parent.remove(torso); for (const l of legs) rig.remove(l);
   rig.add(new THREE.Mesh(g, p.bodyMat)); rig.position.y = seatY - hip;
@@ -3356,6 +3415,37 @@ function artWorker(parent, kind, seed, opts, y, steps, x0, z0, pose) {
   if (artOccList) artOccList.push(h);
   tick.h = h; W.tick = tick;
   return W;
+}
+let artSeatList = null;                       // seats of the floor being built (artBuildFloor collects them)
+// a seat: a seated or working occupant the game can swap with a real person. (sx, sz, ry) is the occupant; standZ is where a
+// person stands to go in or out (null: right at the seat, the way straight to the lane is clear, and they sit down / get up there)
+function artSeatAdd(h, wing, sx, sz, ry, standZ, sitting, kind, seed, opts) {
+  if (!artSeatList || !h) return;
+  const at = standZ == null, z = at ? sz : standZ;
+  artSeatList.push({ id: artSeatList.length, h, wing, x: sx, z, face: at ? ry : artYaw(sx, z, sx, sz), sit: at && !!sitting, kind, seed, opts: opts || null,
+    a: 1, want: 1, taken: false, held: false, reserved: false });
+}
+// floor handle API over a floor's seats (contract in handoff/EXTENSIONS.md): takeSeat / freeSeat / fillSeat, and the fade tick
+function artSeatApi(seats, fi) {
+  let n = fi * 7 + 3;
+  const pick = (c) => c[Math.floor(artHash01(++n * 7919 + fi) * c.length) % c.length];
+  return {
+    tick(t, dt) {                                                // occupants fade out when taken, in when filled (invisible, never removed)
+      dt = Math.min(0.1, dt || 0.016);
+      for (const e of seats) if (e.a !== e.want) { e.a = e.want ? Math.min(1, e.a + dt / 0.35) : Math.max(0, e.a - dt / 0.35); e.h.setOpacity(e.a); }
+    },
+    takeSeat(wing, hold) {
+      const c = seats.filter((e) => !e.taken && (!wing || e.wing === wing)); if (!c.length) return null;
+      const e = pick(c); e.taken = true; e.held = !!hold; e.reserved = false; e.want = 0;
+      return { id: e.id, x: e.x, z: e.z, face: e.face, rise: e.sit, kind: e.kind, seed: e.seed, look: (e.opts && e.opts.look) || null, opts: e.opts, wing: e.wing };
+    },
+    freeSeat(wing) {
+      const c = seats.filter((e) => e.taken && !e.held && !e.reserved && (!wing || e.wing === wing)); if (!c.length) return null;
+      const e = pick(c); e.reserved = true;
+      return { id: e.id, x: e.x, z: e.z, face: e.face, sit: e.sit, wing: e.wing };
+    },
+    fillSeat(id) { const e = seats[id]; if (!e) return false; e.taken = e.held = e.reserved = false; e.want = 1; return true; },
+  };
 }
 function artCartParts() {                                       // the hotel housekeeping cart (as R2 drew it), centred, y from the floor
   const P = [];
@@ -3470,7 +3560,7 @@ function artHotelMaidL(ctx, parent, sd, v) {
 function artDiner(parent, kind, seed, opts, x, y, z, ry) {
   const h = buildPerson(kind, seed, Object.assign({ bare: true }, opts)), p = h._p, [aL, aR] = p.arms, hg = p.headG;
   hg.rotation.set(0, 0, 0);
-  const off = artDinerRig(h, 0.55), hy = -p.arm + p.armR * 0.3, mesh = (a) => a.children.find((o) => o.isMesh);
+  const off = artDinerRig(h, ART_SEAT_HIP), hy = -p.arm + p.armR * 0.3, mesh = (a) => a.children.find((o) => o.isMesh);
   artMergeInto(mesh(aR), [[artBox(0.012, 0.15, 0.01), '#C9CCD0', 0, hy - 0.08, 0.02], [artBox(0.032, 0.045, 0.006), '#C9CCD0', 0, hy - 0.17, 0.02]], p.owned);   // fork
   artMergeInto(mesh(aL), [[artCyl(0.034, 0.027, 0.1, 8), '#E3EEF2', 0, hy - 0.01, 0.07, Math.PI / 2]], p.owned);                                                // glass
   h.group.position.set(x, y, z); h.group.rotation.y = ry; parent.add(h.group);
@@ -3547,10 +3637,13 @@ function artDiningRoom(ctx, parent, sd) {
   for (let k = 0; k < ns; k++) stools.push(bu + 0.3 + k * (bw - 0.6) / Math.max(1, ns - 1));
   const tables = R2_restTables(ctx, bu);                        // the tables and chairs R2_restaurant draws
   if (!tables.length) return out;
-  const chairs = []; for (const t of tables) chairs.push(...t.chairs);
+  const chairs = []; for (const t of tables) for (const c of t.chairs) chairs.push({ c, t });
   const n = Math.min(5, Math.max(Math.min(chairs.length, 3), chairs.length - 1));   // one chair stays free when there are 4+
   const who = [['adult', { look: 'dress', top: '#B5655A' }], ['kid', null], ['grandma', null], ['adult', { look: 'suit', top: '#3E4B5E' }], ['adult', { look: 'casual', top: '#6F8A5E' }]];
-  for (let i = 0; i < n; i++) { const c = chairs[i]; out.push(artDiner(parent, who[i][0], 401 + i * 7 + sd * 17, who[i][1], X(c.u - 0.04 * Math.sin(c.ry)), y, c.z - 0.04 * Math.cos(c.ry), c.ry)); }
+  for (let i = 0; i < n; i++) {                                 // hips a little forward of the chair centre: close to the table
+    const { c, t } = chairs[i], x = X(c.u + 0.03 * Math.sin(c.ry)), z = c.z + 0.03 * Math.cos(c.ry), sdd = 401 + i * 7 + sd * 17, tk = artDiner(parent, who[i][0], sdd, who[i][1], x, y, z, c.ry);
+    out.push(tk); artSeatAdd(tk.h, 'L', x, z, c.ry, Math.abs(c.ry) < 0.1 ? t.z + 0.62 : null, true, who[i][0], sdd, who[i][1]);   // behind a table: in and out in front of it
+  }
   const px = ns >= 2 ? (stools[0] + stools[1]) / 2 : Math.min(W - 0.4, bu + bw / 2 + 0.35), pz = ns >= 2 ? -1.95 : -1.8;
   const F = tables.map((t) => ({ x: X(t.u + 0.28), z: t.z + 0.64, ry: artYaw(t.u + 0.28, t.z + 0.64, t.u, t.z) })), nT = F.length, S = [];
   for (let r = 0; r < nT; r++) {                                // serve one table, take the next one's order, clear the last one
@@ -4926,6 +5019,10 @@ function R2_toilets(P, ctx, wing) {
     }
     water.forEach((m, k) => { m.visible = (wA.a > 0.5 && Math.abs(wA.h.group.position.x - X(T.sinks[k])) < 0.05) || (k === 1 && wB.a > 0.5); });
     dryLit.visible = dry.a > 0.5;
+  },
+  occupy(sec) {                                                // a game visitor: a free cubicle closes (red lock, feet) for sec seconds
+    const c = cubs.find((q) => !q.busy) || cubs[0]; if (!c) return false;
+    c.t = c.busy ? Math.max(c.t, sec || 20) : sec || 20; c.busy = true; return true;
   } };
 }
 
@@ -5035,6 +5132,7 @@ function R2_buildRoom(themeId, wing, ctx) {
   const nTrain = group.children.length, meshes = ctx.sharedBatch ? [] : B.flush(group), h = { group, update: () => {}, meshes: meshes.length, tris: B.tris };
   if (extra.spawnPoints) h.spawnPoints = extra.spawnPoints;
   if (extra.tick) ticks.push(extra.tick);                    // a builder's own animation (toilets: doors, washing, cleaner)
+  if (extra.occupy) h.occupy = extra.occupy;                 // toilets: a game visitor keeps a cubicle busy
   if (extra.bays) { h.bays = extra.bays; h.ramp = extra.ramp; h.decor = extra.decor; if (extra.inner) h.inner = extra.inner; }
   if (extra.steamAt) {                                       // kitchen steam: one merged puff mesh that rises and fades
     const sm = new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.0, depthWrite: false });
@@ -5326,24 +5424,40 @@ function pickKind() {
 }
 
 // from: 'street' | 'room' | 'parking' | 'subway' (where on the floor they appear)
-function spawnPerson(origin, dest, kind, from, startX, startZ) {
+// extra (optional): { seed, opts, trip } to bring back the same person (a toilet visit's way home)
+function spawnPerson(origin, dest, kind, from, startX, startZ, extra) {
   if (G.people.length >= MAX_PEOPLE || origin === dest) return null;
   const q = G.floors[origin].queue;
-  if (q.length + G.people.filter((o) => o.state === 'approach' && o.floor === origin).length >= QUEUE_MAX) return null;
-  kind = kind || pickKind();
-  const K = KINDS[kind], seed = 1 + rint(1e9);
-  const art = buildPerson(kind, seed); scene.add(art.group);
+  if (q.length + G.people.filter((o) => (o.state === 'approach' || o.state === 'checkin') && o.floor === origin).length >= QUEUE_MAX) return null;
   const L = G.layout;
   from = from || 'room';
   const st = from === 'street' && startX == null ? streetH() : null;
   const fromDoor = !st && from === 'room' && startX == null && !L.themes[origin].basement;   // from inside a room (no doors)
-  const x = st ? (rng() < 0.5 ? st.leftX : st.rightX) : startX ?? (from === 'street' ? L.streetX : fromDoor ? roomSpotX(origin) : L.roomDoorXs[rint(2)]);
-  const z0 = st ? paveZ(st) : fromDoor ? ROOM_SPOT_Z : startZ ?? L.laneZ;
-  const p = { id: G.nextId++, kind, seed, floor: origin, dest, x, z: z0, rot: Math.PI / 2, state: 'arriving', from,
+  // from a room: one of the floor's seated or working occupants gets up and becomes this person (art seats API);
+  // now and then they're only off to the toilets and keep their seat (trip: back to it later)
+  let seat = null, trip = extra?.trip || null;
+  const fh = building?.floors?.[origin];
+  if (fromDoor && typeof fh?.takeSeat === 'function') {
+    const lf = looFloor(), loo = !!lf && lf.f !== origin && rng() < LOO_CHANCE;
+    seat = fh.takeSeat(undefined, loo);
+    if (seat && loo) { dest = lf.f; trip = { home: origin, loo: lf.f, wing: lf.wing, seatId: seat.id, x: seat.x, z: seat.z, face: seat.face, sit: !!seat.rise }; }
+  }
+  kind = seat && KINDS[seat.kind] ? seat.kind : kind || pickKind();
+  const K = KINDS[kind], seed = seat ? seat.seed : extra?.seed ?? 1 + rint(1e9), opts = seat ? seat.opts : extra?.opts ?? null;
+  const guest = !!st && L.themes[dest]?.kind === 'hotel' && kind !== 'courier';             // a hotel guest: luggage, checks in first
+  const art = buildPerson(kind, seed, guest ? Object.assign({}, opts, { luggage: true }) : opts); scene.add(art.group);
+  const x = st ? (rng() < 0.5 ? st.leftX : st.rightX) : seat ? seat.x : startX ?? (from === 'street' ? L.streetX : fromDoor ? roomSpotX(origin) : L.roomDoorXs[rint(2)]);
+  const z0 = st ? paveZ(st) : seat ? seat.z : fromDoor ? ROOM_SPOT_Z : startZ ?? L.laneZ;
+  const p = { id: G.nextId++, kind, seed, opts, trip, floor: origin, dest, x, z: z0, rot: seat ? seat.face : Math.PI / 2, state: 'arriving', from,
     waited: 0, stage: 0, seats: K.seats, carIdx: -1, spots: [], patience: G.level.patience * K.patience, speed: WALK_SPEED * K.walk,
-    move: K.move, art, alpha: 0, fade: 1, anim: 'walk', animT: 0, shakeT: 0, phase: 0, timer: 0, shownAlpha: -1, exitX: L.roomDoorX };
+    move: K.move, art, alpha: 0, fade: 1, anim: 'walk', animT: 0, shakeT: 0, phase: 0, timer: 0, shownAlpha: -1, exitX: L.roomDoorX,
+    riseT: seat && seat.rise ? 0.5 : 0 };
   art.setBubble(st ? null : dest); art.setMood(0, 0); art.setOpacity(0);   // street walkers show where they go once inside
-  if (st) { p.state = 'approach'; p.path = [[st.entranceX, paveZ(st)], [st.entranceX, L.laneZ]]; G.debugLife.streetIn++; }
+  const rc = guest ? building?.floors?.[origin]?.reception : null;
+  if (st && rc && Number.isFinite(rc.x) && Number.isFinite(rc.z)) {          // in through the back door, to the desk, then to the lifts
+    p.state = 'approach'; p.rec = rc; p.path = [[st.entranceX, paveZ(st)], [st.entranceX, rc.z], [rc.x, rc.z]]; G.debugLife.streetIn++;
+  }
+  else if (st) { p.state = 'approach'; p.path = [[st.entranceX, paveZ(st)], [st.entranceX, L.laneZ]]; G.debugLife.streetIn++; }
   else if (Math.abs(z0 - L.laneZ) > 0.01) { p.state = 'approach'; p.path = [[x, L.laneZ]]; }   // out of a door, then to the lane
   else joinQueue(p);
   G.people.push(p);
@@ -5353,6 +5467,24 @@ function spawnPerson(origin, dest, kind, from, startX, startZ) {
 }
 
 function floorIdx(id) { return G.layout.ids.indexOf(id); }
+// the floor with a toilets wing (LEVELS[].wings), or null; looSpot: that wing's clear spot, where visitors go in and come out
+function looFloor() {
+  const L = G.layout;
+  for (let f = 0; f < L.nFloors; f++) { const w = L.wings[L.ids[f]]; if (w) for (const wing of ['L', 'R']) if (w[wing] === 'toilets') return { f, wing }; }
+  return null;
+}
+function looSpot(f, wing) { const sp = building?.floors?.[f]?.roomSpots?.find((o) => o.wing === wing); return sp ? sp.x : roomSpotX(f); }
+// a toilet visit is over: the same person comes out of the toilets and rides back to their seat (retries while the floor is full)
+function looReturn(p) {
+  const b = building, t = p.trip, trip = Object.assign({}, t, { back: true }), x = looSpot(t.loo, t.wing);
+  let tries = 0;
+  const go = () => {
+    if (building !== b) return;
+    if (G.phase === 'play' && spawnPerson(t.loo, t.home, p.kind, 'room', x, ROOM_SPOT_Z, { seed: p.seed, opts: p.opts, trip })) return;
+    if (++tries < 12 && G.phase === 'play') later(4, go); else b.floors[t.home]?.fillSeat?.(t.seatId);
+  };
+  later(p.looDur || LOO_TIME[0], go);
+}
 // a random floor above the lobby. Destinations (asOrigin false): offices and hotels are twice as likely, weighted by
 // time of day with NIGHT_WEIGHTS (by day to the offices, at night home and to the hotel). Origins of trips that start
 // on an upper floor (asOrigin true): weighted with ORIGIN_WEIGHTS (by day people leave home, at dusk they leave work).
@@ -5498,6 +5630,13 @@ function parkArrival(d) {
 function planDeparture(p) {
   const L = G.layout, id = L.ids[p.floor];
   p.state = 'leaving'; p.end = 'fade'; p.roomDoor = false;
+  const t = p.trip;
+  if (t && !t.back && p.floor === t.loo) {                       // a toilet visit: into the toilets at their spot
+    const x = looSpot(t.loo, t.wing); p.intoRoom = true; p.linger = 0.5; p.looIn = true; p.path = [[x, L.laneZ], [x, ROOM_SPOT_Z]]; return;
+  }
+  if (t && t.back && p.floor === t.home) {                        // back from the toilets: to their own seat
+    p.seat = { id: t.seatId, x: t.x, z: t.z, face: t.face, sit: t.sit }; p.path = [[t.x, L.laneZ], [t.x, t.z]]; return;
+  }
   const st = p.floor === L.groundIndex ? streetH() : null;
   if (st) {
     p.path = [[st.entranceX, L.laneZ], [st.entranceX, paveZ(st)], [rng() < 0.5 ? st.leftX : st.rightX, paveZ(st)]];
@@ -5522,7 +5661,10 @@ function planDeparture(p) {
     const x = xs.find((v) => !used.includes(v)) ?? xs[rint(xs.length)];
     p.platX = x; p.path = [[x, L.laneZ]]; p.end = 'platform'; return;
   }
-  if (p.floor !== L.groundIndex && !L.themes[p.floor].basement) {   // into a room: along the lane, then to a spot inside it (fades there)
+  if (p.floor !== L.groundIndex && !L.themes[p.floor].basement) {   // into a room: a free seat if there is one (art seats API)
+    const seat = building?.floors?.[p.floor]?.freeSeat?.();
+    if (seat) { p.seat = seat; p.path = [[seat.x, L.laneZ], [seat.x, seat.z]]; return; }
+    // else along the lane, then to a spot inside the room (fades there)
     const x = roomSpotX(p.floor);
     p.roomDoor = false; p.intoRoom = true; p.linger = ROOM_LINGER; p.path = [[x, L.laneZ], [x, ROOM_SPOT_Z]]; return;
   }
@@ -5603,6 +5745,7 @@ function moodStage(m) { let s = 0; while (s < MOOD_T.length && m >= MOOD_T[s]) s
 function startLeaving(p) {
   leaveQueue(p);
   p.state = 'leavingStairs'; p.path = null; p.art.setBubble(null); p.speed = WALK_SPEED * 1.15;
+  if (p.trip) building?.floors?.[p.trip.home]?.fillSeat?.(p.trip.seatId);   // gave up on a toilet trip: their seat isn't kept any longer
   G.leftStairs++; updateStairs(true); sfx('stomp');
 }
 
@@ -5644,9 +5787,18 @@ function updatePerson(p, dt) {
     if (st >= 4 && !inCar) { startLeaving(p); return; }
   }
   switch (p.state) {
-    case 'approach':   // walking in from the street to the lobby lane, then joins the queue
-      if (followPath(p, dt)) { p.state = 'arriving'; p.art.setBubble(p.dest); joinQueue(p); }
+    case 'approach':   // walking in from the street (or out of a room) to the lane, then joins the queue
+      if (p.riseT > 0) { p.riseT -= dt; setAnim(p, 'rise'); break; }   // getting up from their seat first
+      if (followPath(p, dt)) {
+        if (p.rec && !p.checked) { p.checked = true; p.state = 'checkin'; p.timer = CHECKIN_TIME; building?.floors[p.floor]?.checkIn?.(); break; }
+        p.state = 'arriving'; p.art.setBubble(p.dest); joinQueue(p);
+      }
       break;
+    case 'checkin': {  // hotel guest at the reception desk: the receptionist hands over a key, then off to the lifts
+      setAnim(p, 'idle'); p.rot = Math.PI; p.timer -= dt;
+      if (p.timer <= 0) { const ex = streetH()?.entranceX ?? p.x; p.state = 'approach'; p.path = [[ex, p.rec.z], [ex, L.laneZ]]; }
+      break;
+    }
     case 'arriving': case 'waiting': {
       const qs = p.side ? L.queueXR : L.queueX, slot = Math.max(0, fl.queues[p.side ? 1 : 0].indexOf(p));
       if (walkTo(p, qs[Math.min(slot, qs.length - 1)], L.laneZ, dt)) {
@@ -5678,9 +5830,19 @@ function updatePerson(p, dt) {
       break;
     case 'leaving': {
       if (!followPath(p, dt)) break;
+      if (p.seat) {                                              // at a seat: turn, sit down (or step in), fade while the occupant fades back in
+        if (!p.seated) { p.seated = true; p.fade = 0; building?.floors[p.floor]?.fillSeat?.(p.seat.id); }
+        p.rot = p.seat.face; setAnim(p, p.seat.sit ? 'sit' : 'idle');
+        if (p.alpha <= 0) removePerson(p);
+        break;
+      }
       setAnim(p, 'idle');
       if (p.intoRoom && p.linger > 0) { p.linger -= dt; p.rot = 0; break; }   // arrived in the room: stand facing out a moment, then fade
-      if (p.end === 'fade') { if (p.roomDoor) fl.roomHold[p.roomDoor] = 0.6; p.fade = 0; if (p.alpha <= 0) removePerson(p); }
+      if (p.end === 'fade') {
+        if (p.roomDoor) fl.roomHold[p.roomDoor] = 0.6;
+        if (p.looIn && !p.looDur) { p.looDur = LOO_TIME[0] + rng() * (LOO_TIME[1] - LOO_TIME[0]); building?.floors[p.floor]?.occupyToilet?.(p.looDur); }
+        p.fade = 0; if (p.alpha <= 0) { if (p.looIn) looReturn(p); removePerson(p); }
+      }
       else if (p.end === 'car') {
         const bay = G.bays[p.bay], ph = bay ? parkH(bay.f) : null;
         if (!ph || !bay) { p.end = 'fade'; break; }

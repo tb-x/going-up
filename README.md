@@ -62,6 +62,12 @@ Play it at <https://tb-x.github.io/going-up/> (once published).
   win at night ends with "Good night!".
 - The rooms are busy: in the toilets the cubicle doors close (red lock, feet under the door) and open again (green),
   people wash their hands and use the dryer, and now and then a cleaner mops the floor behind a yellow wet-floor sign.
+- The people in the rooms are the building's own people. Someone heading for the lift gets up from their chair (a
+  diner, an office worker, a hotel guest, someone at home) and walks out to the lift; someone arriving walks to an
+  empty seat and sits back down. Now and then (about 1 in 6) they're only off to the toilets: they ride there, go in
+  (a cubicle locks red), come out 20-40 seconds later and ride back to their own seat.
+- In a building with a hotel, the lobby desk is a hotel reception (a rack of keys, a key sign, a luggage trolley).
+  Hotel guests come in from the street with a little suitcase, wait at the desk for their key, then queue for the lift.
 - On level 1 a pulsing hand shows what to tap if nothing has been tapped for a couple of seconds (later levels: 8 s).
 - When the building is taller than the screen, drag up and down to look around (down into the basements too);
   on a narrow phone the outer rooms may be cut off, so drag sideways as well. The lifts and both queues always stay
@@ -122,6 +128,8 @@ At the top of the script in `index.html`:
 | `LOWER_PARK_SHARE` | 50% | with two car parks, the share of car-park arrivals that use the lower one (-2) |
 | `LEVEL_TIMES` | | day, dusk or night for each level |
 | `ROOM_DOOR_Z`, `STAIR_DOOR_Z`, `PARK_DOOR_Z`, `TRAIN_EDGE_Z`, `PAVEMENT_Z` | | where people stand when they go through a room door, the stair door, into a car or a train, and the line they walk along the pavement |
+| `LOO_CHANCE` / `LOO_TIME` | 1 in 6 / 20-40 s | how often someone getting up goes to the toilets instead (levels with toilets), and how long they stay |
+| `CHECKIN_TIME` | 3 s | how long a hotel guest waits at the reception desk |
 | `FAST_MULT` | 4 | speed-up for `?fast` |
 | `BUBBLE_PX` / `RIDER_BUBBLE` | 44 px / 0.7 | bubble size on screen, and how much smaller they are inside a lift |
 
