@@ -859,6 +859,34 @@ function VEH_glassMat(lv = 0, see = false) {      // see: see-through (bus windo
   return VEH_matC('glass|' + lv + '|' + see, () => new THREE.MeshStandardMaterial({ color: see ? '#22313B' : '#2C3B47', roughness: 0.04, metalness: see ? 0.25 : 0.35, envMapIntensity: 1.6,
     transparent: see, opacity: see ? 0.42 : 1, depthWrite: !see, emissive: '#FFD49A', emissiveIntensity: see ? (lv / 4) * 0.35 : 0 }));
 }
+// contact shadows of moving things (people, vehicles): one instanced draw per material instead of one mesh each.
+// artBlobAdd(anchor, sx, sz, y, kind) follows the anchor's world matrix every frame; e.on = false hides it.
+const ART_BLOBS = { pools: {}, m: new THREE.Matrix4(), max: 400 };
+function artBlobPools(scene) {
+  for (const P of Object.values(ART_BLOBS.pools)) P.mesh?.removeFromParent();
+  const mk = (mat) => { const g = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), mesh = new THREE.InstancedMesh(g, mat, ART_BLOBS.max);
+    mesh.frustumCulled = false; mesh.renderOrder = 1; mesh.count = 0; scene.add(mesh); return { mesh, list: [] }; };
+  const old = ART_BLOBS.pools; ART_BLOBS.pools = { person: mk(artBlobM()), veh: mk(VEH_shadowMat()) };
+  for (const k of Object.keys(old)) if (ART_BLOBS.pools[k]) ART_BLOBS.pools[k].list.push(...old[k].list);   // keep live registrations
+}
+function artBlobAdd(anchor, sx, sz, y = 0.012, kind = 'person') {
+  const e = { anchor, kind, on: true, local: new THREE.Matrix4().compose(new THREE.Vector3(0, y, 0), new THREE.Quaternion(), new THREE.Vector3(sx, 1, sz)) };
+  (ART_BLOBS.pools[kind] || (ART_BLOBS.pools[kind] = { mesh: null, list: [] })).list.push(e); return e;
+}
+function artBlobRemove(e) { const L = ART_BLOBS.pools[e?.kind]?.list; const i = L ? L.indexOf(e) : -1; if (i >= 0) L.splice(i, 1); }
+function artBlobTick() {
+  for (const P of Object.values(ART_BLOBS.pools)) {
+    if (!P.mesh) continue; let n = 0;
+    for (const e of P.list) {
+      if (!e.on) continue; let o = e.anchor, vis = true;
+      while (o) { if (!o.visible) { vis = false; break; } if (o.isScene) break; o = o.parent; }
+      if (!vis || !o) continue;                                     // hidden, or not in the scene
+      e.anchor.updateWorldMatrix(true, false); ART_BLOBS.m.multiplyMatrices(e.anchor.matrixWorld, e.local);
+      P.mesh.setMatrixAt(n++, ART_BLOBS.m); if (n >= ART_BLOBS.max) break;
+    }
+    P.mesh.count = n; P.mesh.instanceMatrix.needsUpdate = true;
+  }
+}
 function VEH_shadowMat() {
   return VEH_matC('shadow', () => {
     const c = document.createElement('canvas'); c.width = 128; c.height = 64; const g = c.getContext('2d');
@@ -1233,14 +1261,14 @@ function VEH_build(kind, seed = 1, opts = {}) {
   const sc = opts.scale || 1, group = new THREE.Group(); group.name = 'vehicle-' + kind; group.scale.setScalar(sc);
   // only the body casts a sun shadow (one shadow draw per vehicle instead of six); the contact shadow does the rest
   const mk = (geo, mat, cast = false, parent = group) => { const m = new THREE.Mesh(geo, mat); m.castShadow = cast; m.receiveShadow = true; parent.add(m); return m; };
-  const paint = mk(K.paint, VEH_paintMat(col), true), glass = mk(K.glass, VEH_glassMat(0, !!K.see)), trim = mk(K.trim, VEH_trimMat(0, 0));
+  const paint = mk(K.paint, VEH_paintMat(col), false), glass = mk(K.glass, VEH_glassMat(0, !!K.see)), trim = mk(K.trim, VEH_trimMat(0, 0));
   if (K.see) glass.renderOrder = 2;
   const wheels = new THREE.InstancedMesh(K.wheel, VEH_trimMat(0, 0), K.wheels.length); wheels.castShadow = false; wheels.receiveShadow = true; group.add(wheels);
   let hinge = null, leafA = null, leafB = null, sign = null;
   if (K.door) { hinge = new THREE.Group(); hinge.position.set(K.hinge[0], K.hinge[1], K.hinge[2]); group.add(hinge); mk(K.door, VEH_paintMat(col), false, hinge); }
   if (K.leafA) { leafA = mk(K.leafA, VEH_trimMat(0, 0)); leafB = mk(K.leafB, VEH_trimMat(0, 0)); leafA.position.z = leafB.position.z = K.leafZ; }
   if (K.sign) sign = mk(K.sign, VEH_signMat(route), false);
-  const shadow = new THREE.Mesh(VEH_plane(), VEH_shadowMat()); shadow.scale.set(K.L * 1.08, 1, K.W * 1.22); shadow.position.y = 0.012; shadow.renderOrder = 1; group.add(shadow);
+  const shadowE = artBlobAdd(group, K.L * 1.08, K.W * 1.22, 0.012, 'veh');   // contact shadow (pooled, one draw for all vehicles)
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(0, 0, 0, 'ZYX'), v = new THREE.Vector3(), one = new THREE.Vector3(1, 1, 1);
   let lv = 0, brake = 0;
   const api = {
@@ -1258,7 +1286,7 @@ function VEH_build(kind, seed = 1, opts = {}) {
     setLights(n) { lv = Math.round(Math.max(0, Math.min(1, n || 0)) * 4); api._mat(); },
     setBrake(on) { brake = on ? 1 : 0; api._mat(); },
     _mat() { trim.material = VEH_trimMat(lv, brake); if (K.see) glass.material = VEH_glassMat(lv, true); if (leafA) leafA.material = leafB.material = VEH_trimMat(lv, 0); },
-    dispose() { group.removeFromParent(); wheels.dispose(); },
+    dispose() { group.removeFromParent(); wheels.dispose(); artBlobRemove(shadowE); },
   };
   api.setWheels(0); wheels.computeBoundingSphere();
   return api;
@@ -1279,6 +1307,7 @@ let artVehNight = 0;                  // 0 day .. 1 night: vehicle head/tail lig
 const artGuests = new Set();          // { x, z, L } of parking cars while they are on the road
 // the bus at its stop on the back road: the game drops people off and picks them up while the doors are open
 const artBus = { stopX: ART_PARK.busStopX, kerbZ: -6.85, open: false, seq: 0 };
+let artTraffic = [];                  // the street's traffic cars (set by the street builder)
 // one car at a time on the garage ramps (street ramp and the internal one, both directions): later cars wait their turn
 const ART_RAMP = { busy: null, queue: [] };
 function artRampRelease(c) { if (ART_RAMP.busy !== c) return; ART_RAMP.busy = null; const n = ART_RAMP.queue.shift(); if (n) { ART_RAMP.busy = n.c; n.start(); } }
@@ -1293,6 +1322,7 @@ function artRampOf(layout) {          // the car park ramp outside the right wal
 
 /* ======== art: sky, street & lights ======== */
 function buildSky(scene) {
+  artBlobPools(scene);
   scene.background = artCachedTex('skybg2', 4, 256, (g) => {
     const gr = g.createLinearGradient(0, 0, 0, 256);
     gr.addColorStop(0, '#7FA9CF'); gr.addColorStop(0.55, '#B9CFE0'); gr.addColorStop(1, '#E7EAE6');
@@ -1416,6 +1446,7 @@ function buildSky(scene) {
   [['estate', 11, 0, -45, 8.5], ['coupe', 23, 0, 8, 8], ['suv', 5, 0, 42, 8], ['truck', 3, 0, 70, 6.5, 0.85], ['police', 19, 0, -15, 8],
     ['taxi', 7, 1, 30, 8], ['minivan', 9, 1, -18, 7], ['pickup', 13, 1, -58, 8.5], ['mini', 17, 1, 66, 7.5], ['camper', 21, 1, 48, 6.5], ['ambulance', 29, 1, 6, 7.5]].forEach(([k, sd, ln, x, v, sc]) => mkTraffic(k, sd, ln, x, v, sc || PK.street));
   const bus = mkTraffic('bus', 2, 0, 72, 7, 0.8); bus.bus = { state: 'drive', t: 0 };
+  artTraffic = traffic;                                  // buildBuilding thins it out on tall towers
   const gapAhead = (c) => {
     let best = 1e9;
     for (const o of traffic) if (o !== c && o.dir === c.dir) { let d = (o.x - c.x) * c.dir; if (d <= 0) d += SPAN; best = Math.min(best, d - (o.L + c.L) / 2); }
@@ -1547,6 +1578,8 @@ const artShaftW = (layout, s) => (layout.shaftW ? layout.shaftW[s] : ART.SHAFT_W
 const artCarW = (layout, s) => (layout.wide && layout.wide[s] ? ART.CAR_W_WIDE : ART.CAR_W);
 function buildBuilding(scene, layout) {
   artLabels = layout.labels || null; artThemes = layout.themes || null;
+  // tall towers hide most of the road and cost the most to draw: every third car (never the bus) stays out of sight
+  artTraffic.forEach((c, k) => { c.h.group.visible = c.bus || !((layout.nFloors || 0) > 12 && k % 3 === 1); });
   artZones = layout.zoned ? layout.serves.map((row, s) => ({ serves: row, color: layout.zoneColor[s], label: layout.zoneLabel[s] })) : null;
   artEntranceX = (layout.roomL ? layout.roomL[0] : layout.x0 + ART.STAIR_W) + 4.4;
   artHotelLobby = (layout.ids || []).some((id) => ((typeof THEME_LIB !== 'undefined' && THEME_LIB[id] && THEME_LIB[id].kind) || id) === 'hotel');
@@ -3272,7 +3305,7 @@ function buildPerson(kind, seed, opts) {
   }
   // steam puffs (angry), bubble sprite
   const steam = new THREE.InstancedMesh(artSph(1, 6, 4), ART_STEAM_MAT(), 6); steam.visible = false; steam.frustumCulled = false; group.add(steam);
-  const blob = new THREE.Mesh(artPln(0.9, 0.9), artBlobM()); blob.rotation.x = -Math.PI / 2; blob.position.y = 0.012; blob.renderOrder = 1; group.add(blob);   // contact shadow
+  const blob = artBlobAdd(group, 0.9, 0.9);   // contact shadow (pooled: one draw for everyone)
   const bubbleMat = new THREE.SpriteMaterial({ depthTest: false, depthWrite: false, transparent: true, fog: false, toneMapped: false });
   const bubble = new THREE.Sprite(bubbleMat); bubble.renderOrder = 10; bubble.visible = false; bubble.center.set(0.5, 0.5);
   bubble.position.set(0, height + ART.BUBBLE_Y, 0); bubble.scale.set(ART.BUBBLE_SIZE * ART_BUBBLE_BOOST, ART.BUBBLE_SIZE * ART_BUBBLE_BOOST, 1); group.add(bubble);
@@ -3400,11 +3433,11 @@ function buildPerson(kind, seed, opts) {
       a = Math.max(0, Math.min(1, a)); alpha = a;
       const tr = a < 0.999;
       for (const m of [bodyMat, headMat]) { if (m.transparent !== tr) { m.transparent = tr; m.needsUpdate = true; } m.opacity = a; }
-      faceMat.opacity = a; bubbleMat.opacity = a; group.visible = a > 0.01; blob.visible = a > 0.5;
+      faceMat.opacity = a; bubbleMat.opacity = a; group.visible = a > 0.01; blob.on = a > 0.5;
       for (const o of [torso, headMesh]) if (o) o.castShadow = false;   // indoors: a sun shadow would fall through the floors
     },
     dispose() {
-      if (disposed) return; disposed = true; artLive.delete(live);
+      if (disposed) return; disposed = true; artLive.delete(live); artBlobRemove(blob);
       if (group.parent) group.parent.remove(group);
       for (const g of owned) g.dispose(); for (const m of mats) m.dispose(); bubbleMat.dispose(); steam.dispose();
     },
@@ -4677,7 +4710,7 @@ function artSetTime(mode) {
 
 /* ======== art: ambient animation ======== */
 function animateArt(time, dt) {
-  artNow = time;
+  artNow = time; artBlobTick();
   if (typeof TICK !== 'undefined' && TICK && artRenderer && ++artFrames % 20 === 0) {   // headless checks read <html data-art>
     const ri = artRenderer.info.render; document.documentElement.dataset.art = `calls=${ri.calls} tris=${ri.triangles}`; }
   if (artFrames === 25 && typeof location !== 'undefined' && location.search.includes('artdbg') && artLights) {   // draw-call breakdown for perf work
@@ -6631,12 +6664,26 @@ function queueSlotX(side, k) { const L = G.layout; k = Math.min(k, (L.queueSlots
 /* ======== renderer & camera ======== */
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-window.__tbxRenderer = renderer;   // read by the local telemetry collector (draw calls); nothing on Pages
+window.__tbxRenderer = renderer;
+// the sun's shadow map is redrawn only every SHADOW_REFRESH s (and at a level start): nothing that casts a sun shadow moves much
+renderer.shadowMap.autoUpdate = false; let shadowT = 0;   // read by the local telemetry collector (draw calls); nothing on Pages
 // pixel density: phones (short side under 500 css px) render at 1.5x at most, the rest at 2x: far fewer pixels to fill
 const MAX_DPR_PHONE = 1.5, MAX_DPR = 2;
+const SHADOW_REFRESH = 0.5;            // s between sun shadow map redraws
 const dprCap = () => Math.min(window.devicePixelRatio || 1, Math.min(innerWidth, innerHeight) < 500 ? MAX_DPR_PHONE : MAX_DPR);
 renderer.setPixelRatio(dprCap());
-addEventListener('resize', () => { const d = dprCap(); if (renderer.getPixelRatio() !== d) renderer.setPixelRatio(d); });
+// adaptive sharpness: if frames run slow the pixel density steps down (to DPR_MIN), and back up when there's room
+const DPR_MIN = 1, DPR_STEP = 0.25, SLOW_FRAME_MS = 24, FAST_FRAME_MS = 15;
+let dprDyn = dprCap(); const frameMs = [];
+function setDpr(d) { d = Math.max(Math.min(DPR_MIN, dprCap()), Math.min(dprCap(), d)); dprDyn = d; if (renderer.getPixelRatio() !== d) renderer.setPixelRatio(d); }
+function adaptDpr(ms) {
+  if (!(ms > 0 && ms < 200)) return;                         // ignore hidden-tab gaps
+  frameMs.push(ms); if (frameMs.length < 90) return;
+  frameMs.sort((a, b) => a - b); const med = frameMs[frameMs.length >> 1]; frameMs.length = 0;
+  if (med > SLOW_FRAME_MS && dprDyn > DPR_MIN) setDpr(dprDyn - DPR_STEP);
+  else if (med < FAST_FRAME_MS && dprDyn < dprCap()) setDpr(dprDyn + DPR_STEP);
+}
+addEventListener('resize', () => setDpr(Math.min(dprDyn, dprCap())));
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(CAM_FOV, 1, 0.5, 400);
 const sky = buildSky(scene);
@@ -6777,6 +6824,7 @@ function startLevel(i) {
   setupLevel(i);
   starTimers.forEach(clearTimeout); starTimers.length = 0;
   document.getElementById('fx').innerHTML = '';
+  shadowT = 0;                                          // fresh shadow map for the new building
   G.phase = 'play';
   window.tbxEvent?.('level-start', { level: i + 1, time: LEVELS[i].time });
   document.getElementById('map').hidden = true;
@@ -7833,14 +7881,17 @@ function advanceSim(now, maxDt) {
 }
 // ?demo also ticks from a timer, so headless runs (where animation frames are rare) still play and draw
 if (TICK) setInterval(() => tick(performance.now(), 0.5), 100);
+let lastFrame = 0;
 function frame(now) {
   requestAnimationFrame(frame);
+  if (lastFrame) adaptDpr(now - lastFrame); lastFrame = now;
   tick(performance.now(), 0.1);
 }
 function tick(now, maxDt) {
   const dt = Math.min(maxDt, Math.max(0, (now - last) / 1000)); last = now;
   advanceSim(now, maxDt);
   updateCameraMotion(dt); applyCamera();
+  shadowT -= dt; if (shadowT <= 0) { shadowT = SHADOW_REFRESH; renderer.shadowMap.needsUpdate = true; }
   syncVisuals();
   artTime += dt; sky.update(artTime); animateArt(artTime, dt);
   updateHint(); updateEdges(); updateMotor();
