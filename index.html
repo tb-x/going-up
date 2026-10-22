@@ -3585,6 +3585,7 @@ function floorWord(f) { const n = +G.layout.labels[f]; return (n < 0 ? MINUS_WOR
 /* ======== renderer & camera ======== */
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+window.__tbxRenderer = renderer;   // read by the local telemetry collector (draw calls); nothing on Pages
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(CAM_FOV, 1, 0.5, 400);
@@ -3719,6 +3720,7 @@ function startLevel(i) {
   starTimers.forEach(clearTimeout); starTimers.length = 0;
   document.getElementById('fx').innerHTML = '';
   G.phase = 'play';
+  window.tbxEvent?.('level-start', { level: i + 1, time: LEVELS[i].time });
   document.getElementById('map').hidden = true;
   document.getElementById('mapBtn').hidden = false;
   document.getElementById('win').hidden = true;
@@ -4241,6 +4243,7 @@ function checkWin() {
   G.phase = 'won'; G.wonAt = G.time;
   G.stars = G.leftStairs === 0 ? 3 : G.leftStairs <= 2 ? 2 : 1;
   saveStars(G.levelIdx, G.stars);
+  window.tbxEvent?.('level-end', { level: G.levelIdx + 1, won: true, stars: G.stars, secs: Math.round(G.time), leftStairs: G.leftStairs });
 }
 
 /* ======== input ======== */
