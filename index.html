@@ -1292,7 +1292,9 @@ function buildSky(scene) {
   // y = 0 is the lobby floor = both pavements; the road surface is at -0.12. Grass sits 5 mm low so it never z-fights.
   box(500, 0.2, 127.5, '#8FAE74', 0, -0.105, -12.5 - 127.5 / 2);                 // grass behind the far pavement
   // grass beside the tower (aprons cover it near the walls); none over the car park ramp cut on the right (x 8.5 .. groundX, z > -2.45)
-  box(258.5, 0.2, 4.9, '#8FAE74', -120.75, -0.105, -2.45); box(226.5, 0.2, 4.9, '#8FAE74', 136.75, -0.105, -2.45);
+  // (left piece stops at x -9: it must not run under the tower, or it shows at the bottom of the open lift shafts;
+  //  the narrowest tower starts at -8.6 and the paved apron covers 9 m beside it)
+  box(241, 0.2, 4.9, '#8FAE74', -129.5, -0.105, -2.45); box(226.5, 0.2, 4.9, '#8FAE74', 136.75, -0.105, -2.45);
   box(ART_PARK.groundX - 8.5, 0.2, 2.45, '#8FAE74', (ART_PARK.groundX + 8.5) / 2, -0.105, -3.675);
   box(500, 0.2, 2.1, '#C9C3B8', 0, -0.1, -5.95, conc, [125, 1.05]);              // back pavement z -4.9 .. -7.0, top 0
   box(500, 0.12, 0.2, '#A9A398', 0, -0.06, -7.0, conc);                          // kerb down to the road
