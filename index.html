@@ -94,9 +94,9 @@
   #play{width:clamp(96px,24vmin,130px);height:clamp(96px,24vmin,130px);background:var(--green);box-shadow:0 7px 0 #24852f,0 0 0 8px rgba(255,255,255,.6);
     animation:pulse 1.3s ease-in-out infinite}
   #play svg{width:46%;height:46%;margin-left:8%}
-  /* 14 levels: 2 columns x 7 rows in portrait, 3 columns x 5 rows on wide screens; renderMap sets --rows2 / --rows3
-     and each button's --r2/--c2/--r3/--c3 (level 1 bottom left, like floors of a tower) */
-  #levels{display:grid;grid-template-columns:repeat(2,var(--lb));grid-template-rows:repeat(var(--rows2,7),var(--lb));gap:10px;padding:12px;
+  /* 18 levels: 3 columns x 6 rows in portrait, 4 columns x 5 rows on wide screens (14 or fewer: 2 x 7 / 3 x 5); renderMap sets
+     --cols2/--rows2/--cols3/--rows3 and each button's --r2/--c2/--r3/--c3 (level 1 bottom left, like floors of a tower) */
+  #levels{display:grid;grid-template-columns:repeat(var(--cols2,2),var(--lb));grid-template-rows:repeat(var(--rows2,7),var(--lb));gap:10px;padding:12px;
     border-radius:18px;background:rgba(242,168,139,.85);box-shadow:0 0 0 5px #fff6e5;
     --lb:clamp(40px,min(72px,calc((100vh - 380px) / var(--rows2,7) - 10px)),72px)}
   #levels .lv{grid-row:var(--r2);grid-column:var(--c2)}
@@ -109,7 +109,7 @@
   .lv{position:relative}
   .lv .tm{position:absolute;top:2px;right:3px;font-size:calc(var(--lb) * .22);line-height:1}
   body.side #map{flex-direction:row;gap:28px;padding-top:calc(12px + var(--st))}
-  body.side #levels{grid-template-columns:repeat(3,var(--lb));grid-template-rows:repeat(var(--rows3,5),var(--lb));
+  body.side #levels{grid-template-columns:repeat(var(--cols3,3),var(--lb));grid-template-rows:repeat(var(--rows3,5),var(--lb));
     --lb:clamp(36px,calc((100vh - 90px) / var(--rows3,5) - 10px),66px)}
   body.side #levels .lv{grid-row:var(--r3);grid-column:var(--c3)}
 
@@ -239,6 +239,12 @@ const TOP_BAR = 56, SIDE_COL = 64, SIDE_RATIO = 1.3;  // HUD sizes (px); wider t
 const VIEW_BOTTOM = 0.8, VIEW_TOP = 1.8;  // world margin shown below the lobby / above the top floor (roof)
 const BUBBLE_PX = 44;             // target on-screen size of a floor bubble (px)
 const RIDER_BUBBLE = 0.7;         // bubbles of people inside a car are this much smaller (they stand close)
+// zoned lifts (levels with `zones`): cars stop only at the floors they serve, people change lifts on the way
+const TRANSFER_RELIEF = 0.3;      // share of their patience a person gets back each time they change lifts (making progress)
+const QUEUE_SLOTS_ZONED = 8;      // places in each queue on zoned levels (transfer floors get busy); 5 elsewhere
+const ROUTE_LEG = 100;            // route planning: one ride costs this much, plus 1 per floor travelled (fewest rides first)
+const ZONE_COLORS = ['#2FB457', '#2F86E0', '#9C5BD6', '#E0662F'];   // local lifts, lowest zone first
+const EXPRESS_COLOR = '#F2B51D';  // a lift that skips floors (express)
 
 const params = new URLSearchParams(location.search);
 const DEMO = params.has('demo');
@@ -252,6 +258,7 @@ const DEG = Math.PI / 180;
 const RUSH = { kind: 'rush', every: 45, n: 5 };    // 5 people at the lobby at once
 const LUNCH = { kind: 'lunch', every: 50, n: 5 };  // 5 people heading to the restaurant (or café)
 const SP1 = ['grandma'], SP2 = ['grandma', 'courier'], SP3 = ['grandma', 'courier', 'dogwalker'];
+const span = (a, b) => Array.from({ length: b - a + 1 }, (_, k) => a + k);   // floor labels a..b (lift zones)
 // every floor theme; `basement` floors have no number, `popular` floors get twice the visitors.
 // `kind` + `v`: variants (home2, office2, parking2...) reuse their base kind's art and game rules with a variant seed;
 // each variant has its own colour, so floors of the same kind stay apart within a level.
@@ -274,6 +281,16 @@ const THEME_LIB = {
   library:    { id: 'library',    name: 'Library',     color: '#8B5A2B', icon: '📚' },
   garden:     { id: 'garden',     name: 'Roof garden', color: '#35C24A', icon: '🌻' },
   stars:      { id: 'stars',      name: 'Observatory', color: '#1F2F7A', icon: '🔭' },
+  // tall towers (levels 15-18): sky lobbies where lift zones meet, and more variants so colours stay apart
+  sky:        { id: 'sky',        name: 'Sky lobby',   color: '#E7ACF6', icon: '🌤️', weight: 0.5 },
+  sky2:       { id: 'sky2',       name: 'Sky lobby',   color: '#F6ACAC', icon: '☁️', weight: 0.5, kind: 'sky', v: 1 },
+  office3:    { id: 'office3',    name: 'Offices',     color: '#BDE619', icon: '📊', popular: true, kind: 'office', v: 2 },
+  home4:      { id: 'home4',      name: 'Homes',       color: '#7E1B43', icon: '🪴', kind: 'home', v: 3 },
+  home5:      { id: 'home5',      name: 'Homes',       color: '#E7F6AC', icon: '🐶', kind: 'home', v: 4 },
+  office4:    { id: 'office4',    name: 'Offices',     color: '#7D8A0F', icon: '📁', popular: true, kind: 'office', v: 3 },
+  hotel3:     { id: 'hotel3',     name: 'Hotel',       color: '#1919E6', icon: '🛎️', popular: true, kind: 'hotel', v: 2 },
+  home6:      { id: 'home6',      name: 'Homes',       color: '#376732', icon: '🌳', kind: 'home', v: 5 },
+  home7:      { id: 'home7',      name: 'Homes',       color: '#7EF1AC', icon: '🐟', kind: 'home', v: 6 },
 };
 for (const t of Object.values(THEME_LIB)) { t.kind = t.kind || t.id; t.v = t.v || 0; }
 // floors bottom -> top (basements first: subway -3, parking2 -2, parking -1; parking2 always sits right under parking).
@@ -320,9 +337,33 @@ const LEVELS = [
   // 14 mixed tower at night
   { floors: ['subway', 'parking2', 'parking', 'lobby', 'cafe', 'office', 'home', 'home2', 'home3', 'garden'], cars: 3, cap: 5, every: 3.6, patience: 26, target: 24, specials: SP3, waves: [RUSH, LUNCH],
     wings: { parking2: { L: 'laundry' }, garden: { R: 'playground' } } },
+  // ---- tall towers with zoned lifts (README "Zoned lifts"). zones[s] = the floor LABELS car s stops at (lobby 0,
+  // basements -1, -2...); caps[s] = its seats; wide[s] = a bigger car in a wider shaft. A floor no car can reach
+  // directly is reached by changing lifts (automatic). Cars are listed left to right.
+  // 15 sky tower: offices low, hotel high, a sky lobby on 6 where the zones meet
+  { floors: ['parking', 'lobby', 'cafe', 'office', 'office2', 'home', 'pool', 'sky', 'restaurant', 'hotel', 'hotel2', 'home4', 'stars', 'garden'],
+    cars: 3, cap: 5, every: 4.4, patience: 36, target: 20, specials: SP3, waves: [],
+    zones: [span(-1, 6), [0, 6, 12], span(6, 12)], caps: [5, 7, 5], wide: [false, true, false],
+    wings: { office: { R: 'toilets' } } },
+  // 16 office and hotel tower at dusk over a two-level garage (laundry), sky lobby on 7
+  // (no subway on 3-lift towers: a train's group all needs the one low lift, too much for a 5-year-old)
+  { floors: ['parking2', 'parking', 'lobby', 'cafe', 'office', 'office2', 'office3', 'home5', 'home', 'sky', 'restaurant', 'hotel', 'hotel2', 'home2', 'home4', 'pool', 'stars'],
+    cars: 3, cap: 5, every: 4.4, patience: 36, target: 22, specials: SP3, waves: [RUSH],
+    zones: [span(-2, 7), [0, 7, 14], span(7, 14)], caps: [5, 7, 5], wide: [false, true, false],
+    wings: { lobby: { R: 'toilets' }, parking2: { L: 'laundry' } } },
+  // 17 apartment and hotel tower at night: two sky lobbies (6, 11), four lifts, the express stops at both and the top
+  { floors: ['parking2', 'parking', 'lobby', 'cafe', 'office', 'office2', 'office3', 'home', 'sky', 'restaurant', 'home2', 'hotel', 'hotel2', 'sky2', 'home4', 'home5', 'stars', 'pool', 'garden'],
+    cars: 4, cap: 5, every: 4.1, patience: 39, target: 24, specials: SP3, waves: [LUNCH],
+    zones: [span(-2, 6), [0, 6, 11, 16], span(6, 11), span(11, 16)], caps: [5, 8, 4, 5], wide: [false, true, false, false],
+    wings: { lobby: { R: 'toilets' }, parking2: { L: 'bikes' }, garden: { R: 'playground' } } },
+  // 18 sky-high mixed tower: 20 floors, sky lobbies on 7 and 14, the express runs 0 - 7 - 14 only
+  { floors: ['subway', 'parking2', 'parking', 'lobby', 'cafe', 'office', 'office3', 'home', 'office2', 'home2', 'sky', 'restaurant', 'hotel', 'hotel2', 'home4', 'home5', 'office4', 'sky2', 'hotel3', 'home7', 'pool', 'home6', 'stars', 'garden'],
+    cars: 4, cap: 5, every: 4.6, patience: 48, target: 26, specials: SP3, waves: [LUNCH],
+    zones: [span(-3, 7), [0, 7, 14], span(7, 14), span(14, 20)], caps: [5, 8, 5, 5], wide: [false, true, false, false],
+    wings: { office: { R: 'toilets' }, parking2: { L: 'laundry' }, garden: { R: 'playground' } } },
 ];
 // time of day per level ('day' | 'dusk' | 'night'), a night about every third level; the art switches sky and lights with artSetTime(time)
-const LEVEL_TIMES = ['day', 'day', 'night', 'day', 'dusk', 'night', 'day', 'dusk', 'night', 'day', 'dusk', 'night', 'day', 'night'];
+const LEVEL_TIMES = ['day', 'day', 'night', 'day', 'dusk', 'night', 'day', 'dusk', 'night', 'day', 'dusk', 'night', 'day', 'night', 'day', 'dusk', 'night', 'day'];
 LEVELS.forEach((l, i) => { l.time = LEVEL_TIMES[i] || 'day'; });
 const TIME_ICONS = { day: '☀️', dusk: '🌇', night: '🌙' };
 const KINDS = {
@@ -332,7 +373,8 @@ const KINDS = {
   courier:   { walk: 1.4, patience: 0.6, seats: 1, move: 'run' },
   dogwalker: { walk: 1.0, patience: 1.0, seats: 2, move: 'walk' },
 };
-const NUMBER_WORDS = ['Zero!', 'One!', 'Two!', 'Three!', 'Four!', 'Five!', 'Six!', 'Seven!', 'Eight!', 'Nine!'];
+const NUMBER_WORDS = ['Zero!', 'One!', 'Two!', 'Three!', 'Four!', 'Five!', 'Six!', 'Seven!', 'Eight!', 'Nine!', 'Ten!', 'Eleven!', 'Twelve!',
+  'Thirteen!', 'Fourteen!', 'Fifteen!', 'Sixteen!', 'Seventeen!', 'Eighteen!', 'Nineteen!', 'Twenty!'];
 const MINUS_WORDS = ['', 'Minus one!', 'Minus two!', 'Minus three!'];
 const MOOD_FACES = ['😀', '🙂', '😐', '😠'];
 
@@ -345,7 +387,8 @@ const ART = {
   WING_L: 8.0, WING_R: 7.0, STAIR_W: 1.4,  // left wing incl. the stair column | lift core | right wing
   LANE_Z: -0.8,                 // people walk/queue here
   CAR_W: 1.8, CAR_H: 2.4, CAR_D: 2.2, CAR_Z: -2.4,   // car box centre z; front face at CAR_Z + CAR_D/2 = -1.3
-  MAX_CAP: 6,                   // riderSpots length
+  MAX_CAP: 8,                   // most riderSpots of any car (a normal car has 6, a wide one 8)
+  SHAFT_W_WIDE: 3.0, CAR_W_WIDE: 2.6,   // the bigger express car (LEVELS[].wide) and its shaft
   BUBBLE_Y: 0.55,               // bubble centre above person height
   BUBBLE_SIZE: 1.25,            // sprite world size (square)
 };
@@ -597,7 +640,7 @@ function makeBubbleTexture(floorIndex, stage = 0) {
 }
 /* Walls: neutral paint/stone/tile per room, theme colour is only an accent (added as props). */
 const ART_WALL_BASE = { lobby: '#CFC6B6', cafe: '#E6DCCB', library: '#B9C2AE', play: '#EEE8DC', pool: '#D7E2E1', music: '#DCD3C4',
-  garden: '#E3E6DF', stars: '#2D3446', office: '#DEDAD2', hotel: '#D8CCBC', restaurant: '#D9C7B0', parking: '#A9A6A0', subway: '#D9D6CC' };
+  garden: '#E3E6DF', stars: '#2D3446', office: '#DEDAD2', hotel: '#D8CCBC', restaurant: '#D9C7B0', parking: '#A9A6A0', subway: '#D9D6CC', sky: '#E2E6EA' };
 function artWallTex(id) {
   const base = ART_WALL_BASE[id] || '#E4DED3';
   return artCachedTex('wall|' + id, 256, 256, (g) => {
@@ -630,6 +673,7 @@ function artFloorTex(id) {
     else if (id === 'pool') { tiles('#E4E8E6', '#DDE2E0', 8, '#B9C1BF'); }
     else if (id === 'music') planks('#9B6E47', '#916642', 21);
     else if (id === 'garden') tiles('#B5673F', '#AB5F39', 4, '#D2B79C');
+    else if (id === 'sky') { tiles('#E4E6E8', '#D9DCDF', 4, '#C2C7CC'); g.fillStyle = 'rgba(255,255,255,0.10)'; for (let k = 0; k < 6; k++) g.fillRect(r() * 256, 0, 18, 256); }   // pale stone, a sheen
     else if (id === 'stars') { g.fillStyle = '#3C3F4A'; g.fillRect(0, 0, 256, 256); speckle(3000, 'rgba(255,255,255,0.06)'); }
     else if (id === 'office') { g.fillStyle = '#6E737A'; g.fillRect(0, 0, 256, 256); speckle(3000, 'rgba(255,255,255,0.05)'); g.strokeStyle = 'rgba(0,0,0,0.18)'; for (let k = 0; k <= 256; k += 64) { g.beginPath(); g.moveTo(k, 0); g.lineTo(k, 256); g.moveTo(0, k); g.lineTo(256, k); g.stroke(); } }
     else planks('#A87B52', '#9E7149');
@@ -1496,8 +1540,14 @@ const ART_R2_ROOMS = new Set(['office', 'hotel', 'restaurant', 'parking', 'subwa
 const ART_R2_SHARED = new Set(['office', 'hotel', 'restaurant', 'home', 'toilets', 'bikes', 'laundry', 'playground']);
 let artEntranceX = 0;                // x of the lobby's back door (left wing), set per building
 let artHotelLobby = false;           // the level has hotel floors: the lobby's reception desk is a hotel reception
+// zoned lifts (layout.zoned): per shaft { serves: bool per floor, color, label }; null on levels where every lift stops everywhere
+let artZones = null;
+let artThinNow = false;              // tall towers: this floor gets fewer room occupants (draw calls), set per floor by artBuildFloor
+const artShaftW = (layout, s) => (layout.shaftW ? layout.shaftW[s] : ART.SHAFT_W);   // a wide express shaft is wider
+const artCarW = (layout, s) => (layout.wide && layout.wide[s] ? ART.CAR_W_WIDE : ART.CAR_W);
 function buildBuilding(scene, layout) {
   artLabels = layout.labels || null; artThemes = layout.themes || null;
+  artZones = layout.zoned ? layout.serves.map((row, s) => ({ serves: row, color: layout.zoneColor[s], label: layout.zoneLabel[s] })) : null;
   artEntranceX = (layout.roomL ? layout.roomL[0] : layout.x0 + ART.STAIR_W) + 4.4;
   artHotelLobby = (layout.ids || []).some((id) => ((typeof THEME_LIB !== 'undefined' && THEME_LIB[id] && THEME_LIB[id].kind) || id) === 'hotel');
   artKeyAt = -99; if (typeof ART_REST !== 'undefined') ART_REST.clear();   // restaurant flows belong to one building
@@ -1512,7 +1562,8 @@ function buildBuilding(scene, layout) {
   const SB = new ArtBatch();
   const S = (geo, hex, x, y, z, mat = conc, uvS) => SB.add(geo, mat, artXf(x, y, z), hex, uvS);
   const HOLE_Z = -3.1, w = x1 - x0, cx = (x0 + x1) / 2;
-  const beamXs = [x0 + 0.1, x0 + STW, x1 - 0.1]; for (let s = 0; s <= nShafts; s++) beamXs.push(coreX0 + s * SW);
+  const shaftEdges = [coreX0]; for (let s = 0; s < nShafts; s++) shaftEdges.push(shaftEdges[s] + artShaftW(layout, s));   // shaft walls, left to right
+  const beamXs = [x0 + 0.1, x0 + STW, x1 - 0.1]; for (const ex of shaftEdges) beamXs.push(ex);
   const holeK = artLowerPark(layout) ? layout.ids.indexOf('parking') : -1;   // slab with the internal ramp opening
   // ---- slabs with a layered cut edge
   for (let k = 0; k <= nFloors; k++) {
@@ -1577,14 +1628,15 @@ function buildBuilding(scene, layout) {
   // ---- lift core: block back wall, rails, warm strip, dividers on both sides of the core
   const MR_H = 2.3;
   for (let s = 0; s < nShafts; s++) {
-    const sx = layout.shaftX[s], hh = H + MR_H - yB + SL;
-    S(artBox(SW, hh, 0.06), '#A7A39C', sx, yB - SL + hh / 2, -D + 0.02, artBlockM(), [SW / 0.8, hh / 0.4]);
+    const sx = layout.shaftX[s], hh = H + MR_H - yB + SL, sw = artShaftW(layout, s), rx = artCarW(layout, s) / 2 + 0.08;
+    S(artBox(sw, hh, 0.06), '#A7A39C', sx, yB - SL + hh / 2, -D + 0.02, artBlockM(), [sw / 0.8, hh / 0.4]);
     S(artBox(0.05, hh - 0.6, 0.02), '#FFE7A8', sx, yB - SL + hh / 2, -D + 0.06, glow);
     const rh = H + 1.4 - yB;
-    for (const dx of [-0.98, 0.98]) S(artBox(0.06, rh, 0.1), '#6E747C', sx + dx, yB + rh / 2 - SL, ART.CAR_Z, shiny);
+    for (const dx of [-rx, rx]) S(artBox(0.06, rh, 0.1), '#6E747C', sx + dx, yB + rh / 2 - SL, ART.CAR_Z, shiny);
     for (const dx of [-0.55, 0.55]) S(artBox(0.05, rh, 0.06), '#5A6068', sx + dx, yB + rh / 2 - SL, -4.32, shiny);
+    if (artZones) S(artBox(0.09, hh, 0.02), artZones[s].color, sx - sw / 2 + 0.2, yB - SL + hh / 2, -D + 0.07, clay);   // zone colour up the back of the shaft
   }
-  for (let s = 0; s <= nShafts; s++) S(artBox(0.14, H - yB, D - 1.2), '#A9A6A0', coreX0 + s * SW, (H + yB) / 2 - SL / 2, -1.2 - (D - 1.2) / 2);
+  for (const ex of shaftEdges) S(artBox(0.14, H - yB, D - 1.2), '#A9A6A0', ex, (H + yB) / 2 - SL / 2, -1.2 - (D - 1.2) / 2);
   // ---- roof
   const RB = new ArtBatch(), rput = (geo, hex, x, y, z, rx = 0, ry = 0, rz = 0, sx = 1, sy = sx, sz = sx, mat = clay, uvS) => RB.add(geo, mat, artXf(x, H + y, z, rx, ry, rz, sx, sy, sz), hex, uvS);
   rput(artBox(w, 0.02, D), '#6E747A', cx, 0.01, -D / 2, 0, 0, 0, 1, 1, 1, conc, [w / 2, D / 2]);
@@ -1652,7 +1704,7 @@ function buildBuilding(scene, layout) {
   // ---- floors
   const floors = [], occ = artOccList = [], PB = new ArtBatch(), R2B = typeof R2_Batch === 'function' ? new R2_Batch() : null;
   for (let i = 0; i < nFloors; i++) floors.push(artBuildFloor(i, layout, group, owned, ticks, SB, PB, R2B));
-  artOccList = null;
+  artOccList = null; artThinNow = false;
   PB.flush(group, owned, true, true);
   if (R2B) for (const m of R2B.flush(group)) owned.push(m.geometry);
   SB.flush(group, owned, false, true);
@@ -1747,12 +1799,25 @@ function artBuildFloor(i, layout, parent, owned, ticks, SB, PB, R2B) {
     db.add(artBox(0.6, 0.06, 0.06), shiny, artXf(0.42, 1.0, 0.03), '#C9CED2');
     db.add(artBox(0.84, 0.05, 0.055), shiny, artXf(0.42, 0.1, 0.002), '#2ECC71');
     db.flush(stairDoor, owned, false, true); }
-  // lift landings: steel jambs and sill, and a big lit floor sign above each landing
+  // lift landings: steel jambs and sill. Zoned lifts: a zone-colour stripe on both jambs; on a floor the lift doesn't
+  // stop at, no sill but a solid parapet (zone band, "no stop" disc) with glass above, so the car is seen passing by
   const nFl = (artThemes || FLOOR_THEMES).length;
+  artThinNow = nFloors > 12 && i > (layout.nBasement || 0) && (i - (layout.nBasement || 0)) % 2 === 1;
   for (let s = 0; s < layout.nShafts; s++) {
-    const sx = layout.shaftX[s];
-    for (const dx of [-1.02, 1.02]) Ps(artBox(0.07, CH, 0.1), '#B7BCC1', sx + dx, CH / 2, -1.23, 0, 0, 0, 1, 1, 1, shiny);
-    Ps(artBox(2.0, 0.02, 0.12), '#8E949A', sx, 0.01, -1.16, 0, 0, 0, 1, 1, 1, shiny);
+    const sx = layout.shaftX[s], hw = artShaftW(layout, s) / 2, jx = hw - 0.08, z = artZones ? artZones[s] : null, stop = !z || z.serves[i];
+    for (const dx of [-jx, jx]) {
+      Ps(artBox(0.07, CH, 0.1), '#B7BCC1', sx + dx, CH / 2, -1.23, 0, 0, 0, 1, 1, 1, shiny);
+      if (z) Ps(artBox(0.05, CH, 0.012), z.color, sx + dx, CH / 2, -1.172, 0, 0, 0, 1, 1, 1, clay);
+    }
+    if (stop) { Ps(artBox(2 * hw - 0.2, 0.02, 0.12), '#8E949A', sx, 0.01, -1.16, 0, 0, 0, 1, 1, 1, shiny); continue; }
+    const pw = 2 * jx - 0.07, PH = 1.05;
+    Ps(artBox(pw, PH, 0.1), '#B9B2A6', sx, PH / 2, -1.24, 0, 0, 0, 1, 1, 1, artBlockM(), [pw / 0.8, PH / 0.4]);
+    Ps(artBox(pw, 0.16, 0.012), z.color, sx, 0.78, -1.184, 0, 0, 0, 1, 1, 1, clay);
+    Ps(artBox(pw + 0.02, 0.05, 0.14), '#8E949A', sx, PH + 0.025, -1.24, 0, 0, 0, 1, 1, 1, shiny);
+    Ps(artCyl(0.15, 0.15, 0.02, 20), '#E5483D', sx, 0.42, -1.18, Math.PI / 2, 0, 0, 1, 1, 1, clay);
+    Ps(artBox(0.19, 0.05, 0.012), '#FFFFFF', sx, 0.42, -1.166, 0, 0, 0, 1, 1, 1, clay);
+    S.add(artPln(pw, CH - PH - 0.05), artGlass(), artXf(sx, y + PH + 0.05 + (CH - PH - 0.05) / 2, -1.235), '#BFD2DC');
+    Ps(artBox(pw, 0.04, 0.06), '#8E949A', sx, CH - 0.02, -1.24, 0, 0, 0, 1, 1, 1, shiny);
   }
   // the one floor marker: a big self-lit plaque at the left edge of the building, in front of the soil and kerb cut faces
   S.add(artAtlasQuad(nFl, i, 'plaque', 1.7, 1.7), artAtlasMat(nFl), artXf(x0 - ART_WALL_T - 0.5, y + 1.4, 0.35), '#ffffff');
@@ -1996,7 +2061,9 @@ function artParkingLife(bays, ramp, y, parent, owned, decor, inner) {
 function artR2Occupants(id, wing, ctx, parent, sd) {
   const W = ctx.x1 - ctx.x0, X = (u) => ctx.x0 + u, y = ctx.y, out = [], PI = Math.PI;
   // seat: undefined = not a seat; null = a seat people get up from / sit down on in place; a number = the z where they stand to go in
-  const add = (kind, seed, opts, pose, u, z, ry, yy = 0, seat) => { const tk = artOccupant(parent, kind, seed + sd * 17, opts, pose, X(u), y + yy, z, ry); out.push(tk);
+  let nAdd = 0;                                                  // tall towers: every other floor keeps one occupant per wing (+ receptionists)
+  const add = (kind, seed, opts, pose, u, z, ry, yy = 0, seat) => { if (artThinNow && pose !== 'recept' && nAdd++ >= 1) return;
+    const tk = artOccupant(parent, kind, seed + sd * 17, opts, pose, X(u), y + yy, z, ry); out.push(tk);
     if (seat !== undefined) artSeatAdd(tk.h, wing, X(u), z, ry || 0, seat, ART_SIT_POSES.has(pose), kind, seed + sd * 17, opts); };
   const v = ctx.variant || 0, lay = id === 'office' && v ? (wing === 'L' ? 'R' : 'L') : wing;   // office2 swaps its wings' layouts
   if (id === 'office' && lay === 'L') {
@@ -2063,7 +2130,8 @@ function artR2Occupants(id, wing, ctx, parent, sd) {
 /* Occupants of the classic rooms, in artWing's u coordinates (metres from the wing's rx0), next to the props they use. */
 function artWingOccupants(id, wing, X, y, parent, sd, inStrip) {
   const out = [], PI = Math.PI, R = wing === 'R';
-  const add = (kind, seed, opts, pose, u, z, ry, yy = 0) => { if (inStrip && inStrip(X(u), 0.3, z)) return; out.push(artOccupant(parent, kind, seed + sd * 17, opts, pose, X(u), y + yy, z, ry)); };
+  let nAdd = 0;                                                  // tall towers: every other floor keeps one occupant per wing
+  const add = (kind, seed, opts, pose, u, z, ry, yy = 0) => { if (inStrip && inStrip(X(u), 0.3, z)) return; if (artThinNow && nAdd++ >= 1) return; out.push(artOccupant(parent, kind, seed + sd * 17, opts, pose, X(u), y + yy, z, ry)); };
   if (id === 'lobby') {
     if (!R) { if (artHotelLobby) add('adult', 61, { look: 'suit', top: '#6B3FA0', bare: true }, 'recept', 5.65, -4.25, 0); else add('adult', 61, { look: 'suit', top: '#3E4B5E' }, 'talk', 5.65, -4.25, 0); add('adult', 77, { look: 'casual', top: '#8C5A4A' }, 'read', 2.15, -3.88, 0); }
     else { add('adult', 78, { look: 'suit', top: '#2F3A4F' }, 'look', 0.6, -4.22, 0); add('grandma', 62, null, 'read', 5.35, -3.3, 0); }
@@ -2082,13 +2150,19 @@ function artWingOccupants(id, wing, X, y, parent, sd, inStrip) {
     else add('kid', 67, null, 'look', 3.1, -3.8, PI);
   } else if (id === 'garden') add('adult', 73 + (R ? 1 : 0), { look: 'casual', top: '#6F8A5E' }, 'water', R ? 5.35 : 5.3, R ? -3.5 : -3.6, PI);
   else if (id === 'stars') { if (!R) add('adult', 75, { look: 'casual', top: '#3E4B5E' }, 'look', 3.75, -3.7, PI / 2); else add('kid', 76, null, 'wave', 1.5, -3.1, 0); }
+  else if (id === 'sky') {                                     // barista at the kiosk, a traveller on the bench; a kid reading the map, a grandma waiting
+    if (!R) { add('adult', 63, { look: 'casual', top: '#3E4B5E' }, 'cook', 5.4, -4.3, 0); add('adult', 64, { look: 'suit' }, 'read', 0.8, -3.9, 0); }
+    else { add('kid', 67, null, 'look', 3.45, -3.35, PI); add('grandma', 62, null, 'read', 5.9, -3.9, 0); }
+  }
   return out;
 }
 /* Floor sign atlas: per floor one row of 272 px: a 256 x 256 plaque (cut edge), a 256 x 160 lift sign and the 256 x 112
    room-door sign. One texture and one material for every sign in the building (one draw call), self-lit. */
 function artSignAtlas(n) {
   const key = 'atlas|' + Array.from({ length: n }, (_, f) => artThemeKey(f)).join(',');
-  return artCachedTex(key, 512, 272 * n, (g) => {
+  const H = Math.min(4096, 272 * n), sc = H / (272 * n);     // tall towers: drawn smaller, so the texture stays <= 4096 px (phones)
+  return artCachedTex(key, Math.round(512 * sc), H, (g) => {
+    g.scale(sc, sc);
     for (let f = 0; f < n; f++) {
       const th = FLOOR_THEMES[f % FLOOR_THEMES.length], lab = artLabelOf(f), y0 = f * 272, dk = artMixHex(th.color, '#000000', 0.35);
       // plaque
@@ -2171,7 +2245,7 @@ function artWing(id, i, wing, rx0, rx1, y, doorX, fg, owned, anims, S, PB) {
   const clay = artClay(), conc = artConc(), shiny = artShiny(), glow = artGlow(), glass = artGlass();
   const B = S, r = artRng(1000 + i * 77 + id.length * 13 + (R ? 500 : 0));
   const Ps = (geo, hex, x, yy, z, rx = 0, ry = 0, rz = 0, sx = 1, sy = sx, sz = sx, mat = clay) => S.add(geo, mat, artXf(x, y + yy, z, rx, ry, rz, sx, sy, sz), hex);
-  const LAID = ['lobby', 'cafe', 'play', 'pool', 'library', 'garden', 'stars'].includes(id), ku = W / (R ? 7.0 : 6.6);
+  const LAID = ['lobby', 'cafe', 'play', 'pool', 'library', 'garden', 'stars', 'sky'].includes(id), ku = W / (R ? 7.0 : 6.6);
   // laid-out themes: u = metres from rx0; anything else keeps the old single-wing u in [1.45, 6.4] (mirrored on the right)
   const X = LAID ? (u) => rx0 + u * ku : (u) => (R ? rx1 - (u - 1.45) * (W / 4.95) : rx0 + (u - 1.45) * (W / 4.95));
   const spotX = R ? rx0 + 0.55 * W : rx0 + 2.2;              // = layout.roomDoorXs[1 | 0]
@@ -2179,9 +2253,10 @@ function artWing(id, i, wing, rx0, rx1, y, doorX, fg, owned, anims, S, PB) {
   const inStrip = (x, hw, z, hd = 0.3) => (backDoor != null && Math.abs(x - backDoor) < 0.7 + hw) || (Math.abs(x - spotX) < 0.45 + hw && z + hd > -2.75 && z - hd < -0.3);
   (fg.userData.roomSpots = fg.userData.roomSpots || []).push({ wing, x: spotX, z: -2.3 });
   // windows: per theme and wing, so they fall between the tall furniture; the lobby gets tall shop-front glass
-  const tall = id === 'lobby', wh = tall ? 2.0 : 1.1, wy = tall ? 1.38 : 1.72;
+  const tall = id === 'lobby' || id === 'sky', wh = tall ? 2.0 : 1.1, wy = tall ? 1.38 : 1.72;   // tall shop-front / sky-lobby glass
   const WINS = { lobby: R ? [1.95, 3.25, 4.55] : null, cafe: R ? [1.6, 5.3] : [1.0, 2.9], play: R ? [2.0, 5.6] : [1.1, 3.0], pool: R ? [2.0, 4.6] : [1.0, 4.3],
-    library: R ? [1.0, 6.1] : [0.9, 2.5], garden: R ? [1.7, 5.35] : [1.8, 4.0], stars: R ? [1.3, 5.6] : [1.0, 5.9] }[id];
+    library: R ? [1.0, 6.1] : [0.9, 2.5], garden: R ? [1.7, 5.35] : [1.8, 4.0], stars: R ? [1.3, 5.6] : [1.0, 5.9],
+    sky: R ? [1.2, 2.3, 5.4, 6.3] : [0.75, 1.95, 3.15] }[id];
   const slots = WINS ? WINS.map(X) : tall ? Array.from({ length: Math.max(0, Math.floor((W - 1.2) / 1.3)) }, (_, k) => rx0 + 1.25 + k * 1.3) : [0.32, 0.72].map((f) => rx0 + W * f);
   const wins = slots.filter((wx) => wx > rx0 + 0.6 && wx < rx1 - 0.6 && (backDoor == null || Math.abs(wx - backDoor) > 1.4));
   if (true) {                                                  // wall pieces around see-through windows (and the lobby's back door)
@@ -2252,7 +2327,7 @@ function artWing(id, i, wing, rx0, rx1, y, doorX, fg, owned, anims, S, PB) {
   const blob = (x, z, w, d, ry = 0) => { if (!inStrip(x, w * 0.3, z, d * 0.3)) B.add(artPln(1, 1), artBlobM(), artXf(x, y + 0.035, z, -Math.PI / 2, 0, ry, w, d, 1)); };
   const wallP = (x, hw, fn) => { if (wallBusy.some(([a, b]) => x + hw > a && x - hw < b) || inStrip(x, hw, -D + 0.05, 0.05)) return false; wallBusy.push([x - hw, x + hw]); fn(); return true; };
   const plantX = (x, rad) => Math.min(rx1 - 0.9 - rad, Math.max(rx0 + 0.9 + rad, x));
-  const props = artThemeProps(id, { P, Pw, B, X, y, r, fg, owned, accent, clay, shiny, glow, glass, wing, inStrip, blob, wallP, plantX, wallBusy, rx0, rx1, W });
+  const props = artThemeProps(id, { P, Pw, B, X, y, r, fg, owned, accent, clay, shiny, glow, glass, wing, inStrip, blob, wallP, plantX, wallBusy, rx0, rx1, W, v: th.v || 0 });
   for (const a of props) anims.push(a);
   for (const f of artWingOccupants(id, wing, X, y, fg, i * 10 + (R ? 1 : 0), inStrip)) anims.push(f);
   if (!tall && id !== 'pool' && id !== 'garden') for (const wx of wins) {
@@ -2707,8 +2782,48 @@ function artThemeProps(id, k) {
     anims.push((t) => { spots.forEach(([sx, sy, ph], q) => { const s = 0.05 + 0.04 * (0.5 + 0.5 * Math.sin(t * 2.2 + ph)); pv.set(sx, sy, -D + 0.04); sv.set(s, s, s); qq.setFromAxisAngle(zAx, ph); m.compose(pv, qq, sv); stars.setMatrixAt(q, m); });
       stars.instanceMatrix.needsUpdate = true; }); };
 
+  // sky lobby floor map: the tower drawn as rows (top floor at the top), each floor's colour chip, then one column per
+  // lift with a dot on every floor it stops at and a bar joining them, in the lift's zone colour (artZones)
+  const mapBoard = (x, yy) => wallP(x, 0.72, () => {
+    const fl = artThemes || FLOOR_THEMES, n = fl.length, zs = artZones || [], bw = 1.3, bh = 1.34, z0 = -D + 0.02;
+    Pw(artBox(bw + 0.1, bh + 0.1, 0.04), '#2B2B30', x, yy, z0);
+    Pw(artBox(bw, bh, 0.01), '#E9E6DE', x, yy, z0 + 0.025, 0, 0, 0, 1, 1, 1, glow);
+    Pw(artBox(bw, 0.07, 0.01), accent, x, yy + bh / 2 - 0.035, z0 + 0.032, 0, 0, 0, 1, 1, 1, glow);
+    const rowH = (bh - 0.16) / n, top = yy + bh / 2 - 0.11, ry = (f) => top - (n - 1 - f + 0.5) * rowH;
+    const nz = Math.max(1, zs.length), colW = (bw - 0.42) / nz;
+    for (let f = 0; f < n; f++) Pw(artBox(0.16, rowH * 0.78, 0.01), artTheme(f).color, x - bw / 2 + 0.14, ry(f), z0 + 0.034, 0, 0, 0, 1, 1, 1, glow);
+    zs.forEach((z, s) => {
+      const cx = x - bw / 2 + 0.34 + colW * (s + 0.5), fs = z.serves.map((on, f) => (on ? f : -1)).filter((f) => f >= 0);
+      if (!fs.length) return;
+      const a = ry(fs[0]), b = ry(fs[fs.length - 1]);
+      Pw(artBox(0.025, Math.abs(b - a) + 0.001, 0.008), z.color, cx, (a + b) / 2, z0 + 0.033, 0, 0, 0, 1, 1, 1, glow);
+      for (const f of fs) Pw(artBox(Math.min(0.11, colW * 0.6), rowH * 0.62, 0.01), z.color, cx, ry(f), z0 + 0.036, 0, 0, 0, 1, 1, 1, glow);
+    });
+  });
+  const suitcase = (x, z, col) => { if (!free(x, 0.2, z, 0.14)) return;
+    Pw(artRB(0.36, 0.5, 0.2, 0.03, 1), col, x, 0.29, z, 0, 0.3); Pw(artBox(0.03, 0.22, 0.03), '#3B4148', x - 0.08, 0.64, z, 0, 0.3, 0, 1, 1, 1, shiny);
+    Pw(artBox(0.03, 0.22, 0.03), '#3B4148', x + 0.08, 0.64, z, 0, 0.3, 0, 1, 1, 1, shiny); Pw(artBox(0.2, 0.03, 0.03), '#3B4148', x, 0.75, z, 0, 0.3, 0, 1, 1, 1, shiny);
+    for (const dx of [-0.13, 0.13]) Pw(artCyl(0.03, 0.03, 0.03, 8), '#222222', x + dx, 0.03, z, PI / 2, 0.3); blob(x, z, 0.5, 0.35); };
+
   /* ======== art: room layouts ======== */
-  if (id === 'lobby') {
+  if (id === 'sky') {
+    // sky lobby: where the lift zones meet. Tall windows, a coffee kiosk, benches, plants, the floor map board
+    const seat = k.v ? '#4A6E8A' : '#9B6E47', cushion = k.v ? '#C9A46A' : '#5B7A99';
+    if (!R) {                                                  // coffee kiosk with awning, a bistro table, a bench under the glass
+      counter(X(5.15), 1.7, -3.82, 0.62, k.v ? '#3E5F5A' : '#7A4E32'); espresso(X(5.6), -3.86); pastryCase(X(4.85), -3.74);
+      awning(X(5.15), 1.7); menuBoard(X(4.1), 1.75); cupShelf(X(5.15), 1.4, 1.62); pendant(X(4.7), -3.7, 0.8); pendant(X(5.6), -3.7, 0.8);
+      roundTable(X(3.45), -2.6); chair(X(3.45) - 0.52, -2.6, PI / 2, '#4A3A2C'); chair(X(3.45) + 0.52, -2.6, -PI / 2, '#4A3A2C'); cup(X(3.55), -2.65, 0.7575);
+      bench(X(1.0), -3.95, 1.3, 0, seat); plant(X(2.85), -4.1, 0.85); potPlant(X(4.35), -3.75, 1.01, '#E8E2D6');
+      suitcase(X(1.85), -3.75, cushion); bin(X(6.35), -2.5);
+      rug(X(1.0), -3.35, 1.6, 0.9, '#6E7F8E', null);
+    } else {                                                   // the floor map between the windows, two benches, plants, luggage
+      mapBoard(X(3.85), 1.6);
+      bench(X(2.05), -3.95, 1.6, 0, seat); bench(X(5.65), -3.95, 1.6, 0, seat);
+      plant(X(0.6), -4.05, 0.9); plant(X(6.55), -2.6, 0.8);
+      suitcase(X(2.95), -3.7, '#B5453A'); suitcase(X(4.75), -3.65, cushion); potPlant(X(1.25), -2.35, 0, '#B5673F', '#F2CF4A');
+      bin(X(0.5), -2.6);
+    }
+  } else if (id === 'lobby') {
     if (!R) {                                                  // entrance side: waiting corner, water cooler, back door, reception
       rug(X(2.0), -3.25, 2.6, 1.5, '#8C5A4A', '#C9B79A');
       sofa(X(2.45), -4.0, 0, 1.5, '#5B7A99'); coffeeTable(X(2.45), -3.1, 0.75, 0.5);
@@ -2884,9 +2999,20 @@ function artThemeProps(id, k) {
 /* ======== art: lift car ======== */
 /* Capacity sign on the car front: target plate on the left, one person pictogram per place (green outline = free,
    dark filled = taken); full = every figure red + a lit "no entry" disc; flash = red pulse. */
-function artCapTex(target, dir, used, cap, mode) {   // mode: 'ok' | 'flash'
-  const full = used >= cap, tk = target == null ? 'none' : artThemeKey(target);
-  return artCachedTex(`cap|${tk}|${dir}|${used}|${cap}|${mode}`, 512, 184, (g) => {
+// zl / zc (zoned lifts): the floors this car stops at ('7–13', '0·6·12') on a strip in the zone colour above the sign
+const ART_ZONE_STRIP = 64;                          // px of that strip on the 512-wide sign
+function artCapTex(target, dir, used, cap, mode, zl, zc) {   // mode: 'ok' | 'flash'
+  const full = used >= cap, tk = target == null ? 'none' : artThemeKey(target), zh = zl ? ART_ZONE_STRIP : 0;
+  return artCachedTex(`cap|${tk}|${dir}|${used}|${cap}|${mode}|${zl || ''}|${zc || ''}`, 512, 184 + zh, (g) => {
+    if (zh) {                                       // zone strip: colour band, white range with a dark outline
+      g.fillStyle = '#1E2226'; artRound(g, 40, 0, 432, zh + 18, 18); g.fill();
+      g.fillStyle = zc || '#F2B51D'; artRound(g, 48, 6, 416, zh - 6, 13); g.fill();
+      g.font = 'bold 46px Verdana, Tahoma, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+      const txt = String(zl).replace(/-/g, '\u2212'), w = g.measureText(txt).width, k = Math.min(1, 380 / w);
+      g.save(); g.translate(256, zh / 2 + 4); g.scale(k, 1); g.lineJoin = 'round'; g.lineWidth = 8; g.strokeStyle = '#2B2B3A'; g.strokeText(txt, 0, 0);
+      g.fillStyle = '#ffffff'; g.fillText(txt, 0, 0); g.restore();
+      g.translate(0, zh);
+    }
     g.fillStyle = mode === 'flash' ? '#6A1A1A' : '#1E2226'; artRound(g, 0, 0, 512, 184, 22); g.fill();
     g.strokeStyle = '#8E949A'; g.lineWidth = 5; artRound(g, 3, 3, 506, 178, 20); g.stroke();
     // left plate: stop disc when full, otherwise target floor + arrow
@@ -2918,8 +3044,13 @@ function artFootTex() {
     for (const sx of [20, 44]) { g.beginPath(); g.ellipse(sx, 26, 8, 13, 0, 0, 7); g.fill(); g.beginPath(); g.ellipse(sx, 48, 6, 7, 0, 0, 7); g.fill(); }
   });
 }
-function buildCar(shaftIndex, capacity) {
-  const W = ART.CAR_W, D = ART.CAR_D, hz = D / 2, WH = 2.22, DOOR_H = 1.8;
+// opts (optional): { wide: a bigger car (ART.CAR_W_WIDE, 8 places, wider doors), zoneLabel, zoneColor (zoned lifts:
+// the strip above the capacity sign) }. Handle: + nope() (a refused tap: a little sideways shake)
+function buildCar(shaftIndex, capacity, opts) {
+  const wide = !!(opts && opts.wide), zl = (opts && opts.zoneLabel) || '', zc = (opts && opts.zoneColor) || null;
+  const W = wide ? ART.CAR_W_WIDE : ART.CAR_W, D = ART.CAR_D, hz = D / 2, WH = 2.22, DOOR_H = 1.8;
+  const OW = wide ? 1.4 : 1.0, LW = OW / 2 + 0.02, PW = (W - OW) / 2, PX = OW / 2 + PW / 2;   // door opening, leaf width, side post width / centre
+  const LO = wide ? 0.58 : 0.43;                                                                // how far a leaf slides open (stays inside the car)
   const group = new THREE.Group(), body = new THREE.Group(); group.add(body);
   const owned = [], clay = artClay(), shiny = artShiny(), glow = artGlow(), wood = artWood();
   const B = new ArtBatch(), P = (geo, hex, x, y, z, mat = shiny, rx = 0, ry = 0, rz = 0, sx = 1, sy = sx, sz = sx) => B.add(geo, mat, artXf(x, y, z, rx, ry, rz, sx, sy, sz), hex);
@@ -2927,49 +3058,52 @@ function buildCar(shaftIndex, capacity) {
   P(artBox(W, 0.16, D), '#5A5E63', 0, -0.08, 0); P(artBox(W - 0.2, 0.02, D - 0.24), '#4F4F52', 0, 0.006, -0.02, clay);
   for (const sx of [-1, 1]) { P(artBox(0.1, WH, D), STEEL, sx * (W / 2 - 0.05), WH / 2, 0); P(artBox(0.02, 1.95, D - 0.36), '#6B4A33', sx * (W / 2 - 0.11), 1.06, -0.05, wood); }
   P(artBox(W, WH, 0.1), STEEL, 0, WH / 2, -hz + 0.05);
-  P(artBox(1.56, 0.95, 0.02), '#6B4A33', 0, 0.55, -hz + 0.11, wood); P(artBox(1.4, 0.85, 0.02), '#9FB3BF', 0, 1.5, -hz + 0.11);
+  P(artBox(W - 0.24, 0.95, 0.02), '#6B4A33', 0, 0.55, -hz + 0.11, wood); P(artBox(W - 0.4, 0.85, 0.02), '#9FB3BF', 0, 1.5, -hz + 0.11);
   P(artBox(W + 0.04, 0.18, D + 0.04), '#8E949A', 0, WH + 0.09, 0);
-  for (const sx of [-1, 1]) P(artBox(0.4, WH, 0.12), STEEL, sx * 0.7, WH / 2, hz - 0.06);
-  P(artBox(1.02, WH - DOOR_H, 0.12), STEEL, 0, DOOR_H + (WH - DOOR_H) / 2, hz - 0.06);
+  for (const sx of [-1, 1]) P(artBox(PW, WH, 0.12), STEEL, sx * PX, WH / 2, hz - 0.06);
+  P(artBox(OW + 0.02, WH - DOOR_H, 0.12), STEEL, 0, DOOR_H + (WH - DOOR_H) / 2, hz - 0.06);
   P(artBox(W + 0.02, 0.08, 0.04), '#8E949A', 0, -0.04, hz);
-  P(artCyl(0.022, 0.022, 1.4, 8), '#B08A4A', 0, 0.92, -hz + 0.2, shiny, 0, 0, Math.PI / 2);
+  P(artCyl(0.022, 0.022, W - 0.4, 8), '#B08A4A', 0, 0.92, -hz + 0.2, shiny, 0, 0, Math.PI / 2);
   for (const sx of [-1, 1]) P(artCyl(0.022, 0.022, 1.4, 8), '#B08A4A', sx * (W / 2 - 0.2), 0.92, -0.2, shiny, Math.PI / 2);
-  P(artPln(1.2, 1.4), '#FFF4D8', 0, WH - 0.005, -0.1, glow, Math.PI / 2);
+  P(artPln(W - 0.6, 1.4), '#FFF4D8', 0, WH - 0.005, -0.1, glow, Math.PI / 2);
   P(artBox(0.5, 0.25, 0.4), '#4C5157', 0.45, WH + 0.3, -0.3); P(artBox(0.7, 0.05, 0.6), '#5A6068', -0.3, WH + 0.21, -0.4);
   B.flush(body, owned, true, true);
   const glassMat = artGlass();
   const mkDoor = (side) => {
-    const g = new THREE.Group(), db = new ArtBatch(), dc = '#B7BCC1';
-    db.add(artBox(0.52, 1.0, 0.04), shiny, artXf(0, 0.5, 0), dc); db.add(artBox(0.52, 0.15, 0.04), shiny, artXf(0, DOOR_H - 0.075, 0), dc);
-    for (const dx of [-0.22, 0.22]) db.add(artBox(0.08, DOOR_H - 1.15, 0.04), shiny, artXf(dx, 1.0 + (DOOR_H - 1.15) / 2, 0), dc);
-    db.add(artBox(0.02, DOOR_H, 0.05), shiny, artXf(-side * 0.255, DOOR_H / 2, 0.005), '#5A6068');
-    db.add(artPln(0.36, DOOR_H - 1.15), glassMat, artXf(0, 1.0 + (DOOR_H - 1.15) / 2, 0), '#BFD2DC');
-    db.flush(g, owned, true, true); g.position.set(side * 0.25, 0, hz - 0.18); body.add(g); return g;
+    const g = new THREE.Group(), db = new ArtBatch(), dc = '#B7BCC1', lw = LW;
+    db.add(artBox(lw, 1.0, 0.04), shiny, artXf(0, 0.5, 0), dc); db.add(artBox(lw, 0.15, 0.04), shiny, artXf(0, DOOR_H - 0.075, 0), dc);
+    for (const dx of [-(lw / 2 - 0.04), lw / 2 - 0.04]) db.add(artBox(0.08, DOOR_H - 1.15, 0.04), shiny, artXf(dx, 1.0 + (DOOR_H - 1.15) / 2, 0), dc);
+    db.add(artBox(0.02, DOOR_H, 0.05), shiny, artXf(-side * (lw / 2 - 0.005), DOOR_H / 2, 0.005), '#5A6068');
+    db.add(artPln(lw - 0.16, DOOR_H - 1.15), glassMat, artXf(0, 1.0 + (DOOR_H - 1.15) / 2, 0), '#BFD2DC');
+    db.flush(g, owned, true, true); g.position.set(side * (OW / 4), 0, hz - 0.18); body.add(g); return g;
   };
   const doorL = mkDoor(-1), doorR = mkDoor(1);
   const glowMat = new THREE.MeshBasicMaterial({ color: '#FFE2A0', transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
-  const doorway = new THREE.Mesh(artPln(1.0, DOOR_H), glowMat); doorway.position.set(0, DOOR_H / 2, hz - 0.1); doorway.renderOrder = 3; doorway.visible = false; body.add(doorway);
+  const doorway = new THREE.Mesh(artPln(OW, DOOR_H), glowMat); doorway.position.set(0, DOOR_H / 2, hz - 0.1); doorway.renderOrder = 3; doorway.visible = false; body.add(doorway);
   // capacity sign (drawn on top so the landing never hides it)
-  const signMat = new THREE.MeshBasicMaterial({ map: artCapTex(null, 0, 0, capacity, 'ok'), transparent: true, depthTest: false, depthWrite: false, toneMapped: false });
-  const sign = new THREE.Mesh(artPln(1.72, 0.62), signMat); sign.position.set(0, DOOR_H + 0.33, hz + 0.08); sign.renderOrder = 9; body.add(sign);
+  const signMat = new THREE.MeshBasicMaterial({ map: artCapTex(null, 0, 0, capacity, 'ok', zl, zc), transparent: true, depthTest: false, depthWrite: false, toneMapped: false });
+  const zk = zl ? ART_ZONE_STRIP / 184 : 0;       // a zone strip adds height on top; the sign itself stays where it was
+  const sign = new THREE.Mesh(artPln(1.72, 0.62 * (1 + zk)), signMat); sign.position.set(0, DOOR_H + 0.33 + 0.31 * zk, hz + 0.08); sign.renderOrder = 9; body.add(sign);
   // painted footprints on free standing spots
   const footMat = new THREE.MeshBasicMaterial({ map: artFootTex(), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, toneMapped: false });
-  const feet = new THREE.InstancedMesh(artPln(0.42, 0.42), footMat, ART.MAX_CAP); feet.renderOrder = 1; body.add(feet);
+  const riderSpots = (wide ? [[-0.3, 0.3], [0.3, 0.3], [-0.9, 0.3], [0.9, 0.3], [-0.3, -0.5], [0.3, -0.5], [-0.9, -0.5], [0.9, -0.5]]
+    : [[0, 0.3], [-0.5, 0.3], [0.5, 0.3], [0, -0.5], [-0.5, -0.5], [0.5, -0.5]]).map(([x, z]) => new THREE.Vector3(x, 0, z));
+  const NS = riderSpots.length;
+  const feet = new THREE.InstancedMesh(artPln(0.42, 0.42), footMat, NS); feet.renderOrder = 1; body.add(feet);
   // ding lamp on the roof
   const dingMat = new THREE.MeshBasicMaterial({ color: '#5A4A2A', toneMapped: false });
   const ding = new THREE.Mesh(artSph(0.09, 10, 8), dingMat); ding.position.set(-0.45, WH + 0.3, 0.6); body.add(ding);
   owned.push(glowMat, signMat, footMat, dingMat);
-  const riderSpots = [[0, 0.3], [-0.5, 0.3], [0.5, 0.3], [0, -0.5], [-0.5, -0.5], [0.5, -0.5]].map(([x, z]) => new THREE.Vector3(x, 0, z));
-  let used = 0, cap = capacity, flashT = -1, dingT = -1, door = 0, target = null, dir = 0, swayT = -1, disposed = false, signKey = '';
+  let used = 0, cap = capacity, flashT = -1, dingT = -1, door = 0, target = null, dir = 0, swayT = -1, nopeT = -1, disposed = false, signKey = '';
   const tmpM = new THREE.Matrix4(), rotFlat = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0)), sv = new THREE.Vector3(), pv = new THREE.Vector3();
-  const free = new Array(ART.MAX_CAP).fill(true);
+  const free = new Array(NS).fill(true);
   const paintSign = () => {
     const flash = flashT >= 0 && Math.floor((artNow - flashT) * 6) % 2 === 0;
     const key = `${target}|${dir}|${used}|${cap}|${flash}`; if (key === signKey) return; signKey = key;
-    signMat.map = artCapTex(target, dir, Math.min(used, cap), cap, flash ? 'flash' : 'ok'); signMat.needsUpdate = true;
+    signMat.map = artCapTex(target, dir, Math.min(used, cap), cap, flash ? 'flash' : 'ok', zl, zc); signMat.needsUpdate = true;
   };
   const paintFeet = () => {
-    for (let q = 0; q < ART.MAX_CAP; q++) {
+    for (let q = 0; q < NS; q++) {
       const on = q < cap && free[q], s = on ? 1 : 0.0001;
       pv.set(riderSpots[q].x, 0.025, riderSpots[q].z); sv.set(s, s, s); tmpM.compose(pv, rotFlat, sv); feet.setMatrixAt(q, tmpM);
     }
@@ -2980,11 +3114,12 @@ function buildCar(shaftIndex, capacity) {
       o = Math.max(0, Math.min(1, o));
       if (o > 0 && door === 0) dingT = artNow;
       door = o; const e = 1 - (1 - o) * (1 - o);
-      doorL.position.x = -0.25 - 0.43 * e; doorR.position.x = 0.25 + 0.43 * e;
+      doorL.position.x = -OW / 4 - LO * e; doorR.position.x = OW / 4 + LO * e;
       doorway.visible = false;                                  // (was a glow panel across the open doorway: looked like a curtain)
     },
-    setLoad(u, c) { used = u; cap = Math.max(1, Math.min(ART.MAX_CAP, c)); paintSign(); paintFeet(); },
+    setLoad(u, c) { used = u; cap = Math.max(1, Math.min(NS, c)); paintSign(); paintFeet(); },
     flashFull() { flashT = artNow; },
+    nope() { nopeT = artNow; },
     setTarget(f) { target = f == null ? null : f; paintSign(); },
     setMoving(d) { const nd = Math.sign(d || 0); if (nd === 0 && dir !== 0) swayT = artNow; dir = nd; paintSign(); },
     dispose() {
@@ -2996,7 +3131,7 @@ function buildCar(shaftIndex, capacity) {
   const live = { tick: () => {
     // which standing spots are free: a rider group sits on the spot (parented to car.group)
     let changed = false;
-    for (let q = 0; q < ART.MAX_CAP; q++) {
+    for (let q = 0; q < NS; q++) {
       let f = true; const sp = riderSpots[q];
       for (const c of group.children) if (c !== body && Math.abs(c.position.x - sp.x) < 0.2 && Math.abs(c.position.z - sp.z) < 0.2) { f = false; break; }
       if (f !== free[q]) { free[q] = f; changed = true; }
@@ -3006,6 +3141,7 @@ function buildCar(shaftIndex, capacity) {
     const dOn = dingT >= 0 && artNow - dingT < 0.9 && Math.floor((artNow - dingT) * 6) % 2 === 0;
     dingMat.color.set(dOn ? '#FFC040' : '#5A4A2A'); if (dingT >= 0 && artNow - dingT > 1) dingT = -1;
     if (swayT >= 0) { const k = artNow - swayT; body.rotation.z = Math.sin(k * 14) * 0.01 * Math.exp(-k * 4); if (k > 1.2) { swayT = -1; body.rotation.z = 0; } }
+    if (nopeT >= 0) { const k = artNow - nopeT; body.position.x = Math.sin(k * 42) * 0.06 * Math.max(0, 1 - k / 0.45); if (k > 0.45) { nopeT = -1; body.position.x = 0; } }
   } };
   artLive.add(live);
   h.setLoad(0, capacity);
@@ -6377,35 +6513,120 @@ function R2_buildUnderground(ctx) {
   return handle;
 }
 
+/* ======== zones & routes ======== */
+// Pure functions (no game state; node-tested by handoff/zonetest.mjs). serves[s][f] = car s stops at floor index f.
+// A route is the fewest rides, then the fewest floors travelled: each ride costs ROUTE_LEG + floors travelled.
+// zones: LEVELS[i].zones, one list of floor LABELS per car (lobby 0, basements negative); missing = every floor
+function zoneServes(zones, labels, nCars) {
+  return Array.from({ length: nCars }, (_, s) => {
+    const z = Array.isArray(zones) && Array.isArray(zones[s]) ? zones[s].map(Number) : null;
+    return labels.map((lab) => !z || z.includes(+lab));
+  });
+}
+// cost of the best route from every floor to dest (0 at dest, Infinity where it can't be reached)
+function routeCosts(serves, dest) {
+  const n = serves[0] ? serves[0].length : 0, cost = new Array(n).fill(Infinity);
+  if (dest < 0 || dest >= n) return cost;
+  cost[dest] = 0;
+  for (let pass = 0; pass < n; pass++) {          // Bellman-Ford: at most n rides, tiny graphs (<= 25 floors, <= 4 cars)
+    let changed = false;
+    for (const row of serves) for (let u = 0; u < n; u++) if (row[u]) for (let v = 0; v < n; v++) if (v !== u && row[v] && cost[v] < Infinity) {
+      const c = ROUTE_LEG + Math.abs(u - v) + cost[v];
+      if (c < cost[u] - 1e-9) { cost[u] = c; changed = true; }
+    }
+    if (!changed) break;
+  }
+  return cost;
+}
+// where car s should take someone at floor `from` heading for dest: its best stop on a best route, or -1 if riding
+// car s now isn't part of any best route (then they wait for another car)
+function routeHop(serves, s, from, dest, cost = routeCosts(serves, dest)) {
+  const row = serves[s]; if (!row || !row[from] || from === dest || !(cost[from] < Infinity)) return -1;
+  let best = -1, bc = Infinity;
+  for (let v = 0; v < row.length; v++) if (v !== from && row[v] && cost[v] < Infinity) {
+    const c = ROUTE_LEG + Math.abs(from - v) + cost[v];
+    if (c < bc - 1e-9 || (Math.abs(c - bc) < 1e-9 && Math.abs(dest - v) < Math.abs(dest - best))) { bc = c; best = v; }
+  }
+  return best >= 0 && bc <= cost[from] + 1e-9 ? best : -1;
+}
+// cars someone at `from` can usefully board for dest (each on a best route)
+function routeCars(serves, from, dest, cost = routeCosts(serves, dest)) {
+  return serves.map((_, s) => s).filter((s) => routeHop(serves, s, from, dest, cost) >= 0);
+}
+// one best route as the floors where someone gets on and off: [from, change..., dest], or null if unreachable
+function planRoute(serves, from, dest) {
+  if (from === dest) return [from];
+  const cost = routeCosts(serves, dest); if (!(cost[from] < Infinity)) return null;
+  const out = [from]; let f = from;
+  while (f !== dest && out.length <= serves[0].length) {
+    const s = routeCars(serves, f, dest, cost)[0]; if (s == null) return null;
+    f = routeHop(serves, s, f, dest, cost); out.push(f);
+  }
+  return out;
+}
+// the sign on a car: '0–6' for a run of floors, '0·6·12' for an express that skips floors
+function zoneLabel(row, labels) {
+  const fs = row.map((on, f) => (on ? f : -1)).filter((f) => f >= 0); if (!fs.length) return '';
+  const run = fs[fs.length - 1] - fs[0] === fs.length - 1;
+  return run ? labels[fs[0]] + '–' + labels[fs[fs.length - 1]] : fs.map((f) => labels[f]).join('·');
+}
+// zone colours: express lifts (skipping floors) gold, locals from the lowest zone up: green, blue, purple, orange
+function zoneColors(serves) {
+  const lo = serves.map((row) => row.indexOf(true)), out = new Array(serves.length);
+  const isRun = (row) => { const fs = row.map((on, f) => (on ? f : -1)).filter((f) => f >= 0); return fs.length > 0 && fs[fs.length - 1] - fs[0] === fs.length - 1; };
+  const locals = serves.map((row, s) => s).filter((s) => isRun(serves[s])).sort((a, b) => lo[a] - lo[b] || a - b);
+  locals.forEach((s, k) => { out[s] = ZONE_COLORS[k % ZONE_COLORS.length]; });
+  serves.forEach((row, s) => { if (!out[s]) out[s] = EXPRESS_COLOR; });
+  return out;
+}
+
 /* ======== layout ======== */
 // level: a LEVELS entry (or, old style, a floor count and a lift count)
 function computeLayout(level, nShaftsOld) {
-  const ids = Array.isArray(level?.floors) ? level.floors
+  const lv = Array.isArray(level?.floors) ? level : null;
+  const ids = lv ? lv.floors
     : Array.from({ length: level | 0 }, (_, i) => ['lobby', 'cafe', 'office', 'play', 'hotel', 'pool', 'library', 'garden'][i % 8]);
-  const nShafts = Array.isArray(level?.floors) ? level.cars : nShaftsOld;
-  const FH = ART.FLOOR_H, SW = ART.SHAFT_W;
+  const nShafts = lv ? lv.cars : nShaftsOld;
+  const FH = ART.FLOOR_H, SW = ART.SHAFT_W, SWW = ART.SHAFT_W_WIDE ?? SW;
   const WL = ART.WING_L ?? 8.0, WR = ART.WING_R ?? 7.0, STW = ART.STAIR_W ?? 1.4;
   const nFloors = ids.length, themes = ids.map((id) => THEME_LIB[id]);
   const nBasement = themes.filter((t) => t.basement).length;
-  const width = WL + nShafts * SW + WR, x0 = -width / 2, x1 = x0 + width;
-  const coreX0 = x0 + WL, coreX1 = coreX0 + nShafts * SW;
+  const labels = themes.map((_, i) => String(i - nBasement));   // lobby '0', above '1', '2'…, below '-1', '-2'
+  // shafts: a wide car (lv.wide[s]) gets a wider shaft; shaftX are the shaft centres, left to right
+  const shaftW = Array.from({ length: nShafts }, (_, s) => (lv && Array.isArray(lv.wide) && lv.wide[s] ? SWW : SW));
+  const coreW = shaftW.reduce((a, b) => a + b, 0);
+  const width = WL + coreW + WR, x0 = -width / 2, x1 = x0 + width;
+  const coreX0 = x0 + WL, coreX1 = coreX0 + coreW;
+  const shaftX = []; { let acc = coreX0; for (const w of shaftW) { shaftX.push(acc + w / 2); acc += w; } }
+  const zoned = !!(lv && Array.isArray(lv.zones));
+  const serves = zoneServes(zoned ? lv.zones : null, labels, nShafts);
   const roomDoorXs = [x0 + STW + 2.2, coreX1 + WR * 0.55];   // left door well away from the stair door, so it doesn't read as a second stair door
   return { nFloors, nShafts, width, height: nFloors * FH, x0, x1,
     floorY: themes.map((_, i) => (i - nBasement) * FH),
-    shaftX: Array.from({ length: nShafts }, (_, s) => coreX0 + (s + 0.5) * SW),
+    shaftX, shaftW,
     stairX: x0 + STW / 2, roomDoorX: roomDoorXs[0], roomDoorXs,
     queueX: Array.from({ length: 5 }, (_, k) => coreX0 - 0.7 - k * 0.75), // left queue, k=0 nearest the lifts
     queueXR: Array.from({ length: 5 }, (_, k) => coreX1 + 0.7 + k * 0.75), // right queue, k=0 nearest the lifts
+    queueSlots: zoned ? QUEUE_SLOTS_ZONED : 5,                             // places per queue (zoned: further along the lane)
     laneZ: ART.LANE_Z, carZ: ART.CAR_Z,
     coreX0, coreX1, wingL: [x0, coreX0], wingR: [coreX1, x1], roomL: [x0 + STW, coreX0], roomR: [coreX1, x1],
-    nBasement, groundIndex: nBasement, themes, ids,
-    labels: themes.map((_, i) => String(i - nBasement)),   // lobby '0', above '1', '2'…, below '-1', '-2'
+    nBasement, groundIndex: nBasement, themes, ids, labels,
     bottomY: -nBasement * FH, topY: (nFloors - nBasement) * FH, streetX: x0 + 0.3,
+    // zoned lifts: serves[s][f] (every floor true when the level has no zones), the car's seats, sign and colour
+    zoned, serves, carCap: Array.from({ length: nShafts }, (_, s) => (lv && Array.isArray(lv.caps) && lv.caps[s]) || (lv ? lv.cap : 4)),
+    wide: shaftW.map((w) => w > SW + 1e-6),
+    zoneLabel: zoned ? serves.map((row) => zoneLabel(row, labels)) : serves.map(() => ''),
+    zoneColor: zoned ? zoneColors(serves) : serves.map(() => null),
+    routeCost: [],                                // routeCosts per destination floor, filled on demand (routeCostTo)
     wings: (level && level.wings) || {} };       // wing room swaps by theme id, e.g. { office: { R: 'toilets' } }
 }
+function routeCostTo(dest) { const L = G.layout; return L.routeCost[dest] || (L.routeCost[dest] = routeCosts(L.serves, dest)); }
+function carServes(ci, f) { const r = G.layout.serves[ci]; return !!(r && r[f]); }
 const fy = (f) => G.layout.floorY[f];                                              // floor index -> y
 const yToFloor = (y) => clamp(Math.round(y / ART.FLOOR_H) + G.layout.nBasement, 0, G.layout.nFloors - 1);
 function floorWord(f) { const n = +G.layout.labels[f]; return (n < 0 ? MINUS_WORDS[-n] : NUMBER_WORDS[n]) || String(n) + '!'; }
+// queue place k on side 0 (left of the lifts) or 1 (right); zoned levels have longer queues
+function queueSlotX(side, k) { const L = G.layout; k = Math.min(k, (L.queueSlots || 5) - 1); return side ? L.coreX1 + 0.7 + k * 0.75 : L.coreX0 - 0.7 - k * 0.75; }
 
 /* ======== renderer & camera ======== */
 const canvas = document.getElementById('c');
@@ -6466,6 +6687,8 @@ function applyCamera() {
   const o = window.__camOverride, cx = o?.x ?? view.camX, cy = o?.y ?? view.camY, D = o?.d ?? view.D;   // test hook: look anywhere
   camera.position.set(cx + D * Math.sin(yaw) * Math.cos(pitch), cy + D * Math.sin(pitch), D * Math.cos(yaw) * Math.cos(pitch));
   camera.lookAt(cx, cy, 0);
+  // fog starts beyond the tower: on tall towers the camera sits far back and a fixed fog would wash the building out
+  if (scene.fog) { scene.fog.near = Math.max(70, D + 30); scene.fog.far = Math.max(230, D + 190); }
 }
 
 function updateCameraMotion(dt) {
@@ -6528,16 +6751,18 @@ function setupLevel(i) {
   G.later = []; G.train = { phase: 'gap', t: 6, min: 0 };
   if (params.has('mockhooks')) installMockHooks(L);
   G.looTimer = 8;
-  G.debugLife = { looIn: 0, looOut: 0, ordersTaken: 0, mealsServed: 0, platesWashed: 0, carIn: 0, carOut: 0, carBoard: 0, carAlight: 0, trains: 0, trainAlight: 0, trainBoard: 0, streetIn: 0, streetOut: 0, hotelDesk: 0, queueL: 0, queueR: 0, boardL: 0, boardR: 0 };
+  G.debugLife = { looIn: 0, looOut: 0, ordersTaken: 0, mealsServed: 0, platesWashed: 0, carIn: 0, carOut: 0, carBoard: 0, carAlight: 0, trains: 0, trainAlight: 0, trainBoard: 0, streetIn: 0, streetOut: 0, hotelDesk: 0, queueL: 0, queueR: 0, boardL: 0, boardR: 0, transfers: 0, refused: 0 };
   for (const k of ['ordersTaken', 'mealsServed', 'platesWashed']) Object.defineProperty(G.debugLife, k, { enumerable: true, configurable: true,
     get: () => (building?.floors || []).reduce((n, f) => n + (f?.restaurantLife?.[k] || 0), 0) });
   setupParking();
   G.people = []; G.lastInputTime = 0; G.cardShown = false; G.resumable = false; G.glow = new Array(L.nFloors).fill(0);
   G.floors = L.floorY.map(() => ({ queues: [[], []], get queue() { return [...this.queues[0], ...this.queues[1]].sort((a, b) => a.id - b.id); }, stairHold: 0, stairOpen: 0, roomHold: { L: 0, R: 0 }, roomOpen: { L: 0, R: 0 }, shownRoom: { L: -1, R: -1 } }));
   G.cars = L.shaftX.map((x, s) => {
-    const art = buildCar(s, G.level.cap); scene.add(art.group);
-    return { idx: s, y: L.floorY[L.groundIndex], v: 0, target: null, queuedTarget: null, door: 0, doorState: 'closed', dwell: 0, boardGap: 0,
-      fullFlashed: false, riders: [], spots: new Array(ART.MAX_CAP).fill(null), seatsUsed: 0, cap: G.level.cap, art,
+    const cap = L.carCap[s], art = buildCar(s, cap, { wide: L.wide[s], zoneLabel: L.zoneLabel[s], zoneColor: L.zoneColor[s] }); scene.add(art.group);
+    let f0 = L.groundIndex;                                       // start at the lobby, or the served floor nearest to it
+    if (!L.serves[s][f0]) { let bd = Infinity; L.serves[s].forEach((on, f) => { const d = Math.abs(f - L.groundIndex) + (f < L.groundIndex ? 0.5 : 0); if (on && d < bd) { bd = d; f0 = f; } }); }
+    return { idx: s, y: L.floorY[f0], v: 0, target: null, queuedTarget: null, door: 0, doorState: 'closed', dwell: 0, boardGap: 0,
+      fullFlashed: false, riders: [], spots: new Array(ART.MAX_CAP).fill(null), seatsUsed: 0, cap, art,
       shownTarget: undefined, shownDir: 0 };
   });
   view.camY = -1e9; view.camX = 0; view.camVY = 0; view.goalY = null;
@@ -6673,7 +6898,7 @@ function upper(not, asOrigin) {
   const tw = (asOrigin ? ORIGIN_WEIGHTS : NIGHT_WEIGHTS)[G.level.time] || {};
   let sum = 0;
   for (let f = L.groundIndex + 1; f < L.nFloors; f++) if (f !== not) {
-    const th = L.themes[f], w = (th.popular ? 2 : 1) * (tw[th.kind || L.ids[f]] ?? 1); opts.push([f, w]); sum += w;
+    const th = L.themes[f], w = (th.popular ? 2 : 1) * (th.weight ?? 1) * (tw[th.kind || L.ids[f]] ?? 1); opts.push([f, w]); sum += w;
   }
   let r = rng() * sum;
   for (const [f, w] of opts) { r -= w; if (r <= 0) return f; }
@@ -6928,12 +7153,26 @@ function walkTo(p, tx, tz, dt, anim) {
   return false;
 }
 
-// two queues per floor, one each side of the lift core: people join the side they're standing on
+// two queues per floor, one each side of the lift core: people join the side they're standing on; on zoned levels the
+// side nearest the lifts that can take them (only cars on a best route to their floor, see routeCars)
 function joinQueue(p) {
-  const L = G.layout, side = p.x > (L.coreX0 + L.coreX1) / 2 ? 1 : 0;
+  const L = G.layout; planHops(p);
+  let side = p.x > (L.coreX0 + L.coreX1) / 2 ? 1 : 0;
+  if (L.zoned && p.elig && p.elig.length) {
+    const mx = p.elig.reduce((a, s) => a + L.shaftX[s], 0) / p.elig.length - (L.coreX0 + L.coreX1) / 2;
+    if (Math.abs(mx) > 0.3) side = mx > 0 ? 1 : 0;
+  }
   p.side = side; G.floors[p.floor].queues[side].push(p);
   if (G.debugLife) G.debugLife[side ? 'queueR' : 'queueL']++;
 }
+// zoned levels: the cars that can usefully take p from this floor (p.elig); where they get off is set on boarding (p.hop)
+function planHops(p) {
+  const L = G.layout;
+  if (!L.zoned) { p.elig = null; p.hop = p.dest; return; }
+  p.elig = routeCars(L.serves, p.floor, p.dest, routeCostTo(p.dest)); p.hop = null;
+}
+function canBoard(p, c) { return !p.elig || p.elig.includes(c.idx); }
+const hopOf = (p) => p.hop ?? p.dest;           // the floor a rider gets out at (their destination, or a floor to change lifts)
 function leaveQueue(p) {
   for (const q of G.floors[p.floor].queues) { const i = q.indexOf(p); if (i >= 0) q.splice(i, 1); }
 }
@@ -6949,6 +7188,8 @@ function startLeaving(p) {
 function boardPerson(p, c) {
   leaveQueue(p); if (G.debugLife) G.debugLife[p.side ? 'boardR' : 'boardL']++;
   p.state = 'boarding'; p.carIdx = c.idx; p.phase = 0; p.spots = [];
+  if (G.layout.zoned) { const h = routeHop(G.layout.serves, c.idx, p.floor, p.dest, routeCostTo(p.dest)); p.hop = h >= 0 ? h : p.dest; }
+  else p.hop = p.dest;
   for (let k = 0; k < c.cap && p.spots.length < p.seats; k++) if (!c.spots[k]) p.spots.push(k);
   p.spots.forEach((k) => { c.spots[k] = p; });
   c.seatsUsed += p.seats; c.art.setLoad(c.seatsUsed, c.cap);
@@ -7004,8 +7245,8 @@ function updatePerson(p, dt) {
       break;
     }
     case 'arriving': case 'waiting': {
-      const qs = p.side ? L.queueXR : L.queueX, slot = Math.max(0, fl.queues[p.side ? 1 : 0].indexOf(p));
-      if (walkTo(p, qs[Math.min(slot, qs.length - 1)], L.laneZ, dt)) {
+      const slot = Math.max(0, fl.queues[p.side ? 1 : 0].indexOf(p));
+      if (walkTo(p, queueSlotX(p.side ? 1 : 0, slot), L.laneZ, dt)) {
         p.state = 'waiting'; p.rot = 0;
         if (p.shakeT > 0) { p.shakeT -= dt; setAnim(p, 'shake'); } else setAnim(p, 'idle');
       }
@@ -7023,7 +7264,13 @@ function updatePerson(p, dt) {
     }
     case 'riding': setAnim(p, 'idle'); break;
     case 'exiting':
-      if (walkTo(p, p.x, L.laneZ, dt)) {
+      if (!walkTo(p, p.x, L.laneZ, dt)) break;
+      if (p.floor !== p.dest) {                                            // zoned lifts: off at a floor to change lifts
+        p.carIdx = -1; p.hop = null; G.debugLife.transfers++;              // the bubble keeps showing where they're going
+        p.waited = Math.max(0, p.waited - TRANSFER_RELIEF * p.patience);   // making progress: a little patience back
+        p.stage = Math.min(3, moodStage(p.waited / p.patience)); p.art.setMood(p.stage, clamp(p.waited / p.patience, 0, 1));
+        p.state = 'arriving'; joinQueue(p);
+      } else {
         p.carIdx = -1; p.art.setBubble(null); p.art.setMood(0, 0);           // no hooray: walk straight on
         G.delivered++; sfx('chirp'); renderProgress(true); checkWin();
         planDeparture(p);
@@ -7107,7 +7354,7 @@ function openDoors(c) { c.doorState = 'opening'; sfx('doorOpen'); }
 function arrive(c, f) {
   if (c.target === f) c.target = null;
   sfx('ding'); openDoors(c);
-  if (c.riders.some((p) => p.dest === f)) speak(floorWord(f));
+  if (c.riders.some((p) => hopOf(p) === f)) speak(floorWord(f));
 }
 
 function moveCar(c, dt) {
@@ -7115,7 +7362,7 @@ function moveCar(c, dt) {
   if (c.target == null) {
     const f = carFloorAt(c);
     if (f >= 0 && G.phase === 'play') {
-      if (G.floors[f].queue.some((p) => p.state === 'waiting' && c.seatsUsed + p.seats <= c.cap)) openDoors(c);
+      if (G.floors[f].queue.some((p) => p.state === 'waiting' && c.seatsUsed + p.seats <= c.cap && canBoard(p, c))) openDoors(c);
     }
     return;
   }
@@ -7126,7 +7373,7 @@ function moveCar(c, dt) {
   if (c.v === 0 || Math.sign(c.v) === dir) {
     const brake = c.v * c.v / (2 * CAR_ACCEL);
     for (const p of c.riders) {
-      const dy = fy(p.dest), ahead = (dy - c.y) * dir;
+      const dy = fy(hopOf(p)), ahead = (dy - c.y) * dir;
       if (ahead > 0.01 && ahead < (stopY - c.y) * dir && ahead >= brake - 0.05) stopY = dy;
     }
   }
@@ -7147,7 +7394,7 @@ function updateCar(c, dt) {
       if (c.door >= 1) {
         c.doorState = 'open'; c.dwell = 0; c.boardGap = 0.15; c.fullFlashed = false;
         const f = carFloorAt(c);
-        for (const p of [...c.riders]) if (p.dest === f) exitPerson(p, c, f);
+        for (const p of [...c.riders]) if (hopOf(p) === f) exitPerson(p, c, f);
       }
       break;
     case 'open': {
@@ -7157,17 +7404,19 @@ function updateCar(c, dt) {
       for (const p of G.people) if (p.carIdx === c.idx) {
         if (p.state === 'exiting') exiting = busy = true; else if (p.state === 'boarding') busy = true;
       }
-      const fronts = G.floors[f].queues.map((q) => q[0]).filter((p) => p && p.state === 'waiting').sort((a, b) => a.id - b.id);
+      // zoned levels: only people this car can usefully take (canBoard); elsewhere the front of either queue
+      const zq = G.layout.zoned ? G.floors[f].queue.filter((p) => p.state === 'waiting' && canBoard(p, c)) : null;
+      const fronts = zq || G.floors[f].queues.map((q) => q[0]).filter((p) => p && p.state === 'waiting').sort((a, b) => a.id - b.id);
       const front = fronts[0];
-      let canBoard = false;
+      let boarding = false;
       if (!exiting && front && G.phase !== 'won') {
-        const fits = G.floors[f].queue.find((p) => p.state === 'waiting' && c.seatsUsed + p.seats <= c.cap);
+        const fits = (zq || G.floors[f].queue).find((p) => p.state === 'waiting' && c.seatsUsed + p.seats <= c.cap);
         if (fits) {
-          canBoard = true;
+          boarding = true;
           if (c.boardGap <= 0) { boardPerson(fits, c); c.boardGap = BOARD_GAP; }
         } else if (!c.fullFlashed && c.seatsUsed >= c.cap) { c.fullFlashed = true; c.art.flashFull(); sfx('full'); front.shakeT = 1.2; }
       }
-      if (!busy && !canBoard && c.dwell >= DWELL_MIN) { c.doorState = 'closing'; sfx('doorClose'); }
+      if (!busy && !boarding && c.dwell >= DWELL_MIN) { c.doorState = 'closing'; sfx('doorClose'); }
       break;
     }
     case 'closing':
@@ -7179,19 +7428,22 @@ function updateCar(c, dt) {
 }
 
 function tap(ci, floor) {
-  const c = G.cars[ci]; if (!c || G.phase !== 'play') return;
+  const c = G.cars[ci]; if (!c || G.phase !== 'play') return false;
   floor = clamp(floor | 0, 0, G.layout.nFloors - 1);
+  if (!carServes(ci, floor)) { c.art.nope?.(); sfx('nope'); G.debugLife.refused++; return false; }   // zoned: this lift doesn't stop there
   sfx('tap'); G.glow[floor] = 0.45;
   if (c.doorState === 'closed') { c.target = floor; c.queuedTarget = null; }
   else if (carFloorAt(c) === floor && c.doorState !== 'closing') { /* already here with doors open: keep any queued trip */ }
   else c.queuedTarget = floor;
+  return true;
 }
 
 function nearestCar(floor) {
   const y = fy(floor);
   let best = -1, bd = Infinity;
-  for (const pass of [0, 1, 2]) {   // 0: closed and empty, 1: closed, 2: any
+  for (const pass of [0, 1, 2]) {   // 0: closed and empty, 1: closed, 2: any (zoned: only lifts that stop there)
     for (const c of G.cars) {
+      if (!carServes(c.idx, floor)) continue;
       if (pass < 2 && c.doorState !== 'closed') continue;
       if (pass === 0 && c.riders.length) continue;
       const d = Math.abs(c.y - y); if (d < bd) { bd = d; best = c.idx; }
@@ -7272,16 +7524,15 @@ function ripple(x, y) {
 
 function handleTap(cx, cy) {
   if (G.phase !== 'play') return;
-  ripple(cx, cy);
-  const w = screenToWorld(cx, cy); if (!w) return;
+  const w = screenToWorld(cx, cy); if (!w) { ripple(cx, cy); return; }
   const L = G.layout;
-  if (w.x < L.x0 - 0.5 || w.x > L.x1 + 0.5 || w.y < L.bottomY - 0.5 || w.y > L.topY + 0.5) return;
+  if (w.x < L.x0 - 0.5 || w.x > L.x1 + 0.5 || w.y < L.bottomY - 0.5 || w.y > L.topY + 0.5) { ripple(cx, cy); return; }
   const floor = clamp(Math.floor(w.y / ART.FLOOR_H) + L.nBasement, 0, L.nFloors - 1);
   let car = -1;
-  for (let s = 0; s < L.nShafts; s++) if (Math.abs(w.x - L.shaftX[s]) < ART.SHAFT_W / 2) car = s;
+  for (let s = 0; s < L.nShafts; s++) if (Math.abs(w.x - L.shaftX[s]) < L.shaftW[s] / 2) car = s;
   if (car < 0) car = nearestCar(floor);
   G.lastInputTime = G.time;
-  tap(car, floor);
+  if (tap(car, floor)) ripple(cx, cy);           // a refused tap (that lift doesn't stop there) only shakes the car
 }
 
 for (const el of [document.getElementById('home'), document.getElementById('hudR'), document.getElementById('hud')]) {
@@ -7295,8 +7546,21 @@ function suggestMove() {
   for (const c of free) {
     const here = yToFloor(c.y);
     let best = -1, bd = Infinity;
-    for (const p of c.riders) { const d = Math.abs(p.dest - here); if (p.dest !== carFloorAt(c) && d < bd) { bd = d; best = p.dest; } }
+    for (const p of c.riders) { const h = hopOf(p), d = Math.abs(h - here); if (h !== carFloorAt(c) && d < bd) { bd = d; best = h; } }
     if (best >= 0) return { car: c.idx, floor: best };
+  }
+  if (G.layout.zoned) {                          // zoned: the most impatient person no car is coming for, and the nearest free car that can take them
+    let best = null, wm = -1;
+    G.floors.forEach((fl, f) => {
+      for (const p of fl.queue) {
+        const m = p.waited / p.patience; if (m <= wm) continue;
+        if (G.cars.some((c) => canBoard(p, c) && (c.target === f || c.queuedTarget === f || (carFloorAt(c) === f && c.seatsUsed < c.cap)))) continue;
+        let car = -1, bd = Infinity;
+        for (const c of free) { if (c.seatsUsed >= c.cap || !canBoard(p, c)) continue; const d = Math.abs(c.y - fy(f)); if (d < bd) { bd = d; car = c.idx; } }
+        if (car >= 0) { wm = m; best = { car, floor: f }; }
+      }
+    });
+    return best;
   }
   let worst = -1, wm = -1;
   G.floors.forEach((fl, f) => {
@@ -7382,12 +7646,13 @@ function highestUnlocked() {
 function renderMap() {
   const s = loadStars(), u = highestUnlocked(), box = document.getElementById('levels');
   box.innerHTML = '';
-  const rows2 = Math.ceil(LEVELS.length / 2), rows3 = Math.ceil(LEVELS.length / 3);
-  box.style.setProperty('--rows2', String(rows2)); box.style.setProperty('--rows3', String(rows3));
+  const n = LEVELS.length, cols2 = n > 14 ? 3 : 2, cols3 = n > 15 ? 4 : 3;   // portrait / wide-screen columns (buttons stay big)
+  const rows2 = Math.ceil(n / cols2), rows3 = Math.ceil(n / cols3);
+  for (const [k, v] of [['--cols2', cols2], ['--rows2', rows2], ['--cols3', cols3], ['--rows3', rows3]]) box.style.setProperty(k, String(v));
   LEVELS.forEach((_, i) => {
     const b = document.createElement('button'); b.className = 'lv' + (i > u ? ' locked' : '');
-    b.style.setProperty('--r2', String(rows2 - Math.floor(i / 2))); b.style.setProperty('--c2', String(1 + (i % 2)));
-    b.style.setProperty('--r3', String(rows3 - Math.floor(i / 3))); b.style.setProperty('--c3', String(1 + (i % 3)));
+    b.style.setProperty('--r2', String(rows2 - Math.floor(i / cols2))); b.style.setProperty('--c2', String(1 + (i % cols2)));
+    b.style.setProperty('--r3', String(rows3 - Math.floor(i / cols3))); b.style.setProperty('--c3', String(1 + (i % cols3)));
     const n = s[i + 1] || 0;
     b.innerHTML = (i > u ? '🔒' : (i + 1) + '<small>' + [0, 1, 2].map((k) => k < n ? '<i>★</i>' : '☆').join('') + '</small>')
       + '<span class="tm" aria-hidden="true">' + (TIME_ICONS[LEVELS[i].time] || '') + '</span>';
@@ -7489,6 +7754,7 @@ function sfx(name, arg) {
     case 'stomp': tone(90, t, 0.18, 'sine', 0.4, 40); tone(90, t + 0.22, 0.18, 'sine', 0.4, 40); tone(320, t + 0.45, 0.35, 'sawtooth', 0.04, 200); break;
     case 'full': tone(200, t, 0.22, 'sine', 0.3, 140); break;
     case 'tap': tone(1500, t, 0.04, 'square', 0.05); break;
+    case 'nope': tone(330, t, 0.12, 'sine', 0.12, 260); tone(247, t + 0.13, 0.18, 'sine', 0.12, 190); break;   // soft "uh-uh": that lift doesn't stop there
     case 'fanfare': [523, 659, 784, 1046].forEach((f, i) => tone(f, t + i * 0.13, i === 3 ? 0.7 : 0.18, 'triangle', 0.22)); break;
     case 'star': tone(1318 + (arg || 0) * 220, t, 0.35, 'sine', 0.2); break;
   }

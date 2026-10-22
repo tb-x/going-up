@@ -5,6 +5,8 @@ lifts run up the middle, with rooms on both sides (homes with living rooms, kitc
 a hotel, a café, a restaurant, public toilets, a pool, a playroom, a library, a roof garden with a playground or an
 observatory), and under the street an underground car park (on some levels two, with a bike room or a laundry) and a
 subway station. Each level is its own kind of building: a block of flats, an office tower, a hotel or a mixed tower.
+The last four are skyscrapers (12 to 20 floors) where the lifts don't all go everywhere, so people change lifts in a
+sky lobby on the way.
 A building can have several floors of the same kind; each has its own colour (for example blue and pink offices, or
 teal, light blue and caramel homes, the last one with a cat).
 People walk in from the street, get out of their cars, step off subway trains or come out of the rooms, wait by the
@@ -27,7 +29,7 @@ Play it at <https://tb-x.github.io/going-up/> (once published).
   annoying. A red, steaming person gives up and takes the stairs (counted next to the walking man at the top).
 - Each level needs a number of happy arrivals (the little people at the top fill in green). Three stars if nobody
   took the stairs, two if one or two did, otherwise one. There's no losing and no timer.
-- Fourteen levels, each its own building (floors listed from the bottom, lobby = 0):
+- Eighteen levels, each its own building (floors listed from the bottom, lobby = 0):
   1. Corner flats: lobby, café, homes.
   2. Small apartment block: lobby, café, two home floors.
   3. Apartment block at night: lobby, three home floors, roof garden with a playground.
@@ -46,10 +48,36 @@ Play it at <https://tb-x.github.io/going-up/> (once published).
       roof garden (lunch rush).
   14. Mixed tower at night: subway, two car parks (-2 with a laundry), lobby with toilets, café, offices, three home
       floors, roof garden with a playground (morning and lunch rush).
+  15. Sky tower (12 floors): car park, lobby, café, offices with toilets, offices, homes, pool, sky lobby (6),
+      restaurant, two hotel floors, homes, observatory, roof garden. Lifts: low (-1 to 6), express (0, 6, 12), high (6 to 12).
+  16. Office and hotel tower at dusk (14 floors): two car parks (-2 with a laundry), lobby with toilets, café, three
+      office floors, two home floors, sky lobby (7), restaurant, two hotel floors, two home floors, pool, observatory
+      (morning rush). Lifts: low (-2 to 7), express (0, 7, 14), high (7 to 14).
+  17. Apartment and hotel tower at night (16 floors): two car parks (-2 with a bike room), lobby with toilets, café,
+      three office floors, homes, sky lobby (6), restaurant, homes, two hotel floors, second sky lobby (11), two home
+      floors, observatory, pool, roof garden with a playground (lunch rush). Four lifts: low (-2 to 6), express
+      (0, 6, 11, 16), middle (6 to 11), high (11 to 16).
+  18. Sky-high mixed tower (20 floors): subway, two car parks (-2 with a laundry), lobby, café, offices with toilets,
+      offices, homes, offices, homes, sky lobby (7), restaurant, two hotel floors, two home floors, offices, second
+      sky lobby (14), hotel, homes, pool, homes, observatory, roof garden with a playground (lunch rush). Four lifts: low (-3 to 7),
+      express (0, 7, 14), middle (7 to 14), high (14 to 20).
 
   A subway train pulls in every 20-30 seconds and a few people get off at once. Cars drive down the street ramp into
   the upper car park (-1); cars for the lower one (-2) carry on down its inside ramp. Later levels add a second and
   third lift, slow grandmas, impatient pizza couriers and dog walkers (the dog takes a seat too).
+- **Zoned lifts** (levels 15-18): each lift only stops at some floors, like in a real skyscraper. Its shaft has a
+  coloured stripe (green, blue and purple for the local lifts from the bottom up, gold for the express) and the sign
+  on the car shows its floors ("0–6", or "0·6·12" for the express). Floors a lift doesn't stop at have a low wall
+  with a red "no stop" disc and glass above instead of an opening, so you can watch the lift go past. The express is
+  a bigger car in a wider shaft, with 7 or 8 places.
+- Tap a floor a lift doesn't stop at and it gives a little shake and a soft "uh-uh", and nothing else happens.
+- People work out their own way: if no lift goes straight to their floor, they take one to a sky lobby (or the
+  lobby), get out, walk over to a lift that goes on, queue there and ride on. They queue on the side of the lifts
+  that can take them, and only get into a lift that helps them. Their bubble always shows where they are really
+  going; they only count as arrived (and cheer) at that floor. Each change gives them back a little patience,
+  because they're getting there. They can still give up and take the stairs.
+- The sky lobby is a big bright hall with tall windows, a coffee kiosk, benches, plants, travellers with suitcases
+  and a floor map showing which lift stops where.
 - Who goes where depends on the building and the time of day: by day people leave their homes for the subway or the
   car park and come in from the street to the offices; at dusk they leave work; at night they head home, to the hotel
   and to the restaurant.
@@ -106,6 +134,10 @@ then go to <http://localhost:5224/>. Opening `index.html` straight from disk mos
 Handy URL options: `?level=3` starts level 3 straight away, `?demo` lets the computer play, `?fast` runs four
 times faster, `?mute` keeps it completely silent, `?seed=7` makes the arrivals repeatable.
 
+Checks without a browser (Node): `node handoff/zonetest.mjs` tests the lift zones and route planning of every level,
+and `node handoff/simtest.mjs [old-index.html]` lets the computer play the tall towers with the drawing switched off
+(and, given a copy of an older `index.html`, checks levels 1-14 still play exactly the same).
+
 Stars are kept in the browser (`goingup.stars`), as is the sound setting (`goingup.muted`).
 
 ## Tuning knobs
@@ -152,9 +184,22 @@ At the top of the script in `index.html`:
 | `CHECKIN_TIME` | 3 s | how long a hotel guest waits at a reception desk (the lobby's, or the hotel floor's) |
 | `FAST_MULT` | 4 | speed-up for `?fast` |
 | `BUBBLE_PX` / `RIDER_BUBBLE` | 44 px / 0.7 | bubble size on screen, and how much smaller they are inside a lift |
+| `TRANSFER_RELIEF` | 30% | share of their patience people get back each time they change lifts |
+| `QUEUE_SLOTS_ZONED` | 8 | places in each queue on the tall towers (5 elsewhere), for busy sky lobbies |
+| `ROUTE_LEG` | 100 | route planning: one ride costs this much plus 1 per floor, so people pick the fewest rides, then the shortest |
+| `ZONE_COLORS` / `EXPRESS_COLOR` | green, blue, purple, orange / gold | stripe and sign colours of the local lifts (lowest zone first) and the express |
 
 The `LEVELS` list sets, per level: the floors from bottom to top (from `THEME_LIB`), lifts, seats per lift, seconds between arrivals, patience (seconds),
 how many arrivals win, which special people appear, which rushes happen, and `wings`, which swaps a wing's room for
 toilets, a bike room, a laundry or a playground (for example `wings: { office: { R: 'toilets' } }`). `THEME_LIB` has
-variants of some floors (`home2`, `home3`, `office2`, `hotel2`, `parking2`): the same kind of room with its own colour,
-icon, furniture and people.
+variants of some floors (`home2` to `home7`, `office2` to `office4`, `hotel2`, `hotel3`, `parking2`, `sky2`): the same
+kind of room with its own colour, icon, furniture and people.
+
+The tall towers add three optional lists, one entry per lift from left to right:
+
+- `zones`: the floors each lift stops at, by their number (lobby 0, car parks -1, -2...). `span(-1, 6)` means -1 to 6.
+  For example `zones: [span(-1, 6), [0, 6, 12], span(6, 12)]` is a low lift, an express and a high lift. A level
+  without `zones` has every lift stopping everywhere. Every floor needs at least one lift, and the zones must meet
+  (share a floor, usually a `sky` lobby) so every trip can be made; `node handoff/zonetest.mjs` checks this.
+- `caps`: seats per lift (otherwise `cap` for all). A normal car has up to 6 places, a wide one up to 8.
+- `wide`: `true` for a bigger car in a wider shaft (the express).
