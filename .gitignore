@@ -1,0 +1,5 @@
+# local test tools that contain paths on this PC
+handoff/BRIEF.md
+handoff/hotelcheck.mjs
+handoff/serve.py
+handoff/shot.sh

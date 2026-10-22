@@ -1,0 +1,58 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>harness-veh</title>
+<style>html,body{margin:0;height:100%;overflow:hidden;background:#cfdce6}canvas{display:block}</style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+</head><body>
+<script>window.onerror = (m, s, l) => { document.title = 'ERR ' + m + ' @' + l; };</script>
+<script type="module">
+import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+window.THREE = THREE; window.mergeGeometries = mergeGeometries;
+await new Promise((ok, no) => { const s = document.createElement('script'); s.src = 'vehicles.js?v=' + Date.now(); s.onload = ok; s.onerror = no; document.head.appendChild(s); });
+try {
+const q = new URLSearchParams(location.search), mode = q.get('mode') || 'day', night = mode === 'night' || q.has('night');
+const W = innerWidth, H = innerHeight;
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(W, H); renderer.setPixelRatio(1); renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = night ? 0.9 : 1.05;
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene(); scene.background = new THREE.Color(night ? '#0E1530' : '#CFDCE6'); scene.fog = new THREE.Fog(scene.background, 60, 160);
+const pm = new THREE.PMREMGenerator(renderer); scene.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture; pm.dispose();
+scene.add(new THREE.HemisphereLight(night ? '#2A3A6A' : '#CFE3F5', '#8C7F6E', night ? 0.12 : 0.35));
+const sun = new THREE.DirectionalLight(night ? '#9FB4E0' : '#FFF1DE', night ? 0.35 : 2.2); sun.position.set(-8, 20, 14); sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -22, right: 22, top: 16, bottom: -16, near: 1, far: 60 }); sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.02; sun.shadow.radius = 3;
+scene.add(sun);
+if (night) VEH_setEnv(0.17);
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshStandardMaterial({ color: '#4E535A', roughness: 0.9 })); ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+const pave = new THREE.Mesh(new THREE.BoxGeometry(200, 0.13, 3), new THREE.MeshStandardMaterial({ color: '#C9C3B8', roughness: 0.9 })); pave.position.set(0, 0.06, -7); pave.receiveShadow = true; scene.add(pave);
+const all = []; let tris = 0, meshes = 0;
+const add = (kind, seed, x, z, ry = 0, o = {}) => { const v = VEH_build(kind, seed, o); v.group.position.set(x, 0, z); v.group.rotation.y = ry; scene.add(v.group); v.setLights(night ? 1 : 0); all.push(v); return v; };
+const count = (v) => { let t = 0, m = 0; v.group.traverse((o) => { if (o.isMesh) { m++; const g = o.geometry, n = (g.index ? g.index.count : g.attributes.position.count) / 3; t += n * (o.isInstancedMesh ? o.count : 1); } }); return [m, t]; };
+const stats = [];
+let cam = new THREE.PerspectiveCamera(30, W / H, 0.1, 300);
+if (mode === 'close') {
+  const a = add('sedan', 3, 0, 0, 0.0); a.setDoor(1);
+  const b = add('hatchback', 5, -5.2, 0.4, Math.PI);
+  const c = add('taxi', 1, 5.2, 0.2, 0.3);
+  cam.position.set(2.5, 2.6, 7.5); cam.lookAt(0, 0.7, 0);
+  if (q.has('rear')) { cam.position.set(-6, 2.4, 6.5); cam.lookAt(-4.5, 0.7, 0); }
+} else if (mode === 'bus') {
+  const b = add('bus', 2, 0, 0, Math.PI + 0.4); b.setDoor(q.has('open') ? 1 : 0);
+  const t = add('truck', 4, -9, 3.5, -0.3);
+  cam.position.set(-6, 5, 14); cam.lookAt(-2, 1.2, 0);
+} else if (mode === 'park') {
+  for (let k = 0; k < 4; k++) { const v = add(['mini', 'hatchback', 'sedan', 'suv'][k], k + 7, -3 + k * 1.9, -2.85, Math.PI / 2 + (k % 2 ? 0.1 : -0.1)); v.group.scale.setScalar(2.75 / v.info.L); if (k === 1) v.setDoor(1); }
+  cam.position.set(0, 2.5, 6); cam.lookAt(0, 0.6, -2.5);
+} else {
+  const row1 = ['mini', 'hatchback', 'sedan', 'taxi', 'suv'], row2 = ['van', 'pickup', 'truck', 'bus'];
+  row1.forEach((k, i) => add(k, i * 3 + 1, -11 + i * 5.2, 2, 0));
+  let x = -12; row2.forEach((k, i) => { const v = add(k, i * 5 + 2, 0, -3.2, Math.PI); x += v.info.L / 2; v.group.position.x = x; x += v.info.L / 2 + 1.0; });
+  cam.position.set(0, 9, 24); cam.lookAt(0, 0.5, -0.5); cam.fov = 38; cam.updateProjectionMatrix();
+}
+for (const v of all) { const [m, t] = count(v); stats.push(v.info.kind + ':' + m + 'm/' + Math.round(t) + 't'); }
+all.forEach((v, i) => v.setWheels(i * 0.7));
+renderer.render(scene, cam);
+document.title = 'OK ' + stats.join(' ') + ' calls=' + renderer.info.render.calls;
+} catch (e) { document.title = 'ERR ' + e.message + ' ' + (e.stack || '').split('\n')[1]; }
+</script></body></html>

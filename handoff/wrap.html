@@ -1,0 +1,5 @@
+<!doctype html><html><body style="margin:0;background:#000">
+<iframe id="f" style="border:0;display:block"></iframe>
+<script>const q=new URLSearchParams(location.search);const f=document.getElementById('f');f.width=q.get('w');f.height=q.get('h');f.src=q.get('u');
+setInterval(()=>{try{document.title=f.contentDocument.documentElement.dataset.dbg+' | '+f.contentDocument.documentElement.dataset.phase+' d='+f.contentDocument.documentElement.dataset.delivered+' err='+(f.contentDocument.documentElement.dataset.err||'')}catch(e){document.title='x'+e}},200)</script>
+</body></html>
