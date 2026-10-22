@@ -1834,7 +1834,7 @@ function artBuildFloor(i, layout, parent, owned, ticks, SB, PB, R2B) {
     db.add(artBox(0.84, 0.05, 0.055), shiny, artXf(0.42, 0.1, 0.002), '#2ECC71');
     db.flush(stairDoor, owned, false, true); }
   // lift landings: steel jambs and sill. Zoned lifts: a zone-colour stripe on both jambs; on a floor the lift doesn't
-  // stop at, no sill but a solid parapet (zone band, "no stop" disc) with glass above, so the car is seen passing by
+  // stop at, no sill but a full-height wall (zone band, red "no stop" disc): clearly no lift door on that floor
   const nFl = (artThemes || FLOOR_THEMES).length;
   artThinNow = nFloors > 12 && i > (layout.nBasement || 0) && (i - (layout.nBasement || 0)) % 2 === 1;
   for (let s = 0; s < layout.nShafts; s++) {
@@ -1844,14 +1844,11 @@ function artBuildFloor(i, layout, parent, owned, ticks, SB, PB, R2B) {
       if (z) Ps(artBox(0.05, CH, 0.012), z.color, sx + dx, CH / 2, -1.172, 0, 0, 0, 1, 1, 1, clay);
     }
     if (stop) { Ps(artBox(2 * hw - 0.2, 0.02, 0.12), '#8E949A', sx, 0.01, -1.16, 0, 0, 0, 1, 1, 1, shiny); continue; }
-    const pw = 2 * jx - 0.07, PH = 1.05;
-    Ps(artBox(pw, PH, 0.1), '#B9B2A6', sx, PH / 2, -1.24, 0, 0, 0, 1, 1, 1, artBlockM(), [pw / 0.8, PH / 0.4]);
-    Ps(artBox(pw, 0.16, 0.012), z.color, sx, 0.78, -1.184, 0, 0, 0, 1, 1, 1, clay);
-    Ps(artBox(pw + 0.02, 0.05, 0.14), '#8E949A', sx, PH + 0.025, -1.24, 0, 0, 0, 1, 1, 1, shiny);
-    Ps(artCyl(0.15, 0.15, 0.02, 20), '#E5483D', sx, 0.42, -1.18, Math.PI / 2, 0, 0, 1, 1, 1, clay);
-    Ps(artBox(0.19, 0.05, 0.012), '#FFFFFF', sx, 0.42, -1.166, 0, 0, 0, 1, 1, 1, clay);
-    S.add(artPln(pw, CH - PH - 0.05), artGlass(), artXf(sx, y + PH + 0.05 + (CH - PH - 0.05) / 2, -1.235), '#BFD2DC');
-    Ps(artBox(pw, 0.04, 0.06), '#8E949A', sx, CH - 0.02, -1.24, 0, 0, 0, 1, 1, 1, shiny);
+    const pw = 2 * jx - 0.07;                                 // a full-height shaft wall: clearly no way in on this floor
+    Ps(artBox(pw, CH, 0.1), '#B9B2A6', sx, CH / 2, -1.24, 0, 0, 0, 1, 1, 1, artBlockM(), [pw / 0.8, CH / 0.4]);
+    Ps(artBox(pw, 0.16, 0.012), z.color, sx, 1.95, -1.184, 0, 0, 0, 1, 1, 1, clay);      // zone band
+    Ps(artCyl(0.2, 0.2, 0.02, 20), '#E5483D', sx, 1.2, -1.18, Math.PI / 2, 0, 0, 1, 1, 1, clay);   // red "no stop" disc
+    Ps(artBox(0.25, 0.065, 0.012), '#FFFFFF', sx, 1.2, -1.166, 0, 0, 0, 1, 1, 1, clay);
   }
   // the one floor marker: a big self-lit plaque at the left edge of the building, in front of the soil and kerb cut faces
   S.add(artAtlasQuad(nFl, i, 'plaque', 1.7, 1.7), artAtlasMat(nFl), artXf(x0 - ART_WALL_T - 0.5, y + 1.4, 0.35), '#ffffff');
