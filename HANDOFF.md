@@ -1,6 +1,7 @@
 # Going Up! — handoff
 
-Updated 2026-10-22. The game is in a private GitHub repo (`tb-x/going-up`), not published yet. Everything listed under
+Updated 2026-10-23. Published: public repo `tb-x/going-up`, live at https://tb-x.github.io/going-up/ and on the
+landing page. Every commit is public now, so run the leak checks before each push. Everything listed under
 "Done" is committed; nothing is half-finished in the working tree.
 
 ## How to run and test
@@ -57,10 +58,8 @@ Updated 2026-10-22. The game is in a private GitHub repo (`tb-x/going-up`), not 
    - the toilet cleaner fades in and out at the core end (the user accepted this);
    - a ramp car that starts while the cat is crossing could come close;
    - transparent fading figures in the pools draw in a fixed order rather than sorted.
-5. **Publishing (ask the user first):**
-   - make the repo public and turn on GitHub Pages (main, root);
-   - set `repo: 'going-up'` for the game in the root `index.html` GAMES list (it shows "Coming soon" today);
-   - update the row in the root CLAUDE.md games table (it still says 10 levels, up to 8 floors);
-   - run the leak scan over the whole history first.
+5. **Published (2026-10-23):** the repo is public with Pages on main / root, the landing card is live, and the root
+   CLAUDE.md table row is updated. The whole history was leak-scanned first. The only hit was the local folder name
+   `D:\tb-x\elevator\` in an old copy of `handoff/PLAN.md`; it holds no username or secret and is gone from the current files.
 6. **Housekeeping:** the root CLAUDE.md telemetry section still says "proposed, not built yet". The telemetry is
    built in `_telemetry/`, so update that section.
