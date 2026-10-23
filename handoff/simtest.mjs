@@ -24,6 +24,7 @@ const load = (file) => {
       setDoors() {}, setLoad() {}, flashFull() {}, setTarget() {}, setMoving() {}, nope() { T.nopes++; }, dispose() {} }; }
     function buildPerson() { return { group: grp(), setMood() {}, setAnim() {}, setBubble() {}, setBubbleScale() {}, setOpacity() {}, dispose() {} }; }
     const fitCamera = () => {}, renderProgress = () => {}, updateStairs = () => {}, saveStars = () => {}, sfx = () => {}, speak = () => {}, showWinCard = () => {};
+    const sayWaiting = () => {}, sayNews = () => {}, sayFloor = () => {}, play = () => {}, voicePreload = () => {}, musicStart = () => {}, floorClip = () => null, nameClip = () => null;   // voice and sound
   `;
   return (search) => new Function('location', stubs + code + `
     return { G, LEVELS, setupLevel, simStep, tap, FIXED_DT, T, fy: (f) => G.layout.floorY[f] };`)({ search });

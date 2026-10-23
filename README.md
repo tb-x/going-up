@@ -118,7 +118,17 @@ Play it at <https://tb-x.github.io/going-up/> (once published).
 - When the building is taller than the screen, drag up and down to look around (down into the basements too);
   on a narrow phone the outer rooms may be cut off, so drag sideways as well. The lifts and both queues always stay
   on screen. Arrows at the edge show (with a face) that someone is waiting out of view. Tap an arrow to go there.
-- Sounds are synthesized in the browser (Web Audio). The lift's voice is recorded: when a lift stops for someone it
+- On levels whose top floor is the roof garden, that floor is the rooftop itself, open to the sky behind a parapet
+  and railing, with festoon lights; the lifts go all the way up. Other buildings have a closed roof with a small
+  garden, a water tower, air conditioners and solar panels.
+- People don't walk through each other: they step aside to pass (keeping right) and slow down behind someone. In the
+  garages people wait for a moving car and step off its way, and cars wait for anyone still in front of them.
+- Pinch with two fingers to zoom in (or use the mouse wheel), and move two fingers together to turn the camera a
+  little round the building (with a mouse: right-drag or Shift-drag). Each level starts from the straight-on view.
+- The lift sounds (ding, doors, motor) are made in the browser (Web Audio). Building life has recorded sounds: the
+  train arriving and leaving, the bus, cars in the garage, toilets flushing, the hand dryer, the hotel desk bell, a dog.
+  They're full loudness when that floor is on screen and quieter when it's out of view. Soft music plays under it all,
+  one loop for day and dusk levels and a calmer one for night, and dips when the lift speaks. The lift's voice is recorded: when a lift stops for someone it
   says the floor's number and name ("Seven! Hotel!"), and it says "Going up!" at the start and "Hooray!" at the end.
   It also tells what's happening, at most every few seconds: who is waiting where ("Fifteen! A grandma is waiting
   for the lift!"), the train and the bus arriving, a car coming in, someone getting grumpy, someone taking the stairs.
@@ -157,11 +167,21 @@ At the top of the script in `index.html`:
 | `CAR_ACCEL` | 9 | how quickly a lift speeds up and slows down |
 | `DOOR_TIME` | 0.45 s | doors opening or closing |
 | `MAX_DPR_PHONE` / `MAX_DPR` | 1.5 / 2 | sharpness cap on phones / bigger screens (lower = faster, a little softer) |
+| `ZOOM_MAX` | 2.5 | how far in pinch or the mouse wheel can zoom (1 is the level's starting view) |
+| `CAM_TURN_MAX` / `CAM_TILT_MAX` | 14 / 8 | furthest the camera turns left-right / up, in degrees |
+| `TURN_DEG_PER_PX` | 0.08 | how much the camera turns per pixel dragged |
+| `DODGE` / `DODGE_R` | 0.34 / 0.6 | how far people step aside to pass, and for anyone how close |
+| `FOLLOW_GAP` / `FOLLOW_SLOW` | 0.55 / 0.45 | walking this close behind someone, slow to this share |
+| `CAR_KEEP` / `CAR_STOP` / `CAR_SIDE` | 2.0 / 1.6 / 0.6 | garages: people wait for a car this close; a car waits for anyone this far ahead / to the side |
+| `TURN_RATE` | 14 | how quickly people turn to face a new way (higher = snappier) |
 | `VOICE_FLOOR_NAMES` | true | say the floor's name after its number ("Seven! Hotel!"); `false` says only the number |
 | `VOICE_GAP` | 0.05 s | extra pause between the number and the name |
+| `VOICE_WAIT` | 1.2 s | how long a line waits for its recording to load before the browser's voice says it instead |
 | `VOICE_GAIN` | 1.5 | loudness of the voice against the sound effects |
 | `VOICE_NEWS` | true | say what's happening (who is waiting where, train, bus, car, grumpy, stairs); `false` keeps only floors |
 | `VOICE_NEWS_GAP` | 6 s | at least this long between two news lines (grumpy and stairs lines don't wait) |
+| `SFX_GAIN` / `SFX_FAR` | 0.9 / 0.25 | loudness of the recorded effects / of an effect on a floor out of view |
+| `MUSIC_VOL` / `MUSIC_DUCK` | 0.2 / 0.4 | music loudness / how far it dips while the lift speaks |
 | `ASSET_V` | 2 | bump after replacing a clip in `assets/voice`, so phones fetch the new one |
 | `DPR_MIN`, `SLOW_FRAME_MS` / `FAST_FRAME_MS` | 1, 24 / 15 ms | adaptive sharpness: steps down by `DPR_STEP` (0.25) when frames are slow, back up when fast |
 | `SHADOW_REFRESH` | 5 s | how often the sun's shadow map is redrawn (nothing that casts a sun shadow moves much) |
@@ -242,4 +262,12 @@ They cover more than the game says today, so new levels need no new recordings:
   Oh no, someone took the stairs!, Lots of people are waiting!, Someone is in a hurry!, Look, a cat!, Look, a mole!,
   Look, a squirrel!, Look, birds!, A guest is checking in!
 
-Who is waiting comes from `who()` (the person's kind and look). A new kind of floor is named by adding it to `NAME_CLIPS` in `index.html` (theme kind to clip name).
+Who is waiting comes from `who()` (the person's kind and look). Sound effects in `assets/sfx/` were made with ElevenLabs sound effects on the same day and plan: train-in, train-out,
+train-doors, bus-stop, bus-go, car-in, car-out, car-door, flush, dryer, desk-bell, dog, and spares not used yet (cat, crow,
+splash, plates).
+
+Music: `assets/music-day.mp3` and `assets/music-night.mp3`, 50 s each, made with Eleven Music (`music_v2`, instrumental)
+on 2026-10-23 on the Creator plan. Music Terms (updated 09 October 2026) allow it in a free game without ads or payments,
+with no attribution. The music and the other audio are not licensed for reuse outside this game.
+
+A new kind of floor is named by adding it to `NAME_CLIPS` in `index.html` (theme kind to clip name).

@@ -31,7 +31,7 @@ Updated 2026-10-22. The game is in a private GitHub repo (`tb-x/going-up`), not 
 - Contract notes between game and art are in `handoff/EXTENSIONS.md` (read it before changing hooks).
 
 ## Open items
-1. **Sound and music.** Today: synthesized Web Audio effects (ding, doors, chirp, grumble, stomp, fanfare, star,
+1. **Sound and music (done 2026-10-23, see the README's Audio credits; what follows is the original note).** Today: synthesized Web Audio effects (ding, doors, chirp, grumble, stomp, fanfare, star,
    tap, "full", "nope") and the browser's own voice for floor numbers. No music. Missing sounds for the newer life:
    - train in and out and its doors; the bus (brakes, doors); car engines on the ramp;
    - a gentle street ambience (beware: the user found a noise-based hiss loop annoying in Robot Spy, so keep it sparse);

@@ -283,3 +283,16 @@
 - buildPerson's handle now also carries `look` (read-only): 'suit', 'dress', 'worker', 'chef', 'doctor', 'casual', 'backpack',
   'balloon', 'grandma', 'grandpa', 'courier', 'walker'... The game's `who()` turns kind + look into the "… is waiting for the lift!"
   clip. Rename a look in the art and `who()` must follow, or that person is simply announced as "Someone".
+
+## Rooftop, making way (2026-10-23)
+- `artOpenTop` (art global, set by buildBuilding): the floor index of an open-air rooftop, when the top floor's theme is
+  `garden`, else -1. artWing and R2 rooms (`ctx.open`) then build a parapet + railing instead of the back wall and no
+  ceiling, ceiling services, glazing bars or hanging baskets; the roof slab and deck cover only the stairwell and the lift
+  core (machine room); the right end wall stops at the parapet; crows perch on the machine room. Closed roofs get a
+  small roof garden right of the machine room (solar panels only where it doesn't fit).
+- Garage handle (`parkH(f)`): `movingCars()` -> [{ x, z, wait }] for the game; `blocked` is set by the game
+  (`(x, z, dirX, dirZ) => bool`) and asked by each moving car every tick: true = wait (brake lights on). The floor
+  handle is a copy of the art api, so `blocked` is a forwarding property (Object.defineProperty in artBuildFloor).
+- People's drawn position is `p.x + p.ox, p.z + p.oz` (updateDodges in syncVisuals); the game logic never reads ox/oz,
+  except blockedByPerson (cars wait for where people are drawn).
+
