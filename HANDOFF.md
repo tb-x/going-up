@@ -59,7 +59,7 @@ landing page. Every commit is public now, so run the leak checks before each pus
    - a ramp car that starts while the cat is crossing could come close;
    - transparent fading figures in the pools draw in a fixed order rather than sorted.
 5. **Published (2026-10-23):** the repo is public with Pages on main / root, the landing card is live, and the root
-   CLAUDE.md table row is updated. The whole history was leak-scanned first. The only hit was the local folder name
-   `D:\tb-x\elevator\` in an old copy of `handoff/PLAN.md`; it holds no username or secret and is gone from the current files.
+   CLAUDE.md table row is updated. The whole history was leak-scanned first. The only hit was the game's local folder path
+   (drive and folder, no username) in an old copy of `handoff/PLAN.md`; it's gone from the current files.
 6. **Housekeeping:** the root CLAUDE.md telemetry section still says "proposed, not built yet". The telemetry is
    built in `_telemetry/`, so update that section.
