@@ -118,8 +118,12 @@ Play it at <https://tb-x.github.io/going-up/> (once published).
 - When the building is taller than the screen, drag up and down to look around (down into the basements too);
   on a narrow phone the outer rooms may be cut off, so drag sideways as well. The lifts and both queues always stay
   on screen. Arrows at the edge show (with a face) that someone is waiting out of view. Tap an arrow to go there.
-- Sounds are synthesized in the browser (Web Audio), and the spoken words use the browser's own voice. The speaker
-  button turns them off and is remembered.
+- Sounds are synthesized in the browser (Web Audio). The lift's voice is recorded: when a lift stops for someone it
+  says the floor's number and name ("Seven! Hotel!"), and it says "Going up!" at the start and "Hooray!" at the end.
+  It also tells what's happening, at most every few seconds: who is waiting where ("Fifteen! A grandma is waiting
+  for the lift!"), the train and the bus arriving, a car coming in, someone getting grumpy, someone taking the stairs.
+  Any line whose clip can't load is spoken by the browser's own voice instead. The speaker button turns sound off
+  and is remembered.
 
 ## Running it
 
@@ -153,6 +157,12 @@ At the top of the script in `index.html`:
 | `CAR_ACCEL` | 9 | how quickly a lift speeds up and slows down |
 | `DOOR_TIME` | 0.45 s | doors opening or closing |
 | `MAX_DPR_PHONE` / `MAX_DPR` | 1.5 / 2 | sharpness cap on phones / bigger screens (lower = faster, a little softer) |
+| `VOICE_FLOOR_NAMES` | true | say the floor's name after its number ("Seven! Hotel!"); `false` says only the number |
+| `VOICE_GAP` | 0.05 s | extra pause between the number and the name |
+| `VOICE_GAIN` | 1.5 | loudness of the voice against the sound effects |
+| `VOICE_NEWS` | true | say what's happening (who is waiting where, train, bus, car, grumpy, stairs); `false` keeps only floors |
+| `VOICE_NEWS_GAP` | 6 s | at least this long between two news lines (grumpy and stairs lines don't wait) |
+| `ASSET_V` | 2 | bump after replacing a clip in `assets/voice`, so phones fetch the new one |
 | `DPR_MIN`, `SLOW_FRAME_MS` / `FAST_FRAME_MS` | 1, 24 / 15 ms | adaptive sharpness: steps down by `DPR_STEP` (0.25) when frames are slow, back up when fast |
 | `SHADOW_REFRESH` | 5 s | how often the sun's shadow map is redrawn (nothing that casts a sun shadow moves much) |
 | `DWELL_MIN` | 0.9 s | doors stay open at least this long |
@@ -208,3 +218,28 @@ The tall towers add three optional lists, one entry per lift from left to right:
   (share a floor, usually a `sky` lobby) so every trip can be made; `node handoff/zonetest.mjs` checks this.
 - `caps`: seats per lift (otherwise `cap` for all). A normal car has up to 6 places, a wide one up to 8.
 - `wide`: `true` for a bigger car in a wider shaft (the express).
+
+## Audio credits
+
+The voice clips in `assets/voice/` were made with ElevenLabs text to speech on 2026-10-23, on the paid **Creator**
+plan, with the stock voice **Will** (model `eleven_flash_v2_5`, speed 0.9, stability 0.5, style 0.3, MP3 44.1 kHz
+64 kbps). Paid-plan clips need no credit line. The game must stay free (no ads or payments), and the clips aren't
+licensed for reuse outside this game.
+
+They cover more than the game says today, so new levels need no new recordings:
+
+- `floor-minus-5` … `floor-minus-1`, `floor-0` … `floor-30`: "Minus five!" … "Thirty!"
+- `name-*`: Lobby, Parking, Subway, Café, Offices, Hotel, Homes, Restaurant, Swimming pool, Playroom, Library,
+  Roof garden, Observatory, Sky lobby, Toilets, Bike room, Laundry, Playground, Shops, Gym, Cinema, Doctor, School,
+  Nursery, Basement, Top floor, Ground floor, Museum, Aquarium
+- `say-*`: Going up!, Going down!, Hooray!, Hooray! Good night!, Good morning!, Good evening!, Well done!, Super!,
+  Oops!, The lift is full!, Doors closing!, Change lifts here!, Express lift!, Next level!, Last level!,
+  Everybody in!, Everybody out!, Nearly there!, Thank you!, Here we go!, Bye-bye!, Hello!
+  ("Hooray, good night!" was re-recorded the same day without the long pause.)
+- `wait-*`: "… is waiting for the lift!" for Someone, A child, A child with a balloon, A boy, A girl, A grandma, A grandpa,
+  A courier, A dog, A doctor, A chef, A builder, A hotel guest
+- `news-*`: The train is here!, The train is leaving!, The bus is here!, A car is coming in!, Someone is getting grumpy!,
+  Oh no, someone took the stairs!, Lots of people are waiting!, Someone is in a hurry!, Look, a cat!, Look, a mole!,
+  Look, a squirrel!, Look, birds!, A guest is checking in!
+
+Who is waiting comes from `who()` (the person's kind and look). A new kind of floor is named by adding it to `NAME_CLIPS` in `index.html` (theme kind to clip name).

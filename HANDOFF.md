@@ -41,7 +41,9 @@ Updated 2026-10-22. The game is in a private GitHub repo (`tb-x/going-up`), not 
    - (b) Eleven Music or ElevenLabs clips. Allowed only when the user asks, and with a cost estimate first: about
      750 credits a minute for music. Credits were low until 2026-11-09. Follow the licence rules in the root
      CLAUDE.md (README credits and a clip list).
-   - Spoken floor numbers could use a stock ElevenLabs voice, under the same rules.
+   - The voice is done (2026-10-23): 87 Will clips in `assets/voice/` (floors -5 to 30, 29 floor names, 22 phrases,
+     listed in the README). The game uses floors, names, "Going up!" and "Hooray!" so far; the rest are spares for new
+     levels and features. `review/voice.html` (not committed) plays them all for listening.
 2. **Real-device performance test** through the telemetry report, especially levels 15–18 and an older phone. If it
    still stutters, simplify figures when they're tiny on screen (option 2 from the perf notes), or lower the shadow map size.
 3. **Visual checks never done by eye:**

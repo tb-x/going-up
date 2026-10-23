@@ -278,3 +278,8 @@
   (people in all poses, occupants, a diner, a waiter, hide / re-parent / fork merge / dispose / 400-figure churn;
   `building`: every level's building after 90 animation steps). By that check the level-18 building has 73 occupant
   figures = 232 old draws, now 4 pool draws.
+
+## Voice (game, 2026-10-23)
+- buildPerson's handle now also carries `look` (read-only): 'suit', 'dress', 'worker', 'chef', 'doctor', 'casual', 'backpack',
+  'balloon', 'grandma', 'grandpa', 'courier', 'walker'... The game's `who()` turns kind + look into the "… is waiting for the lift!"
+  clip. Rename a look in the art and `who()` must follow, or that person is simply announced as "Someone".

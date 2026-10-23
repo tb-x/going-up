@@ -246,6 +246,13 @@ const QUEUE_SLOTS_ZONED = 8;      // places in each queue on zoned levels (trans
 const ROUTE_LEG = 100;            // route planning: one ride costs this much, plus 1 per floor travelled (fewest rides first)
 const ZONE_COLORS = ['#2FB457', '#2F86E0', '#9C5BD6', '#E0662F'];   // local lifts, lowest zone first
 const EXPRESS_COLOR = '#F2B51D';  // a lift that skips floors (express)
+// voice: recorded clips in assets/voice (floors -5..30, a name for each kind of floor, phrases); anything without a clip uses the browser's voice
+const ASSET_V = 2;                // bump after replacing a clip
+const VOICE_FLOOR_NAMES = true;   // say the floor's name after its number ("Seven! Hotel!")
+const VOICE_GAP = 0.05;           // s of extra silence between the number and the name (the clips carry ~0.25 s themselves)
+const VOICE_GAIN = 1.5;           // clip loudness against the effects (master gain 0.6)
+const VOICE_NEWS = true;          // say what's happening: who is waiting where, the train, the bus, a car, someone getting grumpy
+const VOICE_NEWS_GAP = 6;         // s at least between two news lines (grumpy and stairs lines skip this wait)
 
 const params = new URLSearchParams(location.search);
 const DEMO = params.has('demo');
@@ -3745,6 +3752,7 @@ function buildPerson(kind, seed, opts) {
   h._p = { rig, legs, arms, headG, face, steam, bubble, blob, torso, headMesh, bodyMat, hip, owned, shY, headY, arm, armR, legR, tor, shoes,
     legCol: dress && look === 'grandma' ? '#E0C8B0' : pants };
   group.userData.artPerson = true;   // for artOccupant (not game API)
+  h.look = look;                     // what they look like (suit, chef, doctor, worker, balloon, grandpa...): the voice says who is waiting
   return h;
 }
 
@@ -7119,7 +7127,8 @@ function startLevel(i) {
   document.getElementById('mapBtn').hidden = false;
   document.getElementById('win').hidden = true;
   document.getElementById('hud').hidden = false;
-  speak('Going up!');
+  voicePreload();
+  speak('Going up!', 'say-going-up');
 }
 
 /* ======== people ======== */
@@ -7165,6 +7174,7 @@ function spawnPerson(origin, dest, kind, from, startX, startZ, extra) {
     waited: 0, stage: 0, seats: K.seats, carIdx: -1, spots: [], patience: G.level.patience * K.patience, speed: WALK_SPEED * K.walk,
     move: K.move, art, alpha: 0, fade: 1, anim: 'walk', animT: 0, shakeT: 0, phase: 0, timer: 0, shownAlpha: -1, exitX: L.roomDoorX,
     riseT: seat && seat.rise ? 0.5 : 0 };
+  p.guest = guest;
   art.setBubble(st ? null : dest); art.setMood(0, 0); art.setOpacity(0);   // street walkers show where they go once inside
   const rc = guest ? building?.floors?.[origin]?.reception : null;
   if (st && rc && Number.isFinite(rc.x) && Number.isFinite(rc.z)) {          // in through the back door, to the desk, then to the lifts
@@ -7355,7 +7365,7 @@ function setupParking() {
 }
 function callCar(b, then) {   // a car drives in and parks in G.bays[b]
   const bay = G.bays[b], h = parkH(bay.f); bay.coming = true; const seed = 1 + rint(1e6);
-  G.debugLife.carIn++;
+  G.debugLife.carIn++; if (G.phase === 'play') sayNews(false, 'A car is coming in!', 'news-car');
   let parked = false; const done = () => { if (parked) return; parked = true; bay.car = seed; bay.coming = false; then?.(); };
   const t = h.carIn(bay.k, seed, done); if (t !== -1) later(num(t, 3), done);   // -1: the art calls done once the car has parked (it may wait for the ramp)
 }
@@ -7445,6 +7455,7 @@ function onPlatform(sub) {
 function updateBus() {
   const b = streetH()?.bus; if (!b || !b.open || G.busSeq === b.seq) return;
   G.busSeq = b.seq; if (G.phase !== 'play') return;
+  sayNews(false, 'The bus is here!', 'news-bus');
   const n = BUS_GROUP[0] + rint(BUS_GROUP[1] - BUS_GROUP[0] + 1), g = G.layout.groundIndex;
   for (let k = 0; k < n; k++) later(0.6 * k, () => spawnPerson(g, upper(), null, 'street', undefined, undefined, { bus: true }));
 }
@@ -7465,6 +7476,7 @@ function updateTrainCycle(dt) {
       if (T.t <= 0) {
         T.phase = 'open'; T.t = TRAIN_OPEN_MAX; T.min = TRAIN_OPEN_MIN;
         if (G.phase === 'play') {
+          sayNews(false, 'The train is here!', 'news-train');
           const n = TRAIN_GROUP[0] + rint(TRAIN_GROUP[1] - TRAIN_GROUP[0] + 1);
           for (let k = 0; k < n; k++) if (spawnPerson(sub, upper(), null, 'subway', tr.doorXs[k % tr.doorXs.length] + (k >= tr.doorXs.length ? 0.4 : 0), doorZ(sub, 'trainEdgeZ', TRAIN_EDGE_Z))) G.debugLife.trainAlight++;
         }
@@ -7563,9 +7575,9 @@ function updatePerson(p, dt) {
     p.waited += dt * (inCar ? RIDE_PATIENCE_RATE : 1);
     const m = p.waited / p.patience;
     let st = moodStage(m); if (inCar) st = Math.min(st, 2);
-    if (st !== p.stage) { if (st === 3) sfx('grumble'); p.stage = st; }
+    if (st !== p.stage) { if (st === 3) { sfx('grumble'); if (!inCar) sayNews(true, floorWord(p.floor) + ' Someone is getting grumpy!', floorClip(p.floor), 'news-grumpy'); } p.stage = st; }
     p.art.setMood(Math.min(st, 3), clamp(m, 0, 1));
-    if (st >= 4 && !inCar) { startLeaving(p); return; }
+    if (st >= 4 && !inCar) { sayNews(true, 'Oh no, someone took the stairs!', 'news-stairs'); startLeaving(p); return; }
   }
   switch (p.state) {
     case 'approach':   // walking in from the street (or out of a room) to the lane, then joins the queue
@@ -7574,6 +7586,7 @@ function updatePerson(p, dt) {
         if (p.looNext) { startLoo(p); break; }
         if (p.rec && !p.checked) { p.checked = true; p.state = 'checkin'; p.timer = CHECKIN_TIME; building?.floors[p.floor]?.checkIn?.(); break; }
         p.state = 'arriving'; p.art.setBubble(p.dest); joinQueue(p);
+        if (fl.queue.length === 1) sayWaiting(p);   // the first one waiting on this floor
       }
       break;
     case 'loo': {      // in the toilets: the art's visit moves them (cubicle or urinal, sink, dryer), then they walk on
@@ -7706,7 +7719,7 @@ function openDoors(c) { c.doorState = 'opening'; sfx('doorOpen'); }
 function arrive(c, f) {
   if (c.target === f) c.target = null;
   sfx('ding'); openDoors(c);
-  if (c.riders.some((p) => hopOf(p) === f)) speak(floorWord(f));
+  if (c.riders.some((p) => hopOf(p) === f)) sayFloor(f);
 }
 
 function moveCar(c, dt) {
@@ -8036,7 +8049,7 @@ function showWinCard() {
   stars.forEach((el, i) => { el.className = 'star' + (i < G.stars ? ' on' : ''); el.style.animationDelay = (0.25 + i * 0.35) + 's'; void el.offsetWidth; el.classList.add('show'); });
   for (let i = 0; i < G.stars; i++) starTimers.push(setTimeout(() => sfx('star', i), 250 + i * 350));
   document.getElementById('bNext').hidden = G.levelIdx >= LEVELS.length - 1;
-  sfx('fanfare'); speak(G.level.time === 'night' ? 'Hooray! Good night!' : 'Hooray!');
+  sfx('fanfare'); if (G.level.time === 'night') speak('Hooray! Good night!', 'say-hooray-night'); else speak('Hooray!', 'say-hooray');
   const fx = document.getElementById('fx');
   const cols = FLOOR_THEMES.map((t) => t.color).concat(['#FFC93C', '#ffffff']);
   for (let k = 0; k < 40; k++) {
@@ -8051,7 +8064,7 @@ document.getElementById('bNext').addEventListener('click', () => startLevel(G.le
 document.getElementById('bMap').addEventListener('click', showMap);
 
 /* ======== sound ======== */
-const SND = { ctx: null, master: null, motor: null, motorGain: null, noise: null, lastSpeak: -9 };
+const SND = { ctx: null, master: null, voice: null, motor: null, motorGain: null, noise: null, speakUntil: -9, newsUntil: -9 };
 let muted = FORCE_MUTE || loadKey('muted') === '1';
 
 function unlockAudio() {
@@ -8061,12 +8074,14 @@ function unlockAudio() {
     try { SND.ctx = new AC(); } catch { return; }
     const c = SND.ctx;
     SND.master = c.createGain(); SND.master.gain.value = 0.6; SND.master.connect(c.destination);
+    SND.voice = c.createGain(); SND.voice.gain.value = VOICE_GAIN; SND.voice.connect(SND.master);
     SND.motor = c.createOscillator(); SND.motor.type = 'sawtooth'; SND.motor.frequency.value = 55;
     const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 180;
     SND.motorGain = c.createGain(); SND.motorGain.gain.value = 0;
     SND.motor.connect(lp).connect(SND.motorGain).connect(SND.master); SND.motor.start();
     const len = c.sampleRate; SND.noise = c.createBuffer(1, len, c.sampleRate);
     const d = SND.noise.getChannelData(0); for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    voicePreload();
   }
   if (SND.ctx.state !== 'running' && !document.hidden) SND.ctx.resume().catch(() => {});
 }
@@ -8119,15 +8134,75 @@ function updateMotor() {
   SND.motor.frequency.setTargetAtTime(50 + v * 25, SND.ctx.currentTime, 0.1);
 }
 
-function speak(text) {
+/* ======== voice ======== */
+// clips decode into the AudioContext as they load (all of a level's at its start); a line whose clips aren't ready yet,
+// or that has none (a floor above 30), is spoken by the browser instead
+const VOICE = { buf: {}, loading: {} };
+const NAME_CLIPS = { subway: 'subway', parking: 'parking', lobby: 'lobby', cafe: 'cafe', office: 'offices', hotel: 'hotel', home: 'homes',
+  restaurant: 'restaurant', pool: 'pool', play: 'playroom', library: 'library', garden: 'garden', stars: 'observatory', sky: 'skylobby' };
+function voiceLoad(name) {
+  if (!name || !SND.ctx || VOICE.loading[name]) return;
+  VOICE.loading[name] = fetch('assets/voice/' + name + '.mp3?v=' + ASSET_V)
+    .then((r) => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); })
+    .then((a) => new Promise((ok, no) => SND.ctx.decodeAudioData(a, ok, no)))
+    .then((b) => { VOICE.buf[name] = b; }, () => {});   // a missing clip stays missing: the browser's voice says it
+}
+function floorClip(f) {
+  const n = +G.layout.labels[f];
+  return n >= 0 && n <= 30 ? 'floor-' + n : n < 0 && n >= -5 ? 'floor-minus-' + -n : null;
+}
+function nameClip(f) { const c = NAME_CLIPS[G.layout.themes[f]?.kind]; return c ? 'name-' + c : null; }
+const WHO = { someone: 'Someone', child: 'A child', balloon: 'A child with a balloon', grandma: 'A grandma', grandpa: 'A grandpa',
+  courier: 'A courier', dog: 'A dog', doctor: 'A doctor', chef: 'A chef', builder: 'A builder', guest: 'A hotel guest' };
+function who(p) {
+  const look = p.art?.look;
+  if (p.kind === 'kid') return look === 'balloon' ? 'balloon' : 'child';
+  if (p.kind === 'grandma') return look === 'grandpa' ? 'grandpa' : 'grandma';
+  if (p.kind === 'courier') return 'courier';
+  if (p.kind === 'dogwalker') return 'dog';
+  if (p.guest) return 'guest';
+  return { doctor: 'doctor', chef: 'chef', worker: 'builder' }[look] || 'someone';
+}
+function sayWaiting(p) {
+  const w = who(p); sayNews(false, floorWord(p.floor) + ' ' + WHO[w] + ' is waiting for the lift!', floorClip(p.floor), 'wait-' + w);
+}
+// news lines are clips only (no browser voice), and never cut in on another line
+function sayNews(urgent, text, ...clips) {
+  if (!VOICE_NEWS || G.phase !== 'play') return;
+  const now = performance.now() / 1000; if (!urgent && now < SND.newsUntil) return;
+  if (!clips.every((n) => n && VOICE.buf[n])) { clips.forEach(voiceLoad); return; }
+  if (speak(text, ...clips)) SND.newsUntil = now + VOICE_NEWS_GAP;
+}
+function voicePreload() {
+  if (!SND.ctx || !G.layout) return;
+  ['say-going-up', 'say-hooray', 'say-hooray-night'].forEach(voiceLoad);
+  if (VOICE_NEWS) ['news-train', 'news-bus', 'news-car', 'news-grumpy', 'news-stairs', ...Object.keys(WHO).map((w) => 'wait-' + w)].forEach(voiceLoad);
+  for (let f = 0; f < G.layout.labels.length; f++) { voiceLoad(floorClip(f)); if (VOICE_FLOOR_NAMES) voiceLoad(nameClip(f)); }
+}
+function sayFloor(f) {
+  const name = VOICE_FLOOR_NAMES ? G.layout.themes[f]?.name : null;
+  if (name) speak(floorWord(f) + ' ' + name + '!', floorClip(f), nameClip(f)); else speak(floorWord(f), floorClip(f));
+}
+
+// one line at a time: a line asked for while another is still playing is dropped
+function speak(text, ...clips) {
   if (FORCE_MUTE || muted) return;
-  const ss = window.speechSynthesis; if (!ss || typeof SpeechSynthesisUtterance === 'undefined') return;
-  const now = performance.now() / 1000; if (now - SND.lastSpeak < 1.5) return; SND.lastSpeak = now;
+  const now = performance.now() / 1000; if (now < SND.speakUntil) return false;
+  const bufs = clips.map((n) => VOICE.buf[n]);
+  if (clips.length && bufs.every(Boolean) && SND.ctx && SND.ctx.state === 'running') {
+    let t = SND.ctx.currentTime + 0.03; const t0 = t;
+    for (const b of bufs) { const s = SND.ctx.createBufferSource(); s.buffer = b; s.connect(SND.voice); s.start(t); t += b.duration + VOICE_GAP; }
+    SND.speakUntil = now + (t - t0); return true;
+  }
+  clips.forEach(voiceLoad);
+  const ss = window.speechSynthesis; if (!ss || typeof SpeechSynthesisUtterance === 'undefined') return false;
+  SND.speakUntil = now + 1.5;
   try {
     const u = new SpeechSynthesisUtterance(text); u.lang = 'en-GB'; u.rate = 1; u.pitch = 1.2;
     const v = ss.getVoices().find((x) => x.lang === 'en-GB') || ss.getVoices().find((x) => /^en/.test(x.lang)); if (v) u.voice = v;
     ss.speak(u);
   } catch {}
+  return true;
 }
 
 const muteBtn = document.getElementById('muteBtn');
