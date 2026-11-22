@@ -260,7 +260,7 @@ const VOICE_FLOOR_NAMES = true;   // say the floor's name after its number ("Sev
 const VOICE_GAP = 0.05;           // s of extra silence between the number and the name (the clips carry ~0.25 s themselves)
 const VOICE_WAIT = 1.2;           // s a line waits for its clip to finish loading before the browser's voice says it instead
 const VOICE_GAIN = 1.5;          // clip loudness against the effects (master gain 0.6)
-const SFX_GAIN = 0.9;             // recorded effects (train, bus, cars, toilets, desk bell) against the master gain
+const SFX_GAIN = 0.9;             // recorded effects (train, bus, cars, toilets, desk bell, lift sounds) against the master gain
 const SFX_FAR = 0.25;             // an effect on a floor out of view plays this loud (fading from 1 at the screen edge)
 const TRAIN_SFX_IN = 4.6;         // s before the train stops that its arriving sound starts (the clip is 5 s)
 const MUSIC_VOL = 0.2;            // background music loudness (day and night loops)
@@ -8419,9 +8419,18 @@ function noise(t0, dur, fa, fb, vol = 0.2, type = 'bandpass') {
   s.connect(f).connect(g).connect(SND.master); s.start(t0); s.stop(t0 + dur + 0.05);
 }
 
+// feedback sounds: a recorded clip in assets/sfx once it has loaded, the synthesized version below until then
+const FEEDBACK_CLIPS = { ding: 'ding', doorOpen: 'door-open', doorClose: 'door-close', grumble: 'grumble', stomp: 'stomp',
+  full: 'nope', nope: 'nope', fanfare: 'fanfare', star: 'star' };
 function sfx(name, arg) {
   if (FORCE_MUTE || muted || !SND.ctx || SND.ctx.state !== 'running') return;
   const t = SND.ctx.currentTime;
+  const clip = FEEDBACK_CLIPS[name] && VOICE.buf['sfx/' + FEEDBACK_CLIPS[name]];
+  if (clip) {
+    const s = SND.ctx.createBufferSource(); s.buffer = clip;
+    if (name === 'star') s.playbackRate.value = 2 ** ((arg || 0) / 4);   // each star a little higher (about 3 semitones)
+    s.connect(SND.fx); s.start(); return;
+  }
   switch (name) {
     case 'ding': tone(1046, t, 0.7, 'sine', 0.25); tone(784, t + 0.22, 0.9, 'sine', 0.25); break;
     case 'doorOpen': noise(t, 0.4, 600, 1800, 0.08); break;
@@ -8499,8 +8508,9 @@ function sayFloor(f) {
 /* ======== recorded effects and music ======== */
 // effects play from the floor they happen on: full loudness while that floor is on screen, quieter the further off it is.
 // Effects that haven't loaded yet are skipped (they're life sounds, not feedback). The extra clips in assets/sfx
-// (cat, crow, splash, plates) aren't used yet.
-const SFX_CLIPS = ['train-in', 'train-out', 'train-doors', 'bus-stop', 'bus-go', 'car-in', 'car-out', 'car-door', 'flush', 'dryer', 'desk-bell', 'dog'];
+// (cat, crow, splash, plates) aren't used yet. The lift's feedback clips (ding to star) are played by sfx() above.
+const SFX_CLIPS = ['train-in', 'train-out', 'train-doors', 'bus-stop', 'bus-go', 'car-in', 'car-out', 'car-door', 'flush', 'dryer', 'desk-bell', 'dog',
+  'ding', 'door-open', 'door-close', 'grumble', 'stomp', 'star', 'fanfare', 'nope'];
 function nearness(f) {
   const y = G.layout?.floorY?.[f]; if (y == null) return 1;
   const d = Math.abs(y + 1.5 - view.camY) - view.visH / 2;

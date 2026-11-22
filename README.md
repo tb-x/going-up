@@ -125,7 +125,10 @@ Play it at <https://tb-x.github.io/going-up/> (once published).
   garages people wait for a moving car and step off its way, and cars wait for anyone still in front of them.
 - Pinch with two fingers to zoom in (or use the mouse wheel), and move two fingers together to turn the camera a
   little round the building (with a mouse: right-drag or Shift-drag). Each level starts from the straight-on view.
-- The lift sounds (ding, doors, motor) are made in the browser (Web Audio). Building life has recorded sounds: the
+- The lift sounds are recorded too: the ding-dong, the doors sliding open and shut, a grumpy "hmph", stomping off up
+  the stairs, a soft "uh-uh" when a lift doesn't stop at a floor (or is full), a twinkle for each star (each one a
+  little higher) and a fanfare. Until a clip has loaded, the browser makes that sound instead (Web Audio); the motor
+  hum, the happy chirp of someone arriving and the button tap are always made in the browser. Building life has recorded sounds: the
   train arriving and leaving, the bus, cars in the garage, toilets flushing, the hand dryer, the hotel desk bell, a dog.
   They're full loudness when that floor is on screen and quieter when it's out of view. Soft music plays under it all,
   one loop for day and dusk levels and a calmer one for night, and dips when the lift speaks. The lift's voice is recorded: when a lift stops for someone it
@@ -182,7 +185,7 @@ At the top of the script in `index.html`:
 | `VOICE_NEWS_GAP` | 6 s | at least this long between two news lines (grumpy and stairs lines don't wait) |
 | `SFX_GAIN` / `SFX_FAR` | 0.9 / 0.25 | loudness of the recorded effects / of an effect on a floor out of view |
 | `MUSIC_VOL` / `MUSIC_DUCK` | 0.2 / 0.4 | music loudness / how far it dips while the lift speaks |
-| `ASSET_V` | 2 | bump after replacing a clip in `assets/voice`, so phones fetch the new one |
+| `ASSET_V` | 2 | bump after replacing a clip in `assets/`, so phones fetch the new one (new file names need no bump) |
 | `DPR_MIN`, `SLOW_FRAME_MS` / `FAST_FRAME_MS` | 1, 24 / 15 ms | adaptive sharpness: steps down by `DPR_STEP` (0.25) when frames are slow, back up when fast |
 | `SHADOW_REFRESH` | 5 s | how often the sun's shadow map is redrawn (nothing that casts a sun shadow moves much) |
 | `DWELL_MIN` | 0.9 s | doors stay open at least this long |
@@ -265,6 +268,11 @@ They cover more than the game says today, so new levels need no new recordings:
 Who is waiting comes from `who()` (the person's kind and look). Sound effects in `assets/sfx/` were made with ElevenLabs sound effects on the same day and plan: train-in, train-out,
 train-doors, bus-stop, bus-go, car-in, car-out, car-door, flush, dryer, desk-bell, dog, and spares not used yet (cat, crow,
 splash, plates).
+
+Lift sounds in `assets/sfx/`, made with ElevenLabs Sound Effects (`eleven_text_to_sound_v2`) on 2026-11-22 on the
+paid Creator plan, not licensed for reuse outside this game: `ding` (the arrival ding-dong), `door-open`, `door-close`,
+`grumble` (a cross "hmph" with no words), `stomp` (footsteps up the stairs), `nope` (a lift that doesn't stop there, or
+is full), `star` (one twinkle, played higher for each star) and `fanfare` (level complete).
 
 Music: `assets/music-day.mp3` and `assets/music-night.mp3`, 50 s each, made with Eleven Music (`music_v2`, instrumental)
 on 2026-10-23 on the Creator plan. Music Terms (updated 09 October 2026) allow it in a free game without ads or payments,
